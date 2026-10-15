@@ -13,8 +13,8 @@ the content format.
 
 - [x] Content loader, Markdown → Telegram rich message converter, `lint`
 - [x] Read-only navigation: subjects → grades → topics, deep links, `.md` download
-- [ ] Edit suggestions as pull requests, git host webhooks, content sync
-- [ ] Ranks for merged suggestions, `/download` of the whole catalog
+- [x] Edit suggestions as pull requests (GitHub or Forgejo), git host webhooks, content sync
+- [ ] Rank polish, `/download` of the whole catalog, Telegram webhook mode
 
 ## Running
 
@@ -99,6 +99,19 @@ file; empty variables are ignored. See
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
 | `TERAKOYA_RANKS` | `ranks` | `kōhai:0,senpai:3,sensei:10` | Rank titles and the number of merged suggestions each starts at. The first must start at 0. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
+| `TERAKOYA_GIT_HOST` | `git_host` | — | `github` or `forgejo`. Enables suggestions, git webhooks and sync; requires `TERAKOYA_REPO_URL`. |
+| `TERAKOYA_GIT_API_URL` | `git_api_url` | `https://api.github.com` for GitHub | Base URL of the host. Required for Forgejo, e.g. `https://git.hyperchat.ru`. |
+| `TERAKOYA_GIT_REPO` | `git_repo` | — | Content repository as `owner/name`. |
+| `TERAKOYA_GIT_TOKEN` | `git_token` | — | Access token, used for the API and for git over HTTPS. See below for scopes. |
+| `TERAKOYA_GIT_WEBHOOK_SECRET` | `git_webhook_secret` | — | Secret shared with the webhook; deliveries with a wrong signature are rejected. |
+| `TERAKOYA_GIT_AUTHOR_NAME` | `git_author_name` | `terakoya` | Committer name of suggestion commits. The author is the Telegram user. |
+| `TERAKOYA_GIT_AUTHOR_EMAIL` | `git_author_email` | `terakoya@localhost` | Committer email. |
+| `TERAKOYA_HTTP_ADDR` | `http_addr` | `:8080` | Address of the HTTP server for git webhooks (`POST /webhooks/git`, `GET /healthz`). |
+| `TERAKOYA_SYNC_INTERVAL` | `sync_interval` | `5m` | How often to pull the content repository in case a push webhook was missed. `0` disables. |
+| `TERAKOYA_SUGGEST_COOLDOWN` | `suggest_cooldown` | `1m` | Minimum time between two suggestions of one user. |
+| `TERAKOYA_SUGGEST_MAX_OPEN` | `suggest_max_open` | `5` | Maximum unresolved suggestions per user. |
+| `TERAKOYA_SUGGEST_MAX_BYTES` | `suggest_max_bytes` | `262144` | Maximum size of a suggested `.md` file. |
+| `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of an image attached to a suggestion. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
 ### Images and the file_id cache
@@ -113,6 +126,53 @@ message. With it, the bot first uploads new images to that chat (for
 example, a private channel where the bot is an admin) and sends articles
 with `file_id`s only. Use the cache chat if you see repeated uploads in the
 logs.
+
+## Suggestions
+
+With `TERAKOYA_GIT_HOST` set, «Предложить правку» under an article and
+«Добавить тему» in a topic list let users submit changes:
+
+1. The bot sends the current `.md` (for an edit) and remembers the content
+   commit the user is looking at.
+2. The user replies with an edited `.md` file or plain text. Images
+   (png, jpg, webp) can be sent first; the bot names them and says how to
+   reference them. Plain text keeps the article's frontmatter; for a new
+   topic, the first line becomes the title.
+3. The bot validates the file, commits it with git plumbing on a new branch
+   `suggest/<tg_id>-<slug>-<short_id>` whose parent is the remembered
+   commit, pushes it and opens a pull request. If `main` changed the same
+   lines in the meantime, the pull request shows a conflict instead of
+   silently overwriting them. Lint findings are listed in the pull request.
+4. When the pull request is merged, the user's count of accepted edits
+   (and so their rank) goes up and they get a message. When it is closed
+   without merging, they get the last review comment.
+
+The checkout in `TERAKOYA_REPO_DIR` belongs to the bot: syncing resets it
+to the remote branch. The bot refuses to use a checkout whose `origin` is
+not `TERAKOYA_REPO_URL`.
+
+### GitHub
+
+- Token: a fine-grained personal access token for the content repository
+  with **Contents: read and write** and **Pull requests: read and write**.
+- Webhook (repository → Settings → Webhooks): payload URL
+  `https://<your host>/webhooks/git`, content type `application/json`,
+  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes** and
+  **Pull requests**.
+
+### Forgejo
+
+- Token (user settings → Applications): scopes **repository: read and
+  write** and **issue: read** (for review comments), for a user with write
+  access to the content repository.
+- Webhook (repository → Settings → Webhooks → Forgejo): target URL
+  `https://<your host>/webhooks/git`, content type `application/json`,
+  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, trigger on **Push** and
+  **Pull request** events.
+
+The webhook server listens on `TERAKOYA_HTTP_ADDR`; put it behind a
+reverse proxy with TLS. Without working webhooks the content still syncs
+every `TERAKOYA_SYNC_INTERVAL`, but users are not told about merges.
 
 ## Development
 

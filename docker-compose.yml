@@ -5,6 +5,9 @@ services:
     # Run as the owner of the bind-mounted directories.
     user: "${UID:-1000}:${GID:-1000}"
     env_file: .env
+    ports:
+      # Git host webhooks; put a TLS reverse proxy in front.
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/srv/data
       - ./content:/srv/content
