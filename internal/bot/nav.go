@@ -97,8 +97,26 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.answer(ctx, q, "", false)
 		b.sendMarkdownFile(ctx, msg.Chat.ID, a)
 
-	case strings.HasPrefix(data, cbSuggest), strings.HasPrefix(data, cbAddTopic):
-		b.answer(ctx, q, b.t.ComingSoon, true)
+	case strings.HasPrefix(data, cbSuggest):
+		a := cat.Article(strings.TrimPrefix(data, cbSuggest))
+		if a == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			return
+		}
+		b.startSuggestion(ctx, q, msg.Chat.ID, stateEdit, a, nil)
+
+	case strings.HasPrefix(data, cbAddTopic):
+		g := findGrade(cat, strings.TrimPrefix(data, cbAddTopic))
+		if g == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			return
+		}
+		b.startSuggestion(ctx, q, msg.Chat.ID, stateNew, nil, g)
+
+	case data == cbCancel:
+		b.answer(ctx, q, "", false)
+		b.retire(ctx, msg)
+		b.cancelSuggestion(ctx, msg.Chat.ID, q.From.ID)
 
 	default:
 		b.answer(ctx, q, "", false)

@@ -18,9 +18,11 @@ import (
 	"github.com/Mimic890/terakoya/internal/bot"
 	"github.com/Mimic890/terakoya/internal/config"
 	"github.com/Mimic890/terakoya/internal/content"
+	"github.com/Mimic890/terakoya/internal/githost"
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/lint"
 	"github.com/Mimic890/terakoya/internal/store"
+	"github.com/Mimic890/terakoya/internal/webhook"
 )
 
 func main() {
@@ -102,15 +104,32 @@ func runServe(args []string) int {
 	}
 	defer st.Close()
 
-	repo, err := gitrepo.Ensure(ctx, cfg.RepoDir, cfg.RepoURL, cfg.RepoBranch)
+	repo, err := gitrepo.Ensure(ctx, cfg.RepoDir, cfg.RepoURL, cfg.RepoBranch, cfg.GitToken)
 	if err != nil {
 		log.Error("content repository", "err", err)
 		return 1
 	}
-	b, err := bot.New(ctx, cfg, st, repo, log)
+	var host githost.Host
+	if cfg.Suggestions() {
+		host, err = githost.New(cfg.GitHost, cfg.GitAPIURL, cfg.GitRepo, cfg.GitToken, cfg.GitWebhookSecret)
+		if err != nil {
+			log.Error("git host", "err", err)
+			return 1
+		}
+	}
+	b, err := bot.New(ctx, cfg, st, repo, host, log)
 	if err != nil {
 		log.Error("start bot", "err", err)
 		return 1
+	}
+	if host != nil {
+		h := webhook.Handler(ctx, host, b.HandleGitEvent, log)
+		go func() {
+			if err := webhook.Serve(ctx, cfg.HTTPAddr, h, log); err != nil {
+				log.Error("http server", "err", err)
+				stop()
+			}
+		}()
 	}
 	b.Run(ctx)
 	log.Info("stopped")
