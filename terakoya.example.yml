@@ -1,0 +1,12 @@
+# Every key is optional except bot_token. Environment variables
+# (TERAKOYA_<KEY in upper case>) override the values in this file.
+bot_token: ""
+bot_username: ""
+repo_dir: ./content
+repo_url: ""
+repo_branch: main
+content_subdir: content
+data_dir: ./data
+cache_chat_id: 0
+ranks: "kōhai:0,senpai:3,sensei:10"
+log_level: info
