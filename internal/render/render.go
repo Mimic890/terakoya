@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"net/url"
 	"os"
@@ -27,11 +28,13 @@ const MaxImageSize = 10 << 20
 // ImageExts are the image formats that can be sent as photos.
 var ImageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true}
 
+// ArticleCallbackPrefix starts the callback_data of buttons that open an
+// article; the rest is the article ID.
+const ArticleCallbackPrefix = "a:"
+
 // Options configure a conversion.
 type Options struct {
-	// BotUsername is used to build deep links for [[wikilinks]].
-	BotUsername string
-	Limits      Limits
+	Limits Limits
 }
 
 // Media is a local image referenced from the converted Markdown as
@@ -62,19 +65,11 @@ func (r *Result) LimitErrors() []content.Issue {
 	return out
 }
 
-// DeepLink returns the t.me link that opens an article in the bot.
-func DeepLink(botUsername, articleID string) string {
-	return "https://t.me/" + botUsername + "?start=" + articleID
-}
-
 // MediaID returns the rich message media ID for a file hash.
 func MediaID(sha string) string { return "p" + sha[:24] }
 
 // Convert renders an article from cat.
 func Convert(cat *content.Catalog, a *content.Article, opts Options) *Result {
-	if opts.BotUsername == "" {
-		opts.BotUsername = "bot"
-	}
 	if opts.Limits == (Limits{}) {
 		opts.Limits = DefaultLimits
 	}
@@ -393,7 +388,10 @@ func (c *converter) wikilink(inner string, lineNo int) string {
 	if label == "" {
 		label = a.Title
 	}
-	return "[" + escapeText(label) + "](" + DeepLink(c.opts.BotUsername, a.ID) + ")"
+	// An inline callback button styled as a link opens the article in place;
+	// a t.me deep link would make the user send a visible /start message.
+	return `<tg-button type="callback_data" style="link" data="` + html.EscapeString(ArticleCallbackPrefix+a.ID) + `">` +
+		html.EscapeString(label) + "</tg-button>"
 }
 
 func escapeText(s string) string {

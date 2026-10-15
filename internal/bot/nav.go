@@ -10,18 +10,19 @@ import (
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/ranks"
+	"github.com/Mimic890/terakoya/internal/render"
 )
 
 // Callback data prefixes. Each payload must fit into 64 bytes.
 const (
 	cbHome     = "h"
-	cbSubject  = "s:" // s:<subject>
-	cbGrade    = "g:" // g:<subject>:<grade>
-	cbArticle  = "a:" // a:<id>, opens an article from the topic list
-	cbBack     = "b:" // b:<id>, leaves an article for its topic list
-	cbDownload = "d:" // d:<id>
-	cbSuggest  = "e:" // e:<id>
-	cbAddTopic = "n:" // n:<subject>:<grade>
+	cbSubject  = "s:"                         // s:<subject>
+	cbGrade    = "g:"                         // g:<subject>:<grade>
+	cbArticle  = render.ArticleCallbackPrefix // a:<id>, from the topic list or a [[link]] in an article
+	cbBack     = "b:"                         // b:<id>, leaves an article for its topic list
+	cbDownload = "d:"                         // d:<id>
+	cbSuggest  = "e:"                         // e:<id>
+	cbAddTopic = "n:"                         // n:<subject>:<grade>
 )
 
 func gradeCallback(g *content.Grade) string {
@@ -40,7 +41,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 	case data == cbHome:
 		b.answer(ctx, q, "", false)
 		text, kb := b.homeView(ctx, &q.From)
-		b.edit(ctx, msg, text, kb)
+		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
 
 	case strings.HasPrefix(data, cbSubject):
 		s := cat.Subject(strings.TrimPrefix(data, cbSubject))
@@ -50,7 +51,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		}
 		b.answer(ctx, q, "", false)
 		text, kb := subjectView(b.t, s)
-		b.edit(ctx, msg, text, kb)
+		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
 
 	case strings.HasPrefix(data, cbGrade):
 		g := findGrade(cat, strings.TrimPrefix(data, cbGrade))
@@ -60,24 +61,24 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		}
 		b.answer(ctx, q, "", false)
 		text, kb := gradeView(b.t, g)
-		b.edit(ctx, msg, text, kb)
+		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
 
 	case strings.HasPrefix(data, cbArticle):
 		a := cat.Article(strings.TrimPrefix(data, cbArticle))
 		if a == nil {
-			b.notFound(ctx, q, msg)
+			b.answer(ctx, q, b.t.NotFound, true)
 			return
 		}
 		b.answer(ctx, q, "", false)
 		if b.sendArticle(ctx, msg.Chat.ID, a) {
-			// The article replaces the topic list, so the chat holds a
-			// single navigation message at a time.
-			b.deleteMessage(ctx, msg)
+			// The article replaces the message it was opened from: the topic
+			// list, or the article that linked to it.
+			b.retire(ctx, msg)
 		}
 
 	case strings.HasPrefix(data, cbBack):
 		b.answer(ctx, q, "", false)
-		b.clearKeyboard(ctx, msg)
+		b.retire(ctx, msg)
 		var text string
 		var kb *models.InlineKeyboardMarkup
 		if a := cat.Article(strings.TrimPrefix(data, cbBack)); a != nil {
@@ -85,7 +86,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		} else {
 			text, kb = b.homeView(ctx, &q.From)
 		}
-		b.send(ctx, msg.Chat.ID, text, kb)
+		b.showMenu(ctx, msg.Chat.ID, text, kb)
 
 	case strings.HasPrefix(data, cbDownload):
 		a := cat.Article(strings.TrimPrefix(data, cbDownload))
@@ -107,7 +108,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 func (b *Bot) notFound(ctx context.Context, q *models.CallbackQuery, msg *models.Message) {
 	b.answer(ctx, q, b.t.NotFound, true)
 	text, kb := b.homeView(ctx, &q.From)
-	b.edit(ctx, msg, text, kb)
+	b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
 }
 
 func findGrade(cat *content.Catalog, ref string) *content.Grade {
@@ -167,10 +168,11 @@ func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyb
 }
 
 func gradeView(t i18n.Strings, g *content.Grade) (string, *models.InlineKeyboardMarkup) {
-	text := fmt.Sprintf(t.ChooseTopic, g.Subject.Label(), gradeTitle(t, g))
+	text := fmt.Sprintf(t.TopicsHeader, g.Subject.Label(), gradeTitle(t, g))
 	if g.Notes != "" {
-		text = g.Notes + "\n\n" + text
+		text += "\n" + g.Notes
 	}
+	text += "\n\n" + t.ChooseTopic
 	if len(g.Articles) == 0 {
 		text += "\n\n" + t.NoTopics
 	}

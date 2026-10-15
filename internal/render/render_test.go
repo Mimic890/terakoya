@@ -26,7 +26,7 @@ func TestGolden(t *testing.T) {
 		}
 		for _, a := range cat.Articles() {
 			t.Run(a.ID, func(t *testing.T) {
-				res := Convert(cat, a, Options{BotUsername: "terakoya_bot"})
+				res := Convert(cat, a, Options{})
 				got := formatResult(res)
 				golden := filepath.Join("testdata", "golden", a.ID+".golden")
 				if *update {

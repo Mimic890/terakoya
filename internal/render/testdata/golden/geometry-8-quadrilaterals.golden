@@ -1,7 +1,7 @@
 # Четырёхугольники
 
 Сумма углов выпуклого четырёхугольника равна $360^\circ$, потому что диагональ
-делит его на два [треугольника](https://t.me/terakoya_bot?start=triangles).
+делит его на два <tg-button type="callback_data" style="link" data="a:triangles">треугольника</tg-button>.
 
 ## Параллелограмм
 

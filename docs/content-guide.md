@@ -138,6 +138,12 @@ If the same title appears in several grades, a link resolves to the
 article in the linking article's grade. Use the ID to link elsewhere.
 Unresolved links are errors.
 
+In the bot, a `[[link]]` is shown as a link-styled button inside the text;
+tapping it replaces the current article with the linked one. Only plain text
+is shown in the link text, so keep it free of formatting and formulas.
+Deep links (`https://t.me/<bot>?start=<id>`) are for sharing an article
+outside the bot.
+
 Regular links to websites (`[text](https://…)`) work as usual.
 
 ## Limits

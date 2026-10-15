@@ -14,7 +14,7 @@ import (
 
 // sendArticle sends a as a rich message and reports whether it succeeded.
 func (b *Bot) sendArticle(ctx context.Context, chatID int64, a *content.Article) bool {
-	res := render.Convert(b.catalog(), a, render.Options{BotUsername: b.cfg.BotUsername})
+	res := render.Convert(b.catalog(), a, render.Options{})
 	if errs := res.LimitErrors(); len(errs) > 0 {
 		b.log.Warn("article exceeds message limits", "article", a.Path, "issues", errs)
 		b.send(ctx, chatID, b.t.TooLarge, keyboard(
@@ -26,9 +26,11 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, a *content.Article)
 
 	if err := b.sendRich(ctx, chatID, a, res); err != nil {
 		b.log.Error("send article", "article", a.Path, "err", err)
+		b.log.Debug("rejected markdown", "article", a.Path, "markdown", res.Markdown)
 		b.send(ctx, chatID, b.t.SendFailed, nil)
 		return false
 	}
+	b.log.Info("article sent", "id", a.ID, "chat", chatID, "images", len(res.Media))
 	return true
 }
 
@@ -47,6 +49,7 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, a *content.Article, re
 			ReplyMarkup: articleKeyboard(b.t, a),
 		})
 		if err == nil {
+			b.msgs.seen(chatID, msg.ID)
 			b.media.Learn(ctx, prep, res.Markdown, msg)
 			prep.Close()
 			return nil
@@ -63,26 +66,13 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, a *content.Article, re
 }
 
 func (b *Bot) sendMarkdownFile(ctx context.Context, chatID int64, a *content.Article) {
-	_, err := b.api.SendDocument(ctx, &tg.SendDocumentParams{
+	msg, err := b.api.SendDocument(ctx, &tg.SendDocumentParams{
 		ChatID:   chatID,
 		Document: &models.InputFileUpload{Filename: path.Base(a.Path), Data: bytes.NewReader(a.Raw)},
 	})
 	if err != nil {
 		b.log.Error("send document", "article", a.Path, "err", err)
+		return
 	}
-}
-
-func (b *Bot) deleteMessage(ctx context.Context, msg *models.Message) {
-	if _, err := b.api.DeleteMessage(ctx, &tg.DeleteMessageParams{ChatID: msg.Chat.ID, MessageID: msg.ID}); err != nil {
-		b.log.Debug("delete message", "err", err)
-	}
-}
-
-func (b *Bot) clearKeyboard(ctx context.Context, msg *models.Message) {
-	_, err := b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
-		ChatID: msg.Chat.ID, MessageID: msg.ID, ReplyMarkup: keyboard(),
-	})
-	if err != nil {
-		b.log.Debug("clear keyboard", "err", err)
-	}
+	b.msgs.seen(chatID, msg.ID)
 }

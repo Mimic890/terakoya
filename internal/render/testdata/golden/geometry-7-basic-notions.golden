@@ -18,7 +18,7 @@
 |AB| = |AC| + |CB|
 ```
 
-Дальше: [Треугольники](https://t.me/terakoya_bot?start=triangles).
+Дальше: <tg-button type="callback_data" style="link" data="a:triangles">Треугольники</tg-button>.
 
 ==== media ====
 ==== stats ====

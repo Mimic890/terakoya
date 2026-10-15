@@ -50,8 +50,8 @@ func TestViews(t *testing.T) {
 
 	g := cat.Subject("geometry").Grade("7")
 	text, kb = gradeView(tr, g)
-	if !strings.Contains(text, "7 класс") || !strings.HasPrefix(text, g.Notes) {
-		t.Errorf("grade text = %q", text)
+	if want := "📐 Геометрия · 7 класс\nНачала планиметрии.\n\nВыберите тему:"; text != want {
+		t.Errorf("grade text = %q, want %q", text, want)
 	}
 	want := "a:geometry-7-basic-notions a:triangles n:geometry:7 s:geometry"
 	if got := strings.Join(callbacks(kb), " "); got != want {

@@ -1,7 +1,7 @@
 # Треугольники
 
 **Треугольник** — фигура из трёх точек, не лежащих на одной прямой, и трёх
-отрезков, попарно соединяющих эти точки (см. [основные понятия](https://t.me/terakoya_bot?start=geometry-7-basic-notions)).
+отрезков, попарно соединяющих эти точки (см. <tg-button type="callback_data" style="link" data="a:geometry-7-basic-notions">основные понятия</tg-button>).
 
 ![Треугольник ABC](tg://photo?id=p25d0672c9460dfddb81a0c3e "Треугольник ABC")
 
