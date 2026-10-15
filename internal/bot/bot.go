@@ -40,7 +40,7 @@ type Bot struct {
 
 // New creates the bot and loads the catalog.
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, log *slog.Logger) (*Bot, error) {
-	b := &Bot{cfg: cfg, store: st, repo: repo, log: log, t: i18n.RU, msgs: newTracker()}
+	b := &Bot{cfg: cfg, store: st, repo: repo, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log}}
 	api, err := tg.New(cfg.BotToken,
 		tg.WithDefaultHandler(b.handle),
 		tg.WithAllowedUpdates(tg.AllowedUpdates{"message", "callback_query", "my_chat_member"}),
@@ -121,7 +121,7 @@ func (b *Bot) logGroupMessage(m *models.Message) {
 }
 
 func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
-	b.msgs.seen(m.Chat.ID, m.ID)
+	b.msgs.seen(ctx, m.Chat.ID, m.ID)
 	cmd, arg := splitCommand(m.Text)
 	switch cmd {
 	case "/start":
@@ -159,14 +159,14 @@ func (b *Bot) send(ctx context.Context, chatID int64, text string, kb *models.In
 		b.log.Error("send message", "chat", chatID, "err", err)
 		return nil
 	}
-	b.msgs.seen(chatID, msg.ID)
+	b.msgs.seen(ctx, chatID, msg.ID)
 	return msg
 }
 
 // sendMenu sends a new navigation menu.
 func (b *Bot) sendMenu(ctx context.Context, chatID int64, text string, kb *models.InlineKeyboardMarkup) {
 	if msg := b.send(ctx, chatID, text, kb); msg != nil {
-		b.msgs.setMenu(chatID, msg.ID)
+		b.msgs.setMenu(ctx, chatID, msg.ID)
 	}
 }
 
@@ -177,7 +177,7 @@ func (b *Bot) editMenu(ctx context.Context, chatID int64, msgID int, text string
 		ChatID: chatID, MessageID: msgID, Text: text, ReplyMarkup: kb,
 	})
 	if err == nil || strings.Contains(err.Error(), "message is not modified") {
-		b.msgs.setMenu(chatID, msgID)
+		b.msgs.setMenu(ctx, chatID, msgID)
 		return
 	}
 	b.log.Debug("edit message", "err", err)
@@ -187,7 +187,7 @@ func (b *Bot) editMenu(ctx context.Context, chatID int64, msgID int, text string
 // showMenu edits the current menu if it is still the last message in the
 // chat, and sends a new one otherwise.
 func (b *Bot) showMenu(ctx context.Context, chatID int64, text string, kb *models.InlineKeyboardMarkup) {
-	if id := b.msgs.lastMenu(chatID); id != 0 {
+	if id := b.msgs.lastMenu(ctx, chatID); id != 0 {
 		b.editMenu(ctx, chatID, id, text, kb)
 		return
 	}
@@ -201,11 +201,11 @@ func (b *Bot) retire(ctx context.Context, msg *models.Message) {
 	chatID := msg.Chat.ID
 	_, err := b.api.DeleteMessage(ctx, &tg.DeleteMessageParams{ChatID: chatID, MessageID: msg.ID})
 	if err == nil {
-		b.msgs.gone(chatID, msg.ID)
+		b.msgs.gone(ctx, chatID, msg.ID)
 		return
 	}
 	b.log.Debug("delete message failed; removing its keyboard", "err", err)
-	b.msgs.dropMenu(chatID, msg.ID)
+	b.msgs.dropMenu(ctx, chatID, msg.ID)
 	_, err = b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
 		ChatID: chatID, MessageID: msg.ID, ReplyMarkup: keyboard(),
 	})

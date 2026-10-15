@@ -49,7 +49,7 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, a *content.Article, re
 			ReplyMarkup: articleKeyboard(b.t, a),
 		})
 		if err == nil {
-			b.msgs.seen(chatID, msg.ID)
+			b.msgs.seen(ctx, chatID, msg.ID)
 			b.media.Learn(ctx, prep, res.Markdown, msg)
 			prep.Close()
 			return nil
@@ -74,5 +74,5 @@ func (b *Bot) sendMarkdownFile(ctx context.Context, chatID int64, a *content.Art
 		b.log.Error("send document", "article", a.Path, "err", err)
 		return
 	}
-	b.msgs.seen(chatID, msg.ID)
+	b.msgs.seen(ctx, chatID, msg.ID)
 }

@@ -85,6 +85,15 @@ var migrations = []string{
 		file_id    TEXT NOT NULL,
 		created_at INTEGER NOT NULL
 	);`,
+	`CREATE TABLE chat_messages (
+		chat_id INTEGER NOT NULL,
+		msg_id  INTEGER NOT NULL,
+		PRIMARY KEY (chat_id, msg_id)
+	) WITHOUT ROWID;
+	CREATE TABLE chat_menus (
+		chat_id INTEGER PRIMARY KEY,
+		msg_id  INTEGER NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
