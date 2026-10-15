@@ -57,8 +57,8 @@ terakoya lint [-strict] <dir>       validate a content directory
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
 directory structure, frontmatter, ID uniqueness, `[[links]]`, images, math
-delimiters and Telegram message limits. A content repository can use it in
-CI:
+delimiters and Telegram message limits. The Docker image includes it, so a
+content repository can run it in CI without a Go toolchain:
 
 ```yaml
 # .github/workflows/lint.yml in the content repository
@@ -68,9 +68,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: "1.27" }
-      - run: go run github.com/Mimic890/terakoya/cmd/terakoya@latest lint content
+      - run: >
+          docker run --rm -v "$PWD:/work:ro" -w /work
+          ghcr.io/mimic890/terakoya:latest lint content
+```
+
+Replace the image with wherever you publish it; a Forgejo Actions runner
+with Docker uses the same step. Locally:
+
+```sh
+docker run --rm -v "$PWD:/work:ro" -w /work terakoya:dev lint content
 ```
 
 ## Configuration
