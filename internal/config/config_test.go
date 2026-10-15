@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFileThenEnv(t *testing.T) {
@@ -53,5 +55,45 @@ func TestExampleFile(t *testing.T) {
 	def := Default()
 	if cfg.RepoDir != def.RepoDir || cfg.Ranks != def.Ranks || cfg.DataDir != def.DataDir {
 		t.Errorf("example file differs from defaults: %+v", cfg)
+	}
+}
+
+func TestDurations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "terakoya.yml")
+	if err := os.WriteFile(path, []byte("sync_interval: 90s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TERAKOYA_SUGGEST_COOLDOWN", "2m")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SyncInterval != 90*time.Second || cfg.SuggestCooldown != 2*time.Minute {
+		t.Errorf("durations = %v, %v", cfg.SyncInterval, cfg.SuggestCooldown)
+	}
+	t.Setenv("TERAKOYA_SUGGEST_COOLDOWN", "soon")
+	if _, err := Load(""); err == nil {
+		t.Error("bad duration accepted")
+	}
+}
+
+func TestValidateGitHost(t *testing.T) {
+	cfg := Default()
+	cfg.BotToken = "x"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("suggestions off: %v", err)
+	}
+	cfg.GitHost = "forgejo"
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "TERAKOYA_GIT_API_URL") || !strings.Contains(err.Error(), "TERAKOYA_GIT_TOKEN") {
+		t.Fatalf("err = %v", err)
+	}
+	cfg.RepoURL, cfg.GitRepo, cfg.GitToken, cfg.GitWebhookSecret, cfg.GitAPIURL = "u", "o/r", "t", "s", "https://git.example"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.GitHost = "gitlab"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("unknown host accepted")
 	}
 }
