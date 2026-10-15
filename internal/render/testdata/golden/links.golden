@@ -1,0 +1,17 @@
+By title: [Math](https://t.me/terakoya_bot?start=geometry-7-math). By alias: [Links](https://t.me/terakoya_bot?start=links). By id: [Links](https://t.me/terakoya_bot?start=links).
+By slug: [Math](https://t.me/terakoya_bot?start=geometry-7-math). With label: [the math page](https://t.me/terakoya_bot?start=geometry-7-math). With heading: [Math](https://t.me/terakoya_bot?start=geometry-7-math).
+In a table:
+
+| Link |
+|------|
+| [math](https://t.me/terakoya_bot?start=geometry-7-math) |
+
+Unknown: Nowhere. Embed: .
+Brackets in label: [a \[b\] c](https://t.me/terakoya_bot?start=geometry-7-math).
+
+==== media ====
+==== stats ====
+{Chars:181 Blocks:5 Media:0 Nesting:4 Columns:1}
+==== issues ====
+geometry/7/02-links.md:14: error: link [[Nowhere]] does not match any article
+geometry/7/02-links.md:14: error: ![[picture.png]] embeds are not supported; use ![alt](assets/file.png)

@@ -1,0 +1,45 @@
+Inline $a^2 + b^2 = c^2$ and $$x$$ stay as they are.
+
+```math
+E = mc^2
+```
+
+```math
+\frac{a}{b}
+  + c
+```
+
+```math
+\sum_{i=1}^n i
+= \frac{n(n+1)}{2}
+```
+
+- Item with a formula:
+
+  ```math
+  x = 1
+  ```
+
+> Quoted:
+> ```math
+> y = 2
+> ```
+
+Price: \$5, and a lone \$ sign, and \$5 too.
+Not math: \$ a \$ and `code with $ and [[link]]`.
+
+```
+$$ not touched $$
+[[Not a link]]
+```
+
+~~~math
+already math
+~~~
+
+==== media ====
+==== stats ====
+{Chars:289 Blocks:14 Media:0 Nesting:3 Columns:0}
+==== issues ====
+geometry/7/01-math.md:27: warning: unmatched $; write \$ for a literal dollar sign
+geometry/7/01-math.md:28: warning: unmatched $; write \$ for a literal dollar sign

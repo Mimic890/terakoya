@@ -1,0 +1,25 @@
+![Triangle](tg://photo?id=p25d0672c9460dfddb81a0c3e)
+
+![Again, with caption](tg://photo?id=p25d0672c9460dfddb81a0c3e "Caption")
+
+  ![Indented](tg://photo?id=p25d0672c9460dfddb81a0c3e)
+
+![Remote](https://example.com/x.png)
+
+Inline no image.
+
+Missing
+
+Outside
+
+Vector
+
+==== media ====
+p25d0672c9460dfddb81a0c3e triangle.png
+==== stats ====
+{Chars:77 Blocks:8 Media:4 Nesting:2 Columns:0}
+==== issues ====
+geometry/7/03-images.md:12: error: image assets/triangle.png must be on its own line
+geometry/7/03-images.md:14: error: image assets/missing.png: file not found
+geometry/7/03-images.md:16: error: image ../../../secret.png: path leaves the content directory
+geometry/7/03-images.md:18: error: image assets/figure.svg: unsupported format ".svg" (use png, jpg or webp)
