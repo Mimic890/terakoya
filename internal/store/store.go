@@ -94,6 +94,7 @@ var migrations = []string{
 		chat_id INTEGER PRIMARY KEY,
 		msg_id  INTEGER NOT NULL
 	);`,
+	`ALTER TABLE suggestions ADD COLUMN title TEXT NOT NULL DEFAULT '';`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
