@@ -1,0 +1,10 @@
+services:
+  terakoya:
+    build: .
+    restart: unless-stopped
+    # Run as the owner of the bind-mounted directories.
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file: .env
+    volumes:
+      - ./data:/srv/data
+      - ./content:/srv/content
