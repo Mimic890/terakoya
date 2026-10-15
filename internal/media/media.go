@@ -67,10 +67,14 @@ func (r *Resolver) Prepare(ctx context.Context, res *render.Result) (*Prepared, 
 			p.Close()
 			return nil, err
 		}
-		if fileID == "" && r.CacheChatID != 0 {
+		if fileID != "" {
+			r.Log.Debug("image from file_id cache", "file", m.AbsPath, "sha256", m.SHA256[:12])
+		} else if r.CacheChatID != 0 {
 			fileID, err = r.uploadToCacheChat(ctx, m)
 			if err != nil {
 				r.Log.Warn("upload to cache chat failed; attaching instead", "file", m.AbsPath, "err", err)
+			} else {
+				r.Log.Info("image uploaded to cache chat", "file", m.AbsPath, "sha256", m.SHA256[:12])
 			}
 		}
 		if fileID != "" {
@@ -85,6 +89,7 @@ func (r *Resolver) Prepare(ctx context.Context, res *render.Result) (*Prepared, 
 			p.Close()
 			return nil, err
 		}
+		r.Log.Info("image attached to message", "file", m.AbsPath, "sha256", m.SHA256[:12])
 		p.files = append(p.files, f)
 		p.pending[m.ID] = m
 		p.Entries = append(p.Entries, models.InputRichMessageMedia{
@@ -161,6 +166,8 @@ func (r *Resolver) Learn(ctx context.Context, p *Prepared, markdown string, msg 
 		}
 		if err := r.Cache.PutMediaFileID(ctx, m.SHA256, ids[i]); err != nil {
 			r.Log.Warn("store file_id", "err", err)
+		} else {
+			r.Log.Info("file_id learned from sent message", "file", m.AbsPath, "sha256", m.SHA256[:12])
 		}
 		delete(p.pending, ref)
 	}
