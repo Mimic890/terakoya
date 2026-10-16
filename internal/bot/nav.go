@@ -103,7 +103,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			b.answer(ctx, q, b.t.NotFound, true)
 			return
 		}
-		b.startSuggestion(ctx, q, msg.Chat.ID, stateEdit, a, nil)
+		b.startSuggestion(ctx, q, msg.Chat.ID, a)
 
 	case strings.HasPrefix(data, cbAddTopic):
 		g := findGrade(cat, strings.TrimPrefix(data, cbAddTopic))
@@ -111,12 +111,25 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			b.answer(ctx, q, b.t.NotFound, true)
 			return
 		}
-		b.startSuggestion(ctx, q, msg.Chat.ID, stateNew, nil, g)
+		b.startNewTopic(ctx, q, msg.Chat.ID, g)
+
+	case strings.HasPrefix(data, cbOpen):
+		// From a notification or a dialog: keep the message it came from.
+		a := cat.Article(strings.TrimPrefix(data, cbOpen))
+		if a == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			return
+		}
+		b.answer(ctx, q, "", false)
+		b.sendArticle(ctx, msg.Chat.ID, a)
 
 	case data == cbCancel:
 		b.answer(ctx, q, "", false)
 		b.retire(ctx, msg)
 		b.cancelSuggestion(ctx, msg.Chat.ID, q.From.ID)
+
+	case data == cbFix, data == cbReport, data == cbSend, strings.HasPrefix(data, cbSection):
+		b.onDialogCallback(ctx, q, msg)
 
 	default:
 		b.answer(ctx, q, "", false)

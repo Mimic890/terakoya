@@ -27,10 +27,9 @@ const (
 	OpenFrontmatter Code = "open_frontmatter"
 	BadFrontmatter  Code = "bad_frontmatter" // arg: parser error
 	NoTitle         Code = "no_title"
-	BadID           Code = "bad_id"     // args: id, max length
-	TakenID         Code = "taken_id"   // args: id, other title
-	OverLimit       Code = "over_limit" // arg: limit message
-	BadPath         Code = "bad_path"   // arg: path
+	BadID           Code = "bad_id"   // args: id, max length
+	TakenID         Code = "taken_id" // args: id, other title
+	BadPath         Code = "bad_path" // arg: path
 )
 
 // Problem is a reason to reject a submission.
@@ -79,41 +78,29 @@ func Edit(cat *content.Catalog, a *content.Article, submitted []byte, uploaded [
 	return res, nil
 }
 
-// New prepares a new article in grade g. Without frontmatter, the first
-// non-empty line (minus any leading #) becomes the title.
-func New(cat *content.Catalog, g *content.Grade, submitted []byte, uploaded []string, maxBytes int64) (*Result, error) {
-	data, err := clean(submitted, maxBytes)
+// NewTopic prepares a new article in grade g from a title and the text of
+// the topic: frontmatter, file name and ID are generated.
+func NewTopic(cat *content.Catalog, g *content.Grade, title, text string, uploaded []string, maxBytes int64) (*Result, error) {
+	title = strings.Join(strings.Fields(title), " ")
+	if title == "" {
+		return nil, problem(NoTitle)
+	}
+	data, err := clean([]byte(text), maxBytes)
 	if err != nil {
 		return nil, err
 	}
 	order := nextOrder(g)
-	_, _, _, ok, err := content.SplitFrontmatter(data)
-	if err != nil {
-		return nil, problem(OpenFrontmatter)
-	}
-	if !ok {
-		title := firstLine(data)
-		if title == "" {
-			return nil, problem(Empty)
-		}
-		fm := fmt.Sprintf("---\ntitle: %s\norder: %d\n---\n\n", yamlString(title), order)
-		data = append([]byte(fm), bytes.TrimLeft(data, "\n")...)
-	}
-	yamlSrc, _, _, _, _ := content.SplitFrontmatter(data)
-	fm, _, err := content.ParseFrontmatter(yamlSrc)
-	if err != nil || strings.TrimSpace(fm.Title) == "" {
-		return nil, problem(NoTitle)
-	}
-	slug := Slug(fm.Title, 40)
+	slug := Slug(title, 40)
 	if slug == "" {
 		slug = "topic"
 	}
 	dir := g.Subject.Dir + "/" + g.Dir
-	name := fmt.Sprintf("%02d-%s.md", order, slug)
-	for i := 2; existsInGrade(g, dir+"/"+name); i++ {
-		name = fmt.Sprintf("%02d-%s-%d.md", order, slug, i)
+	name := slug
+	for i := 2; existsInGrade(g, dir+"/"+fmt.Sprintf("%02d-%s.md", order, name)) || cat.Article(g.Subject.Dir+"-"+g.Dir+"-"+name) != nil; i++ {
+		name = fmt.Sprintf("%s-%d", slug, i)
 	}
-	return check(cat, g, dir+"/"+name, nil, data, uploaded)
+	fm := fmt.Sprintf("---\ntitle: %s\norder: %d\n---\n\n# %s\n\n", yamlString(title), order, title)
+	return check(cat, g, fmt.Sprintf("%s/%02d-%s.md", dir, order, name), nil, append([]byte(fm), data...), uploaded)
 }
 
 // clean checks size and encoding and normalizes line endings.
@@ -140,7 +127,8 @@ func normalize(b []byte) []byte {
 }
 
 // check parses the article as the loader would and renders it against the
-// catalog. Blocking problems become errors; lint findings are returned.
+// catalog. Blocking problems become errors; lint findings, including
+// Telegram message limits, are returned for the reviewer.
 func check(cat *content.Catalog, g *content.Grade, relPath string, self *content.Article, data []byte, uploaded []string) (*Result, error) {
 	if err := confine(relPath); err != nil {
 		return nil, err
@@ -179,9 +167,6 @@ func check(cat *content.Catalog, g *content.Grade, relPath string, self *content
 	r := render.Convert(cat, art, render.Options{})
 	var issues []content.Issue
 	for _, is := range r.Issues {
-		if strings.HasPrefix(is.Msg, "message limit:") {
-			return nil, problem(OverLimit, strings.TrimPrefix(is.Msg, "message limit: "))
-		}
 		if pendingImage(is.Msg, uploaded) {
 			continue
 		}
@@ -246,16 +231,6 @@ func nextOrder(g *content.Grade) int {
 		}
 	}
 	return max + 1
-}
-
-func firstLine(data []byte) string {
-	for _, l := range strings.Split(string(data), "\n") {
-		l = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(l), "#"))
-		if l != "" {
-			return l
-		}
-	}
-	return ""
 }
 
 // yamlString quotes a title when YAML would otherwise misread it.

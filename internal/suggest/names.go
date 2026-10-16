@@ -71,32 +71,36 @@ func Branch(tgID int64, articlePath, shortID string) string {
 	return fmt.Sprintf("suggest/%d-%s-%s", tgID, slug, shortID)
 }
 
-// ImageName makes a safe file name for an uploaded image, unique among
-// taken. It returns "" if the extension is not a supported image format.
-func ImageName(original string, taken []string) string {
-	ext := strings.ToLower(path.Ext(original))
+// ImageExt returns the extension for an uploaded image from its file name
+// or MIME type, or "" if it is not a supported format.
+func ImageExt(fileName, mimeType string) string {
+	ext := strings.ToLower(path.Ext(fileName))
+	if ext == "" {
+		switch mimeType {
+		case "image/png":
+			ext = ".png"
+		case "image/jpeg":
+			ext = ".jpg"
+		case "image/webp":
+			ext = ".webp"
+		}
+	}
 	if ext == ".jpeg" {
 		ext = ".jpg"
 	}
 	if !render.ImageExts[ext] {
 		return ""
 	}
-	base := Slug(strings.TrimSuffix(path.Base(original), path.Ext(original)), 40)
-	if base == "" {
-		base = "image"
-	}
-	name := base + ext
-	for i := 2; contains(taken, name); i++ {
-		name = fmt.Sprintf("%s-%d%s", base, i, ext)
-	}
-	return name
+	return ext
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
+// ImageName names the n-th picture of a suggestion: <slug>-<short_id>-<n>.
+// The short ID keeps names unique across concurrent suggestions.
+func ImageName(articlePath, shortID string, n int, ext string) string {
+	name := strings.TrimSuffix(path.Base(articlePath), ".md")
+	slug := Slug(orderPrefix.ReplaceAllString(name, ""), 30)
+	if slug == "" {
+		slug = "image"
 	}
-	return false
+	return fmt.Sprintf("%s-%s-%d%s", slug, shortID, n, ext)
 }

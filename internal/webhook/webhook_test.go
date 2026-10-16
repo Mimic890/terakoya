@@ -15,7 +15,7 @@ import (
 
 func TestHandler(t *testing.T) {
 	secret := "s"
-	host, err := githost.New("forgejo", "https://git.example", "o/r", "", secret)
+	host, err := githost.New(githost.Config{Kind: "forgejo", APIURL: "https://git.example", Repo: "o/r", Secret: secret})
 	if err != nil {
 		t.Fatal(err)
 	}

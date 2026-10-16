@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Mimic890/terakoya/internal/content"
+	"github.com/Mimic890/terakoya/internal/plain"
 )
 
 func load(t *testing.T) *content.Catalog {
@@ -70,15 +71,14 @@ func TestRejections(t *testing.T) {
 		in   string
 		want Code
 	}{
-		"too large":  {strings.Repeat("x", 2000), TooLarge},
-		"not utf8":   {"\xff\xfe", NotUTF8},
-		"empty":      {"  \n\n", Empty},
-		"no title":   {"---\norder: 1\n---\ntext\n", NoTitle},
-		"open fm":    {"---\ntitle: x\n", OpenFrontmatter},
-		"bad yaml":   {"---\ntitle: [x\n---\n", BadFrontmatter},
-		"bad id":     {"---\ntitle: x\nid: has space\n---\n", BadID},
-		"taken id":   {"---\ntitle: x\nid: triangles\n---\n", TakenID},
-		"over limit": {"---\ntitle: x\n---\n" + strings.Repeat("\n| "+strings.Repeat("a | ", 21)+"\n|"+strings.Repeat("-|", 21)+"\n", 1), OverLimit},
+		"too large": {strings.Repeat("x", 2000), TooLarge},
+		"not utf8":  {"\xff\xfe", NotUTF8},
+		"empty":     {"  \n\n", Empty},
+		"no title":  {"---\norder: 1\n---\ntext\n", NoTitle},
+		"open fm":   {"---\ntitle: x\n", OpenFrontmatter},
+		"bad yaml":  {"---\ntitle: [x\n---\n", BadFrontmatter},
+		"bad id":    {"---\ntitle: x\nid: has space\n---\n", BadID},
+		"taken id":  {"---\ntitle: x\nid: triangles\n---\n", TakenID},
 	}
 	for name, c := range cases {
 		max := int64(1 << 20)
@@ -92,34 +92,42 @@ func TestRejections(t *testing.T) {
 	}
 }
 
-func TestNewTopicFromText(t *testing.T) {
+func TestOverLimitIsAnIssue(t *testing.T) {
 	cat := load(t)
-	g := cat.Subject("geometry").Grade("7")
-	res, err := New(cat, g, []byte("# Подобие: признаки\n\nТекст.\n"), nil, 1<<20)
+	a := cat.Article("geometry-7-basic-notions")
+	wide := "---\ntitle: x\n---\n\n| " + strings.Repeat("a | ", 21) + "\n|" + strings.Repeat("-|", 21) + "\n"
+	res, err := Edit(cat, a, []byte(wide), nil, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != "geometry/7/03-podobie-priznaki.md" {
-		t.Errorf("path = %q", res.Path)
-	}
-	if res.Title != "Подобие: признаки" || !strings.HasPrefix(string(res.Data), "---\ntitle: \"Подобие: признаки\"\norder: 3\n---\n\n# Подобие") {
-		t.Errorf("data = %q", res.Data)
+	if len(res.Issues) == 0 || !strings.Contains(res.Issues[0].Msg, "message limit") {
+		t.Errorf("issues = %v", res.Issues)
 	}
 }
 
-func TestNewTopicWithFrontmatterAndCollision(t *testing.T) {
+func TestNewTopic(t *testing.T) {
 	cat := load(t)
 	g := cat.Subject("geometry").Grade("7")
-	// Same title as an existing article but a different slug source.
-	res, err := New(cat, g, []byte("---\ntitle: Triangles\n---\nx\n"), nil, 1<<20)
+	res, err := NewTopic(cat, g, "  Подобие:  признаки ", "Текст.\r\n\r\nЕщё.", nil, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != "geometry/7/03-triangles.md" {
-		t.Errorf("path = %q", res.Path)
+	if res.Path != "geometry/7/03-podobie-priznaki.md" || res.Title != "Подобие: признаки" {
+		t.Errorf("path %q title %q", res.Path, res.Title)
 	}
-	if _, err := New(cat, g, []byte("---\ntitle: Dup\nid: triangles\n---\n"), nil, 1<<20); code(err) != TakenID {
-		t.Errorf("duplicate id accepted: %v", err)
+	if want := "---\ntitle: \"Подобие: признаки\"\norder: 3\n---\n\n# Подобие: признаки\n\nТекст.\n\nЕщё.\n"; string(res.Data) != want {
+		t.Errorf("data = %q", res.Data)
+	}
+	// A title whose slug is taken gets a numbered file name and ID.
+	res, err = NewTopic(cat, g, "Basic notions", "x", nil, 1<<20)
+	if err != nil || res.Path != "geometry/7/03-basic-notions-2.md" {
+		t.Errorf("path = %v, %v", res, err)
+	}
+	if _, err := NewTopic(cat, g, " ", "x", nil, 1<<20); code(err) != NoTitle {
+		t.Errorf("empty title: %v", err)
+	}
+	if _, err := NewTopic(cat, g, "x", " \n", nil, 1<<20); code(err) != Empty {
+		t.Errorf("empty text: %v", err)
 	}
 }
 
@@ -156,11 +164,14 @@ func TestNames(t *testing.T) {
 	if got := Branch(42, "geometry/7/05-Треугольники.md", "abc123"); got != "suggest/42-treugolniki-abc123" {
 		t.Errorf("Branch = %q", got)
 	}
-	if got := ImageName("Рисунок 1.JPEG", []string{"risunok-1.jpg"}); got != "risunok-1-2.jpg" {
+	if got := ImageName("geometry/7/02-triangles.md", "abc123", 2, ".jpg"); got != "triangles-abc123-2.jpg" {
 		t.Errorf("ImageName = %q", got)
 	}
-	if got := ImageName("vector.svg", nil); got != "" {
-		t.Errorf("svg accepted: %q", got)
+	for _, c := range [][3]string{{"Рисунок.JPEG", "", ".jpg"}, {"x.png", "", ".png"}, {"blob", "image/webp", ".webp"},
+		{"vector.svg", "image/svg+xml", ""}, {"notes.txt", "", ""}} {
+		if got := ImageExt(c[0], c[1]); got != c[2] {
+			t.Errorf("ImageExt(%q, %q) = %q", c[0], c[1], got)
+		}
 	}
 	if id := ShortID(); len(id) != 6 {
 		t.Errorf("ShortID = %q", id)
@@ -168,17 +179,36 @@ func TestNames(t *testing.T) {
 }
 
 func TestPRText(t *testing.T) {
-	c := Change{Kind: "edit", Title: "Треугольники", RepoPath: "content/geometry/7/02-triangles.md",
-		Images: []string{"content/geometry/7/assets/x.png"}, BaseSHA: "deadbeef", ShortID: "abc123",
-		By:     Submitter{TgID: 42, Username: "anya", FirstName: "Аня"},
-		Issues: []content.Issue{{Line: 3, Severity: content.Error, Msg: "link [[X]] does not match any article"}}}
+	c := Change{Kind: KindEdit, Title: "Треугольники", RepoPath: "content/geometry/7/02-triangles.md",
+		BaseSHA: "deadbeef", ShortID: "abc123", Section: "Сумма углов", Text: "текст с ``` внутри",
+		Pictures: []Picture{{Path: "content/geometry/7/assets/x.png", Caption: "после\nпервого абзаца", URL: "https://host/raw/x.png"}},
+		Merge:    &plain.Result{Mode: plain.Replaced, Changes: []plain.Change{{Before: "старое", After: "новое"}}},
+		By:       Submitter{TgID: 42, Username: "anya", FirstName: "Аня"},
+		Issues:   []content.Issue{{Line: 3, Severity: content.Error, Msg: "link [[X]] does not match any article"}}}
 	body := c.PRBody()
-	for _, want := range []string{"`42`", "@anya", "content/geometry/7/02-triangles.md", "deadbeef", "line 3: error"} {
+	for _, want := range []string{"`42`", "@anya", "content/geometry/7/02-triangles.md", "deadbeef", "line 3: error",
+		"Section: Сумма углов", "whole section was replaced", "> старое", "> новое",
+		"`content/geometry/7/assets/x.png` — после первого абзаца", "![picture 1](https://host/raw/x.png)",
+		"````text\nтекст с ``` внутри\n````"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body misses %q:\n%s", want, body)
 		}
 	}
 	if c.PRTitle() != "Suggest edit: Треугольники" || !strings.Contains(c.CommitMessage(), "Suggested-by: @anya (tg:42)") {
 		t.Errorf("title %q message %q", c.PRTitle(), c.CommitMessage())
+	}
+
+	r := Change{Kind: KindReport, Title: "Треугольники", RepoPath: "content/geometry/7/02-triangles.md", BaseSHA: "deadbeef",
+		ShortID: "abc123", Text: "опечатка\nв теореме", ArticleURL: "https://host/src/commit/deadbeef/x", AcceptLabel: "accepted",
+		Pictures: []Picture{{URL: "https://host/attachments/1"}}, By: Submitter{TgID: 42, FirstName: "Аня"}}
+	body = r.IssueBody()
+	for _, want := range []string{"Error reported in Telegram by Аня.", "> опечатка\n> в теореме", "[`content/geometry/7/02-triangles.md`](https://host/src/commit/deadbeef/x)",
+		"1. no caption", "![picture 1](https://host/attachments/1)", "`accepted` label"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("issue body misses %q:\n%s", want, body)
+		}
+	}
+	if r.PRTitle() != "Error report: Треугольники" {
+		t.Errorf("title %q", r.PRTitle())
 	}
 }

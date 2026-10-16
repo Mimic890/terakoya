@@ -9,15 +9,18 @@ import (
 
 // Suggestion kinds and statuses.
 const (
-	KindEdit = "edit"
-	KindNew  = "new"
+	KindEdit   = "edit"
+	KindNew    = "new"
+	KindReport = "report" // an issue rather than a pull request
 
 	StatusOpen   = "open"
 	StatusMerged = "merged"
 	StatusClosed = "closed"
 )
 
-// Suggestion is an edit proposed by a user, submitted as a pull request.
+// Suggestion is an edit proposed by a user, submitted as a pull request,
+// or an error report, submitted as an issue. PRNumber holds the issue
+// number for reports; both hosts number issues and pull requests together.
 type Suggestion struct {
 	ID          int64
 	ShortID     string
@@ -60,20 +63,70 @@ func (s *Store) CreateSuggestion(ctx context.Context, sg *Suggestion) error {
 	return nil
 }
 
-// SuggestionByPR finds the suggestion behind a pull request.
-func (s *Store) SuggestionByPR(ctx context.Context, number int) (Suggestion, error) {
+const suggestionColumns = `id, short_id, tg_id, kind, article_path, title, base_sha, branch, pr_number, pr_url, status, created_at`
+
+func scanSuggestion(row interface{ Scan(...any) error }) (Suggestion, error) {
 	var sg Suggestion
 	var created int64
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, short_id, tg_id, kind, article_path, title, base_sha, branch, pr_number, pr_url, status, created_at
-		FROM suggestions WHERE pr_number = ?`, number,
-	).Scan(&sg.ID, &sg.ShortID, &sg.TgID, &sg.Kind, &sg.ArticlePath, &sg.Title, &sg.BaseSHA, &sg.Branch,
+	err := row.Scan(&sg.ID, &sg.ShortID, &sg.TgID, &sg.Kind, &sg.ArticlePath, &sg.Title, &sg.BaseSHA, &sg.Branch,
 		&sg.PRNumber, &sg.PRURL, &sg.Status, &created)
+	sg.CreatedAt = time.Unix(created, 0)
+	return sg, err
+}
+
+// SuggestionByNumber finds the suggestion behind a pull request or issue.
+func (s *Store) SuggestionByNumber(ctx context.Context, number int) (Suggestion, error) {
+	sg, err := scanSuggestion(s.db.QueryRowContext(ctx,
+		`SELECT `+suggestionColumns+` FROM suggestions WHERE pr_number = ?`, number))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Suggestion{}, ErrNotFound
 	}
-	sg.CreatedAt = time.Unix(created, 0)
 	return sg, err
+}
+
+// OpenSuggestions lists all unresolved suggestions, oldest first.
+func (s *Store) OpenSuggestions(ctx context.Context) ([]Suggestion, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+suggestionColumns+` FROM suggestions WHERE status = 'open' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Suggestion
+	for rows.Next() {
+		sg, err := scanSuggestion(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sg)
+	}
+	return out, rows.Err()
+}
+
+// AcceptLate turns a report that was closed without being accepted into an
+// accepted one, when the label is added afterwards. It increments the
+// author's merged count and reports false if there was nothing to change.
+func (s *Store) AcceptLate(ctx context.Context, id int64) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+		UPDATE suggestions SET status = 'merged', resolved_at = ?
+		WHERE id = ? AND status = 'closed' AND kind = 'report'`, s.now().Unix(), id)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE users SET merged_count = merged_count + 1
+		WHERE tg_id = (SELECT tg_id FROM suggestions WHERE id = ?)`, id); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // ResolveSuggestion marks an open suggestion as merged or closed. Merging

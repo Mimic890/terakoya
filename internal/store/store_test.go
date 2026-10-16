@@ -70,8 +70,12 @@ func TestSessions(t *testing.T) {
 		t.Fatalf("session = %+v, %v", got, err)
 	}
 	now = now.Add(2 * time.Hour)
+	// An expired session is reported once, then gone.
+	if got, err := s.Session(ctx, 7); !errors.Is(err, ErrExpired) || got.State != ses.State {
+		t.Fatalf("expired session: %+v, %v", got, err)
+	}
 	if _, err := s.Session(ctx, 7); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expired session returned: %v", err)
+		t.Fatalf("expired session returned again: %v", err)
 	}
 }
 

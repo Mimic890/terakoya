@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	tg "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -33,9 +34,10 @@ type Bot struct {
 	log   *slog.Logger
 	t     i18n.Strings
 
-	msgs      *tracker
-	userLocks userLocks
-	syncMu    sync.Mutex
+	msgs        *tracker
+	userLocks   userLocks
+	syncMu      sync.Mutex
+	rejectGrace time.Duration
 
 	mu  sync.RWMutex
 	cat *content.Catalog
@@ -45,7 +47,8 @@ type Bot struct {
 // New creates the bot and loads the catalog.
 // Extra options are passed to the Telegram client.
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
-	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log}}
+	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
+		rejectGrace: rejectGrace}
 	api, err := tg.New(cfg.BotToken, append([]tg.Option{
 		tg.WithDefaultHandler(b.handle),
 		tg.WithAllowedUpdates(tg.AllowedUpdates{"message", "callback_query", "my_chat_member"}),

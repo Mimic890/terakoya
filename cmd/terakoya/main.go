@@ -111,10 +111,14 @@ func runServe(args []string) int {
 	}
 	var host githost.Host
 	if cfg.Suggestions() {
-		host, err = githost.New(cfg.GitHost, cfg.GitAPIURL, cfg.GitRepo, cfg.GitToken, cfg.GitWebhookSecret)
+		host, err = githost.New(githost.Config{Kind: cfg.GitHost, APIURL: cfg.GitAPIURL, WebURL: cfg.RepoURL,
+			Repo: cfg.GitRepo, Token: cfg.GitToken, Secret: cfg.GitWebhookSecret})
 		if err != nil {
 			log.Error("git host", "err", err)
 			return 1
+		}
+		if err := host.EnsureLabel(ctx, cfg.AcceptedLabel, "#2da44e", "Error report fixed: counts toward the user's rank"); err != nil {
+			log.Warn("could not create the accepted label; create it by hand", "label", cfg.AcceptedLabel, "err", err)
 		}
 	}
 	b, err := bot.New(ctx, cfg, st, repo, host, log)

@@ -5,7 +5,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -16,6 +19,30 @@ type GitHub struct{ c *client }
 func (g *GitHub) OpenPR(ctx context.Context, pr NewPR) (PR, error) {
 	return g.c.openPR(ctx, pr)
 }
+
+func (g *GitHub) OpenIssue(ctx context.Context, title, body string) (PR, error) {
+	return g.c.openIssue(ctx, title, body)
+}
+
+func (g *GitHub) EditIssue(ctx context.Context, number int, body string) error {
+	return g.c.editIssue(ctx, number, body)
+}
+
+// Attach is not available: GitHub has no API for issue attachments.
+func (g *GitHub) Attach(context.Context, int, string, []byte) (string, error) {
+	return "", ErrUnsupported
+}
+
+func (g *GitHub) EnsureLabel(ctx context.Context, name, color, description string) error {
+	return g.c.ensureLabel(ctx, name, strings.TrimPrefix(color, "#"), description, "per_page")
+}
+
+func (g *GitHub) State(ctx context.Context, number int, isPR bool) (State, error) {
+	return g.c.state(ctx, number, isPR)
+}
+
+func (g *GitHub) FileURL(ref, path string) string { return g.c.fileURL("/blob/%s", ref, path) }
+func (g *GitHub) RawURL(ref, path string) string  { return g.c.fileURL("/raw/%s", ref, path) }
 
 func (g *GitHub) LastReviewComment(ctx context.Context, number int) (string, error) {
 	return g.c.lastComment(ctx, number)
@@ -36,6 +63,58 @@ type Forgejo struct{ c *client }
 
 func (f *Forgejo) OpenPR(ctx context.Context, pr NewPR) (PR, error) {
 	return f.c.openPR(ctx, pr)
+}
+
+func (f *Forgejo) OpenIssue(ctx context.Context, title, body string) (PR, error) {
+	return f.c.openIssue(ctx, title, body)
+}
+
+func (f *Forgejo) EditIssue(ctx context.Context, number int, body string) error {
+	return f.c.editIssue(ctx, number, body)
+}
+
+// Attach uploads an issue attachment.
+func (f *Forgejo) Attach(ctx context.Context, number int, name string, data []byte) (string, error) {
+	body, err := multipartFile("attachment", name, data)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		URL string `json:"browser_download_url"`
+	}
+	u := f.c.repoPath("/issues/%d/assets?name=%s", number, url.QueryEscape(name))
+	if err := f.c.do(ctx, http.MethodPost, u, body, &out); err != nil {
+		return "", err
+	}
+	if out.URL == "" {
+		return "", fmt.Errorf("attachment %s: no URL in response", name)
+	}
+	return out.URL, nil
+}
+
+func (f *Forgejo) EnsureLabel(ctx context.Context, name, color, description string) error {
+	return f.c.ensureLabel(ctx, name, "#"+strings.TrimPrefix(color, "#"), description, "limit")
+}
+
+func (f *Forgejo) State(ctx context.Context, number int, isPR bool) (State, error) {
+	return f.c.state(ctx, number, isPR)
+}
+
+// FileURL and RawURL take a commit SHA or a branch name.
+func (f *Forgejo) FileURL(ref, path string) string {
+	return f.c.fileURL("/src/%s", forgejoRef(ref), path)
+}
+func (f *Forgejo) RawURL(ref, path string) string {
+	return f.c.fileURL("/raw/%s", forgejoRef(ref), path)
+}
+
+var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+
+func forgejoRef(ref string) string {
+	if commitSHA.MatchString(ref) {
+		return "commit/" + ref
+	}
+	return "branch/" + ref
 }
 
 func (f *Forgejo) LastReviewComment(ctx context.Context, number int) (string, error) {

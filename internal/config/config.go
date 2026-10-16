@@ -37,6 +37,9 @@ type Config struct {
 	GitWebhookSecret string `yaml:"git_webhook_secret" env:"TERAKOYA_GIT_WEBHOOK_SECRET"`
 	GitAuthorName    string `yaml:"git_author_name" env:"TERAKOYA_GIT_AUTHOR_NAME"`
 	GitAuthorEmail   string `yaml:"git_author_email" env:"TERAKOYA_GIT_AUTHOR_EMAIL"`
+	// AcceptedLabel marks an error report (an issue) as accepted when it is
+	// closed.
+	AcceptedLabel string `yaml:"accepted_label" env:"TERAKOYA_ACCEPTED_LABEL"`
 
 	HTTPAddr     string        `yaml:"http_addr" env:"TERAKOYA_HTTP_ADDR"`
 	SyncInterval time.Duration `yaml:"sync_interval" env:"TERAKOYA_SYNC_INTERVAL"`
@@ -64,6 +67,7 @@ func Default() Config {
 		DataDir:         "./data",
 		GitAuthorName:   "terakoya",
 		GitAuthorEmail:  "terakoya@localhost",
+		AcceptedLabel:   "accepted",
 		HTTPAddr:        ":8080",
 		SyncInterval:    5 * time.Minute,
 		SuggestCooldown: time.Minute,
