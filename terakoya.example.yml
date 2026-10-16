@@ -19,6 +19,8 @@ git_token: ""
 git_webhook_secret: ""
 git_author_name: terakoya
 git_author_email: terakoya@localhost
+# Label that marks an error report (an issue) as accepted.
+# accepted_label: accepted
 http_addr: ":8080"
 sync_interval: 5m
 suggest_cooldown: 1m

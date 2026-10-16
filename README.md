@@ -12,8 +12,8 @@ the content format.
 ## Status
 
 - [x] Content loader, Markdown → Telegram rich message converter, `lint`
-- [x] Read-only navigation: subjects → grades → topics, deep links, `.md` download
-- [x] Edit suggestions as pull requests (GitHub or Forgejo), git host webhooks, content sync
+- [x] Read-only navigation: subjects → grades → topics, deep links, file download
+- [x] Suggestions from Telegram as pull requests and issues (GitHub or Forgejo), git host webhooks, content sync
 - [ ] Rank polish, `/download` of the whole catalog, Telegram webhook mode
 
 ## Running
@@ -106,12 +106,13 @@ file; empty variables are ignored. See
 | `TERAKOYA_GIT_WEBHOOK_SECRET` | `git_webhook_secret` | — | Secret shared with the webhook; deliveries with a wrong signature are rejected. |
 | `TERAKOYA_GIT_AUTHOR_NAME` | `git_author_name` | `terakoya` | Committer name of suggestion commits. The author is the Telegram user. |
 | `TERAKOYA_GIT_AUTHOR_EMAIL` | `git_author_email` | `terakoya@localhost` | Committer email. |
+| `TERAKOYA_ACCEPTED_LABEL` | `accepted_label` | `accepted` | Label that marks an error report as accepted (see below). Created on start if missing. |
 | `TERAKOYA_HTTP_ADDR` | `http_addr` | `:8080` | Address of the HTTP server for git webhooks (`POST /webhooks/git`, `GET /healthz`). |
-| `TERAKOYA_SYNC_INTERVAL` | `sync_interval` | `5m` | How often to pull the content repository in case a push webhook was missed. `0` disables. |
+| `TERAKOYA_SYNC_INTERVAL` | `sync_interval` | `5m` | How often to pull the content repository and check open suggestions, in case a webhook was missed. `0` disables. |
 | `TERAKOYA_SUGGEST_COOLDOWN` | `suggest_cooldown` | `1m` | Minimum time between two suggestions of one user. |
 | `TERAKOYA_SUGGEST_MAX_OPEN` | `suggest_max_open` | `5` | Maximum unresolved suggestions per user. |
-| `TERAKOYA_SUGGEST_MAX_BYTES` | `suggest_max_bytes` | `262144` | Maximum size of a suggested `.md` file. |
-| `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of an image attached to a suggestion. |
+| `TERAKOYA_SUGGEST_MAX_BYTES` | `suggest_max_bytes` | `262144` | Maximum size of a suggested text. |
+| `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a suggestion. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
 ### Images and the file_id cache
@@ -129,50 +130,87 @@ logs.
 
 ## Suggestions
 
-With `TERAKOYA_GIT_HOST` set, «Предложить правку» under an article and
-«Добавить тему» in a topic list let users submit changes:
+With `TERAKOYA_GIT_HOST` set, users can suggest changes without knowing
+anything about Markdown, LaTeX, files or git. The bot never shows them
+file names, frontmatter or syntax; everything is buttons and plain text.
 
-1. The bot sends the current `.md` (for an edit) and remembers the content
-   commit the user is looking at.
-2. The user replies with an edited `.md` file or plain text. Images
-   (png, jpg, webp) can be sent first; the bot names them and says how to
-   reference them. Plain text keeps the article's frontmatter; for a new
-   topic, the first line becomes the title.
-3. The bot validates the file, commits it with git plumbing on a new branch
-   `suggest/<tg_id>-<slug>-<short_id>` whose parent is the remembered
-   commit, pushes it and opens a pull request. If `main` changed the same
-   lines in the meantime, the pull request shows a conflict instead of
-   silently overwriting them. Lint findings are listed in the pull request.
-4. When the pull request is merged, the user's count of accepted edits
-   (and so their rank) goes up and they get a message. When it is closed
-   without merging, they get the last review comment.
+Under an article, «Предложить правку» offers two options:
+
+- **«Исправить текст»**: the bot sends the article as plain readable text:
+  no Markdown markers, formulas as Unicode (`∠A + ∠B = 180°`), pictures as
+  «[картинка]». Long articles are offered section by section. The user
+  copies the text, fixes it and sends it back; pictures can be added along
+  the way, with a caption saying where they go. After «Отправить», the bot
+  merges the text into the Markdown source paragraph by paragraph:
+  untouched paragraphs, table rows and list items keep their exact source,
+  edited ones come in as the user's text with formulas, links and bold text
+  put back wherever their plain form survived. Paragraphs that were moved
+  keep their source. When the text cannot be matched reliably (for
+  example, it was pasted twice and both copies were edited), it replaces
+  the whole section and the pull request says so. If the text is much
+  shorter than the section, the user is asked to confirm first.
+- **«Сообщить об ошибке»**: the user describes the problem in their own
+  words, optionally with photos. This opens an **issue** for a maintainer
+  to fix by hand.
+
+In a grade's topic list, «Добавить тему» asks for the title, then the text,
+then pictures. The file name, order and frontmatter are generated.
+
+Pull requests are created as follows: the bot remembers the content commit
+the user was looking at, commits the change with git plumbing on a new
+branch `suggest/<tg_id>-<slug>-<short_id>` whose parent is that commit, and
+opens a pull request. If `main` changed the same lines in the meantime, the
+pull request shows a conflict instead of silently overwriting them.
+Pictures go to the grade's `assets/` directory, not yet referenced from the
+article. The pull request lists what to check: the paragraphs that came in
+as plain text (before and after), merge notes, the pictures with their
+captions and previews, the text exactly as sent, and lint findings, which
+users never see.
+
+Outcomes:
+
+- A merged pull request, or an issue closed with the `accepted` label
+  (`TERAKOYA_ACCEPTED_LABEL`), counts toward the user's rank, and they get
+  a thank-you message with a button to open the topic.
+- A pull request closed without merging, or an issue closed without the
+  label, sends the user the last review comment. For issues, the bot waits
+  two minutes after the close, so closing first and labeling right after
+  is fine. Adding the label to an issue that was already reported as not
+  accepted still counts it, once.
+- Every `TERAKOYA_SYNC_INTERVAL`, the bot also asks the host about each open
+  suggestion, so outcomes are noticed even when a webhook delivery is lost.
 
 The checkout in `TERAKOYA_REPO_DIR` belongs to the bot: syncing resets it
 to the remote branch. The bot refuses to use a checkout whose `origin` is
-not `TERAKOYA_REPO_URL`.
+not `TERAKOYA_REPO_URL`. Use an HTTPS `TERAKOYA_REPO_URL`: links in pull
+requests and issues are built from it.
 
 ### GitHub
 
 - Token: a fine-grained personal access token for the content repository
-  with **Contents: read and write** and **Pull requests: read and write**.
+  with **Contents**, **Pull requests** and **Issues: read and write**.
 - Webhook (repository → Settings → Webhooks): payload URL
   `https://<your host>/webhooks/git`, content type `application/json`,
-  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes** and
-  **Pull requests**.
+  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes**,
+  **Pull requests** and **Issues**.
+- GitHub has no API for issue attachments, so pictures of error reports
+  are pushed to a `report/…` branch and linked from the issue.
 
 ### Forgejo
 
 - Token (user settings → Applications): scopes **repository: read and
-  write** and **issue: read** (for review comments), for a user with write
-  access to the content repository.
+  write** and **issue: read and write** (error reports, their pictures and
+  the label), for a user with write access to the content repository.
 - Webhook (repository → Settings → Webhooks → Forgejo): target URL
   `https://<your host>/webhooks/git`, content type `application/json`,
-  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, trigger on **Push** and
-  **Pull request** events.
+  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, custom events **Push**,
+  **Pull request**, **Issues** and **Issue label**.
 
 The webhook server listens on `TERAKOYA_HTTP_ADDR`; put it behind a
-reverse proxy with TLS. Without working webhooks the content still syncs
-every `TERAKOYA_SYNC_INTERVAL`, but users are not told about merges.
+reverse proxy with TLS. Without working webhooks, everything still
+happens, only up to `TERAKOYA_SYNC_INTERVAL` later: the content syncs and
+open suggestions are checked on that schedule. A label added to an
+already closed issue is only noticed through the webhook.
 
 ## Development
 
