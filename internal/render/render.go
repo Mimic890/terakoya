@@ -450,3 +450,7 @@ func closingMath(s string) int {
 	}
 	return 0
 }
+
+// MathSpan returns the length of the $…$ or $$…$$ span at the start of s,
+// or 0 if s does not start one. It follows the converter's rules.
+func MathSpan(s string) int { return closingMath(s) }

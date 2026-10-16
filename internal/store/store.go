@@ -15,6 +15,9 @@ import (
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrExpired is returned for a dialog session that timed out.
+var ErrExpired = errors.New("session expired")
+
 // Store wraps the database.
 type Store struct {
 	db  *sql.DB
@@ -94,6 +97,30 @@ var migrations = []string{
 		chat_id INTEGER PRIMARY KEY,
 		msg_id  INTEGER NOT NULL
 	);`,
+	`ALTER TABLE suggestions ADD COLUMN title TEXT NOT NULL DEFAULT '';`,
+	// Error reports are issues; SQLite cannot alter a CHECK constraint, so
+	// the table is rebuilt.
+	`CREATE TABLE suggestions_new (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		short_id     TEXT NOT NULL UNIQUE,
+		tg_id        INTEGER NOT NULL REFERENCES users(tg_id),
+		kind         TEXT NOT NULL CHECK (kind IN ('edit', 'new', 'report')),
+		article_path TEXT NOT NULL,
+		base_sha     TEXT NOT NULL,
+		branch       TEXT NOT NULL,
+		pr_number    INTEGER,
+		pr_url       TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'merged', 'closed')),
+		created_at   INTEGER NOT NULL,
+		resolved_at  INTEGER,
+		title        TEXT NOT NULL DEFAULT ''
+	);
+	INSERT INTO suggestions_new (id, short_id, tg_id, kind, article_path, base_sha, branch, pr_number, pr_url, status, created_at, resolved_at, title)
+		SELECT id, short_id, tg_id, kind, article_path, base_sha, branch, pr_number, pr_url, status, created_at, resolved_at, title FROM suggestions;
+	DROP TABLE suggestions;
+	ALTER TABLE suggestions_new RENAME TO suggestions;
+	CREATE INDEX suggestions_tg_id ON suggestions(tg_id);
+	CREATE INDEX suggestions_pr ON suggestions(pr_number);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -206,19 +233,30 @@ func (s *Store) PutSession(ctx context.Context, ses Session) error {
 	return err
 }
 
-// Session returns the user's active dialog state.
+// Session returns the user's active dialog state. A session that timed
+// out is returned once more with ErrExpired, so the user can be told, and
+// is then deleted.
 func (s *Store) Session(ctx context.Context, tgID int64) (Session, error) {
 	var ses Session
 	var exp int64
 	err := s.db.QueryRowContext(ctx, `
 		SELECT tg_id, state, article_path, base_sha, payload, expires_at
-		FROM sessions WHERE tg_id = ? AND expires_at > ?`, tgID, s.now().Unix(),
+		FROM sessions WHERE tg_id = ?`, tgID,
 	).Scan(&ses.TgID, &ses.State, &ses.ArticlePath, &ses.BaseSHA, &ses.Payload, &exp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
+	if err != nil {
+		return Session{}, err
+	}
 	ses.ExpiresAt = time.Unix(exp, 0)
-	return ses, err
+	if exp <= s.now().Unix() {
+		if err := s.DeleteSession(ctx, tgID); err != nil {
+			return Session{}, err
+		}
+		return ses, ErrExpired
+	}
+	return ses, nil
 }
 
 // DeleteSession ends the user's dialog.

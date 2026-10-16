@@ -87,6 +87,16 @@ func (a *Article) Subject() *Subject { return a.Grade.Subject }
 // Article looks up an article by ID.
 func (c *Catalog) Article(id string) *Article { return c.byID[id] }
 
+// ArticleByPath looks up an article by its catalog-relative path.
+func (c *Catalog) ArticleByPath(rel string) *Article {
+	for _, a := range c.byID {
+		if a.Path == rel {
+			return a
+		}
+	}
+	return nil
+}
+
 // Subject looks up a subject by directory name.
 func (c *Catalog) Subject(dir string) *Subject {
 	for _, s := range c.Subjects {
