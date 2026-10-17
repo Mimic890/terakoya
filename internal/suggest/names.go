@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/Mimic890/terakoya/internal/render"
+	"github.com/Mimic890/terakoya/internal/content"
 )
 
 var translit = map[rune]string{
@@ -61,10 +61,10 @@ func ShortID() string {
 }
 
 // Branch names the branch of a suggestion: suggest/<tg_id>-<slug>-<short_id>,
-// where the slug comes from the article's file name without its order prefix.
+// where the slug comes from the note's file name without its order prefix
+// and trailing "(…)".
 func Branch(tgID int64, articlePath, shortID string) string {
-	name := strings.TrimSuffix(path.Base(articlePath), ".md")
-	slug := Slug(orderPrefix.ReplaceAllString(name, ""), 40)
+	slug := Slug(content.TitleFromFile(path.Base(articlePath)), 40)
 	if slug == "" {
 		slug = "topic"
 	}
@@ -81,14 +81,12 @@ func ImageExt(fileName, mimeType string) string {
 			ext = ".png"
 		case "image/jpeg":
 			ext = ".jpg"
-		case "image/webp":
-			ext = ".webp"
 		}
 	}
 	if ext == ".jpeg" {
 		ext = ".jpg"
 	}
-	if !render.ImageExts[ext] {
+	if ext != ".png" && ext != ".jpg" {
 		return ""
 	}
 	return ext
@@ -97,8 +95,7 @@ func ImageExt(fileName, mimeType string) string {
 // ImageName names the n-th picture of a suggestion: <slug>-<short_id>-<n>.
 // The short ID keeps names unique across concurrent suggestions.
 func ImageName(articlePath, shortID string, n int, ext string) string {
-	name := strings.TrimSuffix(path.Base(articlePath), ".md")
-	slug := Slug(orderPrefix.ReplaceAllString(name, ""), 30)
+	slug := Slug(content.TitleFromFile(path.Base(articlePath)), 30)
 	if slug == "" {
 		slug = "image"
 	}

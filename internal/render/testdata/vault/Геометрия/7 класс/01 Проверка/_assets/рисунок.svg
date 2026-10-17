@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 230" width="440" height="230">
+  <rect x="1" y="1" width="438" height="228" rx="10" fill="#fff" stroke="#d8d8d8"/>
+  <polygon points="50,205 140,115 410,115 320,205" fill="#cfe3b0" stroke="#5f8a3a" stroke-width="1.5"/>
+  <line x1="130" y1="165" x2="300" y2="165" stroke="#1f1f1f" stroke-width="2.2"/>
+  <line x1="120" y1="55" x2="300" y2="55" stroke="#1f1f1f" stroke-width="2.2"/>
+  <text x="200" y="45" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="19" fill="#1f1f1f">a</text>
+  <text x="205" y="188" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="19" fill="#1f1f1f">b</text>
+  <text x="75" y="196" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="19" fill="#1f1f1f">α</text>
+  <text x="330" y="100" font-family="'DejaVu Sans', sans-serif" font-size="14" fill="#5f8a3a">плоскость</text>
+</svg>

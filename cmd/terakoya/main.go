@@ -21,6 +21,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/githost"
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/lint"
+	"github.com/Mimic890/terakoya/internal/raster"
 	"github.com/Mimic890/terakoya/internal/store"
 	"github.com/Mimic890/terakoya/internal/webhook"
 )
@@ -45,7 +46,7 @@ func runLint(args []string) int {
 	fs := flag.NewFlagSet("lint", flag.ExitOnError)
 	strict := fs.Bool("strict", false, "treat warnings as errors")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: terakoya lint [-strict] <content-dir>")
+		fmt.Fprintln(fs.Output(), "usage: terakoya lint [-strict] <vault>")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -53,21 +54,25 @@ func runLint(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	issues, err := lint.Run(fs.Arg(0))
+	ras := raster.New(os.Getenv("TERAKOYA_RESVG"), os.Getenv("TERAKOYA_FONTS_DIR"))
+	issues, err := lint.Run(context.Background(), fs.Arg(0), ras)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	var errs, warns int
+	var errs, warns, infos int
 	for _, i := range issues {
 		fmt.Println(i)
-		if i.Severity == content.Error {
+		switch i.Severity {
+		case content.Error:
 			errs++
-		} else {
+		case content.Warning:
 			warns++
+		default:
+			infos++
 		}
 	}
-	fmt.Fprintf(os.Stderr, "%d errors, %d warnings\n", errs, warns)
+	fmt.Fprintf(os.Stderr, "%d errors, %d warnings, %d notes\n", errs, warns, infos)
 	if errs > 0 || (*strict && warns > 0) {
 		return 1
 	}

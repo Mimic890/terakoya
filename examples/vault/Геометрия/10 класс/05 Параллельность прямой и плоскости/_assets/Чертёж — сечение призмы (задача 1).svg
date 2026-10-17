@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 260" width="300" height="260">
+  <rect x="1" y="1" width="298" height="258" rx="10" fill="#fff" stroke="#d8d8d8"/>
+  <polygon points="60,220 240,220 150,170" fill="none" stroke="#1f1f1f" stroke-width="2"/>
+  <polygon points="60,80 240,80 150,30" fill="none" stroke="#1f1f1f" stroke-width="2"/>
+  <line x1="60" y1="80" x2="60" y2="220" stroke="#1f1f1f" stroke-width="2"/>
+  <line x1="240" y1="80" x2="240" y2="220" stroke="#1f1f1f" stroke-width="2"/>
+  <polygon points="60,220 240,220 195,55 105,55" fill="#f4c7a1" fill-opacity="0.6" stroke="#c0622b" stroke-width="1.8"/>
+  <text x="40" y="240" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="18">A</text>
+  <text x="248" y="240" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="18">C</text>
+  <text x="92" y="50" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="18">M</text>
+  <text x="200" y="50" font-family="'Times New Roman', 'DejaVu Serif', serif" font-style="italic" font-size="18">N</text>
+  <text x="110" y="140" font-family="'DejaVu Sans', sans-serif" font-size="14" fill="#c0622b">сечение β</text>
+</svg>

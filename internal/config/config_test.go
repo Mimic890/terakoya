@@ -16,6 +16,7 @@ func TestFileThenEnv(t *testing.T) {
 	}
 	t.Setenv("TERAKOYA_BOT_TOKEN", "from-env")
 	t.Setenv("TERAKOYA_RANKS", "a:0,b:1")
+	t.Setenv("TERAKOYA_RESVG", "") // empty variables are ignored
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +24,7 @@ func TestFileThenEnv(t *testing.T) {
 	if cfg.BotToken != "from-env" || cfg.BotUsername != "file_bot" || cfg.CacheChatID != -100 {
 		t.Errorf("cfg = %+v", cfg)
 	}
-	if cfg.RepoBranch != "main" || cfg.ContentDir() != filepath.Join("content", "content") {
+	if cfg.RepoBranch != "main" || cfg.RepoDir != "./content" || cfg.Resvg != "resvg" {
 		t.Errorf("defaults not applied: %+v", cfg)
 	}
 	if len(cfg.Ladder) != 2 || cfg.Ladder.For(1).Title != "b" {

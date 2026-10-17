@@ -5,11 +5,13 @@ bot_username: ""
 repo_dir: ./content
 repo_url: ""
 repo_branch: main
-content_subdir: content
 data_dir: ./data
 cache_chat_id: 0
 ranks: "kōhai:0,senpai:3,sensei:10"
 log_level: info
+# SVG drawings are rasterized with resvg (included in the Docker image).
+# resvg: resvg
+# fonts_dir: /usr/share/fonts/dejavu
 
 # Suggestions, git webhooks and content sync (all off while git_host is empty).
 git_host: ""            # github or forgejo

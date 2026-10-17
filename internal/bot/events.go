@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/go-telegram/bot/models"
@@ -148,8 +147,7 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		if rank := b.cfg.Ladder.For(u.MergedCount); rank != b.cfg.Ladder.For(u.MergedCount-1) {
 			text += "\n\n" + fmt.Sprintf(b.t.RankUp, rank.Title)
 		}
-		rel := strings.TrimPrefix(sg.ArticlePath, strings.Trim(b.cfg.ContentSubdir, "/")+"/")
-		if a := b.catalog().ArticleByPath(rel); a != nil {
+		if a := b.catalog().NoteByPath(sg.ArticlePath); a != nil {
 			kb = keyboard(row(button(b.t.OpenTopic, cbOpen+a.ID)))
 		}
 	} else {
@@ -191,11 +189,17 @@ func (b *Bot) Sync(ctx context.Context) {
 	}
 }
 
-// syncLoop pulls periodically as a fallback for missed push webhooks, and
-// checks open suggestions as a fallback for missed pull request and issue
-// webhooks.
+// syncLoop pulls on start and then periodically as a fallback for missed
+// push webhooks, and checks open suggestions as a fallback for missed pull
+// request and issue webhooks.
 func (b *Bot) syncLoop(ctx context.Context) {
-	if !b.repo.Managed() || b.cfg.SyncInterval <= 0 {
+	if !b.repo.Managed() {
+		return
+	}
+	// A checkout from an earlier run may be behind.
+	b.Sync(ctx)
+	b.reconcile(ctx)
+	if b.cfg.SyncInterval <= 0 {
 		return
 	}
 	t := time.NewTicker(b.cfg.SyncInterval)

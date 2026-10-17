@@ -1,161 +1,139 @@
-# Content guide
+# Как устроены материалы
 
-The catalog is a directory of plain Markdown files. It reads well in
-Obsidian, on GitHub and in any Markdown editor; the bot only renders it.
-Run `terakoya lint <content-dir>` before committing; CI in the content
-repository should run it too.
+Все материалы бота — обычное хранилище (vault) Obsidian. Бот ничего не
+настраивает отдельно: всё берётся из названий папок и текста заметок.
+Никаких служебных файлов и блоков `---` с настройками в начале заметок нет.
 
-## Layout
+Перед тем как отправить изменения, проверьте хранилище командой
+`terakoya lint <папка хранилища>` — она покажет битые ссылки, потерянные
+картинки и другие ошибки.
+
+## Папки
 
 ```
-content/
-  geometry/
-    _subject.yml          # subject: title, emoji, order
-    7/
-      _grade.yml          # optional: title, notes, order
-      01-basic-notions.md
-      02-triangles.md
-      assets/
-        triangle.png
+Геометрия/                                       ← предмет
+  10 класс/                                      ← класс
+    05 Параллельность прямой и плоскости/        ← тема (параграф)
+      Параллельность прямой и плоскости.md       ← главная страница темы
+      _assets/                                   ← все картинки темы
+        Чертёж — признак параллельности.svg
+      теоремы/
+        Признак параллельности прямой и плоскости (5.1).md
+        следствия/
+          Следствие о прямой в плоскости.md
+      задачи/
+        Сечение призмы через ребро и точку (задача 3).md
 ```
 
-- A **subject** is a directory with a `_subject.yml`. Directories without
-  one are ignored (the linter warns).
-- A **grade** is any directory inside a subject. Its articles are the `.md`
-  files directly inside it. The only nested directory allowed is `assets`.
-- Names starting with `.` or `_` are ignored, so `.obsidian/` and
-  `_drafts/` are safe.
-- Subject and grade directory names together must not exceed 56 bytes.
-  Short ASCII names such as `geometry` and `7` are best.
+- **Предмет** — папка в корне хранилища. В боте она называется так же, как
+  папка. Предметы идут по алфавиту.
+- **Класс** — папка внутри предмета с названием вида «10 класс». Классы идут
+  по номеру.
+- **Тема** — папка внутри класса. Номер в начале названия задаёт порядок:
+  `5 `, `05 `, `005 ` — это одно и то же число, после номера ставится пробел,
+  точка, `_` или `-`. В боте номер не показывается. Темы без номера идут в
+  конце по алфавиту. Два одинаковых номера в одном классе — ошибка.
+- **Главная страница** — единственная заметка `.md` прямо в папке темы.
+  Её имя может быть с номером или без. Если заметок там две или ни одной,
+  тема не показывается.
+- **Картинки темы** лежат в папке `_assets` темы.
+- **Теоремы, задачи и остальное** — в папках внутри темы. Название папки
+  задаёт вид записи:
 
-### `_subject.yml`
+  | Папка | В боте |
+  |-------|--------|
+  | `теоремы` | Теорема |
+  | `аксиомы` | Аксиома |
+  | `определения` | Определение |
+  | `задачи` | Задача |
+  | `следствия` | Следствие |
 
-```yaml
-title: Геометрия   # required
-emoji: 📐          # optional, shown before the title
-order: 1           # optional, subjects are sorted by order, then name
+  Папка с другим названием тоже подойдёт: в боте будет её название с
+  заглавной буквы. Папку `следствия` можно положить внутрь любой из них.
+- Всё, что начинается с точки (`.obsidian`, `.trash`, `.gitignore`),
+  бот не видит. Кроме заметок `.md` и картинок `.svg`, `.png`, `.jpg`,
+  `.jpeg`, другие файлы не используются, проверка про них предупредит.
+
+## Заметка
+
+- **Название** — первая строка вида `# Название`. Если её нет, бот возьмёт
+  имя файла без «(5.1)» в конце — но лучше название написать.
+- Номер в скобках в имени файла, например `(5.1)` или `(задача 1)`, в боте
+  не показывается. Он нужен только для порядка заметок, на которые нет
+  ссылок с главной страницы.
+- Каждая строка показывается отдельной строкой, как в Obsidian. Пустая
+  строка начинает новый абзац.
+- В конце заметки можно оставить ссылку обратно на тему:
+
+  ```
+  ---
+  ↩ [Параллельность прямой и плоскости](Параллельность%20прямой%20и%20плоскости.md)
+  ```
+
+  Бот её не показывает: вместо неё под заметкой есть кнопка «Назад».
+
+## Порядок и ссылки
+
+Порядок теорем, задач и остального внутри темы — это порядок, в котором на
+них ссылается главная страница. Если ссылка на следствие стоит в списке на
+шаг глубже ссылки на теорему, следствие относится к этой теореме:
+
+```
+- [Прямая пересечения плоскостей](Прямая%20пересечения%20плоскостей%20%285.2%29.md): …
+	- [Следствие о прямой в плоскости](Следствие%20о%20прямой%20в%20плоскости.md): …
 ```
 
-### `_grade.yml`
+Ссылки пишутся так, как их вставляет Obsidian:
 
-```yaml
-title: 7 класс              # optional, defaults to "<dir> класс"
-notes: Начала планиметрии.  # optional, shown above the topic list
-order: 7                    # optional, defaults to the directory name if numeric
-```
+- `[текст](Имя%20заметки.md)` — пробелы и скобки закодированы. Так
+  Obsidian пишет ссылки, если в настройках выбраны «Markdown-ссылки».
+- `[[Имя заметки]]` или `[[Имя заметки|текст]]` тоже работают.
+- Если в хранилище только одна заметка с таким именем, достаточно имени.
+  Если их несколько, нужен путь: `[текст](теоремы/Имя.md)` — от заметки или
+  от корня хранилища. Obsidian сам пишет путь в таких случаях. Проверка
+  сообщит о ссылке, которая подходит к нескольким заметкам.
 
-## Articles
+В боте ссылки становятся кнопками внутри текста: нажатие открывает заметку
+на месте текущей.
 
-Every article starts with YAML frontmatter:
+## Картинки
 
-```markdown
----
-title: Треугольники
-order: 2
-id: triangles
-aliases:
-  - Треугольник
----
+- Картинка стоит на отдельной строке: `![](Чертёж%20—%20сечение%20призмы.svg)`.
+- Бот ищет её сначала в `_assets` темы, потом по имени во всём хранилище.
+- Чертежи `.svg` бот сам переводит в обычные картинки. Подписи на чертежах
+  рисуются шрифтом DejaVu (латиница, греческие и русские буквы). Каждый
+  чертёж переводится один раз; после изменения — ещё раз.
 
-# Треугольники
-…
-```
+## Формулы
 
-| Key       | Required | Meaning |
-|-----------|----------|---------|
-| `title`   | yes      | Shown in the topic list and used by `[[links]]`. |
-| `order`   | no       | Position in the topic list. Defaults to the numeric file name prefix (`02-…` → 2). |
-| `id`      | no       | Stable article ID, see below. |
-| `aliases` | no       | Extra names that `[[links]]` may use. |
+- В строке: `$a \parallel \alpha$`.
+- Отдельным блоком:
 
-`tags` and `cssclasses` are accepted for Obsidian; other keys produce a
-warning.
-
-### Article IDs
-
-Deep links (`https://t.me/<bot>?start=<id>`) and buttons use the article ID.
-By default it is derived from the path: `<subject>-<grade>-<slug>`, where the
-slug is the file name without `.md` and without the numeric prefix. So
-`geometry/7/01-basic-notions.md` has the ID `geometry-7-basic-notions`.
-
-Set `id` in the frontmatter to keep the ID stable when a file is renamed or
-moved; old deep links and `[[links]]` keep working. Set it as well when the
-file name is not ASCII.
-
-IDs are 1–56 characters of `A–Z a–z 0–9 _ -` and must be unique across the
-whole catalog.
-
-## Markdown
-
-Articles use GitHub-flavoured Markdown: headings, emphasis, lists, task
-lists, tables (up to 20 columns), block quotes, code blocks and footnotes.
-
-### Math
-
-- Inline math: `$a^2 + b^2 = c^2$`. No space right after the opening `$` or
-  right before the closing one.
-- Block math: `$$ … $$`, either on one line or with the delimiters on their
-  own lines. Obsidian renders both forms.
-
-  ```markdown
+  ```
   $$
   \angle A + \angle B + \angle C = 180^\circ
   $$
   ```
 
-  A blank line inside a `$$` block ends it, so keep formulas compact
-  (use `aligned` for multi-line formulas). Nothing may follow the closing
-  `$$` on the same line.
-- A literal dollar sign is written as `\$`: `тетрадь стоит \$2`.
-  An unescaped `$` that does not start a formula produces a warning.
-- Math inside code spans and code blocks is left alone.
+- Знак доллара в обычном тексте пишется как `\$`.
 
-### Images
+## Длинные заметки
 
-- Use standard Markdown with a path relative to the article:
-  `![Треугольник ABC](assets/triangle.png)`.
-- An optional title becomes the caption:
-  `![Треугольник ABC](assets/triangle.png "Рис. 1")`.
-- **Each image must sit on its own line**, separated from text by blank
-  lines. Telegram shows media only as separate blocks; an image inside a
-  paragraph is an error and is replaced by its alt text.
-- Supported formats: PNG, JPEG, WebP; at most 10 MB each. SVG is not
-  supported; export it to PNG.
-- Images must stay inside the content directory.
-- Obsidian embeds (`![[picture.png]]`) are not supported. In Obsidian, turn
-  off *Settings → Files and links → Use [[Wikilinks]]* so new images are
-  inserted as standard Markdown.
+Одно сообщение Telegram вмещает примерно 32 000 символов, 50 картинок и
+500 блоков. Если заметка больше, бот разделит её на несколько сообщений по
+заголовкам `##`, а если раздел слишком большой — по `###` и между абзацами.
+У каждого продолжения сверху будет «Название (продолжение)». Абзац, список,
+таблица или формула никогда не разрезаются. Проверка пишет, какие заметки
+придётся разделить.
 
-### Links between articles
+## Предложения от учеников
 
-- `[[Треугольники]]` links by title or alias (case-insensitive).
-- `[[triangles]]` links by ID; `[[basic-notions]]` links by file slug.
-- `[[Треугольники|текст ссылки]]` sets the link text.
-- `[[Треугольники#Сумма углов]]` is accepted; the heading part is ignored.
-- Inside tables, write the separator as `\|`: `[[Треугольники\|треугольник]]`.
+Ученики и учителя предлагают правки прямо в боте. Каждое предложение
+приходит запросом на слияние (pull request) или задачей (issue):
 
-If the same title appears in several grades, a link resolves to the
-article in the linking article's grade. Use the ID to link elsewhere.
-Unresolved links are errors.
-
-In the bot, a `[[link]]` is shown as a link-styled button inside the text;
-tapping it replaces the current article with the linked one. Only plain text
-is shown in the link text, so keep it free of formatting and formulas.
-Deep links (`https://t.me/<bot>?start=<id>`) are for sharing an article
-outside the bot.
-
-Regular links to websites (`[text](https://…)`) work as usual.
-
-## Limits
-
-An article is sent as one Telegram message, which allows at most:
-
-| Limit | Value |
-|-------|-------|
-| Text characters (including formula source) | 32768 |
-| Blocks (paragraphs, list items, table rows, quotes, …) | 500 |
-| Images | 50 |
-| Nesting depth of blocks and formatting | 16 |
-| Table columns | 20 |
-
-The linter measures these conservatively. Split articles that come close.
+- исправленный текст — изменение заметки;
+- новая тема — папка `<номер> <Название>/<Название>.md`;
+- новая теорема, задача и т. п. — файл `<папка вида>/<Название>.md` и
+  ссылка на него на главной странице темы (следствие — под своей теоремой);
+- присланные картинки — в `_assets` темы, вставить их в текст нужно при
+  проверке.

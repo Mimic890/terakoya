@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -87,5 +88,31 @@ func TestChatMenuSurvivesRestart(t *testing.T) {
 	}
 	if id, err := s.LastChatMenu(ctx, 1); err != nil || id != 20 {
 		t.Fatalf("lastMenu after restart = %d, %v; want 20", id, err)
+	}
+}
+
+func TestMessageGroups(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	if err := s.SetMessageGroup(ctx, 42, []int{10, 11, 12}); err != nil {
+		t.Fatal(err)
+	}
+	s.SetMessageGroup(ctx, 7, []int{11, 13}) // another chat
+	for _, id := range []int{10, 11, 12} {
+		if got, err := s.MessageGroup(ctx, 42, id); err != nil || fmt.Sprint(got) != "[10 11 12]" {
+			t.Errorf("group of %d = %v, %v", id, got, err)
+		}
+	}
+	if got, _ := s.MessageGroup(ctx, 42, 99); fmt.Sprint(got) != "[99]" {
+		t.Errorf("single message = %v", got)
+	}
+	if err := s.DropMessageGroup(ctx, 42, 12); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.MessageGroup(ctx, 42, 10); fmt.Sprint(got) != "[10]" {
+		t.Errorf("after drop = %v", got)
+	}
+	if got, _ := s.MessageGroup(ctx, 7, 13); fmt.Sprint(got) != "[11 13]" {
+		t.Errorf("other chat = %v", got)
 	}
 }

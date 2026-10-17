@@ -35,15 +35,11 @@ func TestLatex(t *testing.T) {
 
 func loadArticle(t *testing.T, path string) string {
 	t.Helper()
-	raw, err := os.ReadFile("../../examples/content/" + path)
+	raw, err := os.ReadFile("testdata/" + path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, body, _, _, err := content.SplitFrontmatter(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
+	return string(content.CleanSource(raw))
 }
 
 var titles = Options{LinkTitle: func(target string) string {
@@ -54,14 +50,15 @@ var titles = Options{LinkTitle: func(target string) string {
 }}
 
 func TestPlainView(t *testing.T) {
-	body := loadArticle(t, "geometry/7/02-triangles.md")
+	body := loadArticle(t, "triangles.md")
 	secs := Sections(body, 3500, titles)
 	if len(secs) != 1 {
 		t.Fatalf("sections = %d", len(secs))
 	}
 	want := `Треугольники
 
-Треугольник — фигура из трёх точек, не лежащих на одной прямой, и трёх отрезков, попарно соединяющих эти точки (см. основные понятия).
+Треугольник — фигура из трёх точек, не лежащих на одной прямой, и трёх
+отрезков, попарно соединяющих эти точки (см. основные понятия).
 
 [картинка: Треугольник ABC]
 
@@ -88,9 +85,9 @@ func TestPlainView(t *testing.T) {
 		t.Errorf("section bounds %d..%d", secs[0].Start, secs[0].End)
 	}
 
-	q := loadArticle(t, "geometry/8/01-quadrilaterals.md")
+	q := loadArticle(t, "quadrilaterals.md")
 	got := Sections(q, 3500, Options{})[0].Plain()
-	for _, want := range []string{"Сумма углов выпуклого четырёхугольника равна 360°, потому что диагональ делит его на два треугольника.",
+	for _, want := range []string{"Сумма углов выпуклого четырёхугольника равна 360°, потому что диагональ\nделит его на два треугольника.",
 		"1. Противоположные стороны равны: AB = CD, BC = AD.\n2. Противоположные углы равны.",
 		"S = a · h_a\n= a b sin α",
 		"Формулы в блоках кода не обрабатываются: $x$ и [[ссылки]] остаются как есть."} {
@@ -158,7 +155,7 @@ func TestSectionsSplitLongArticles(t *testing.T) {
 // mergeCase edits the plain view of the triangles article.
 func mergeTriangles(t *testing.T, edit func(plain string) string) (Result, string) {
 	t.Helper()
-	body := loadArticle(t, "geometry/7/02-triangles.md")
+	body := loadArticle(t, "triangles.md")
 	sec := Sections(body, 3500, titles)[0]
 	r := Merge(body, sec, edit(sec.Plain()))
 	return r, body[:sec.Start] + r.Source + body[sec.End:]
@@ -191,7 +188,7 @@ func TestMergeOneWordKeepsFormatting(t *testing.T) {
 		t.Errorf("formula not restored:\n%s", got)
 	}
 	// Everything else is byte for byte the original.
-	body := loadArticle(t, "geometry/7/02-triangles.md")
+	body := loadArticle(t, "triangles.md")
 	if strings.Replace(got, "всегда ", "", 1) != body {
 		t.Errorf("other text changed:\n%s", got)
 	}
@@ -212,7 +209,7 @@ func TestMergeRestoresLinksBoldAndKinds(t *testing.T) {
 		t.Fatalf("result = %+v", r)
 	}
 	for _, want := range []string{
-		"**Треугольник** — фигура из трёх точек, не лежащих на одной прямой, и трёх отрезков, соединяющих попарно эти точки (см. [[basic-notions|основные понятия]]).",
+		"**Треугольник** — фигура из трёх точек, не лежащих на одной прямой, и трёх\nотрезков, соединяющих попарно эти точки (см. [[basic-notions|основные понятия]]).",
 		"\n## Какие бывают треугольники\n",
 		"| Тупоугольный | один угол тупой (больше $90^\\circ$) |",
 		"| Прямоугольный   | один угол равен $90^\\circ$       |", // untouched rows keep their padding
@@ -245,7 +242,7 @@ func TestMergeSplitParagraph(t *testing.T) {
 	if r.Mode != Matched || len(r.Changes) != 1 || strings.Count(r.Changes[0].After, "\n\n") != 1 {
 		t.Fatalf("result = %+v", r)
 	}
-	if !strings.Contains(got, "**Треугольник** — фигура из трёх точек, не лежащих на одной прямой.\n\nИ ещё из трёх отрезков") {
+	if !strings.Contains(got, "**Треугольник** — фигура из трёх точек, не лежащих на одной прямой.\n\nИ ещё из трёх\nотрезков") {
 		t.Errorf("split paragraph:\n%s", got)
 	}
 }
@@ -286,7 +283,7 @@ func TestMergeTextBeforeFirstParagraph(t *testing.T) {
 	if r.Mode != Matched || len(r.Changes) != 1 || r.Changes[0].Before != "" {
 		t.Fatalf("result = %+v", r)
 	}
-	body := loadArticle(t, "geometry/7/02-triangles.md")
+	body := loadArticle(t, "triangles.md")
 	if got != strings.Replace(body, "# Треугольники", "Это важная тема.\n\n# Треугольники", 1) {
 		t.Errorf("prepended:\n%s", got)
 	}
@@ -336,7 +333,7 @@ func TestMergePartial(t *testing.T) {
 	if r.Mode != Partial || len(r.Changes) != 1 || r.Shrunk {
 		t.Fatalf("result = %+v", r)
 	}
-	body := loadArticle(t, "geometry/7/02-triangles.md")
+	body := loadArticle(t, "triangles.md")
 	if got != strings.Replace(body, "равна $180", "равна ровно $180", 1) {
 		t.Errorf("partial edit:\n%s", got)
 	}
@@ -404,14 +401,15 @@ func TestRestoreWholeWordsOnly(t *testing.T) {
 // nothing, and editing or deleting one block leaves all others byte for
 // byte as they were.
 func TestMergeEveryBlock(t *testing.T) {
-	var bodies []string
-	for _, dir := range []string{"../../examples/content", "../render/testdata/content"} {
+	bodies := []string{loadArticle(t, "triangles.md"), loadArticle(t, "quadrilaterals.md")}
+	for _, dir := range []string{"../../examples/vault", "../render/testdata/vault"} {
 		cat, _, err := content.Load(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, a := range cat.Articles() {
-			bodies = append(bodies, a.Body)
+		for _, n := range cat.Notes() {
+			body, _ := content.SplitBacklink(n.Body)
+			bodies = append(bodies, body)
 		}
 	}
 	for _, body := range bodies {
@@ -462,5 +460,35 @@ func TestUserDollarsAreEscaped(t *testing.T) {
 	}
 	if got := restore("стоит $5 и x²", []Span{{Plain: "x²", Source: "$x^2$"}}); got != `стоит \$5 и $x^2$` {
 		t.Errorf("restore = %q", got)
+	}
+}
+
+func TestLatexVault(t *testing.T) {
+	cases := map[string]string{
+		`a \not\subset \alpha,\ a \parallel b`: "a ⊄ α, a ∥ b",
+		`M \notin b`:                           "M ∉ b",
+		`a \mathbin{\dot{-}} b`:                "a -̇ b",
+		`\begin{array}{l} a \not\subset \alpha \\ a \parallel b \end{array}`: "a ⊄ α\na ∥ b",
+		`\exists\, b \subset \alpha:\ b \parallel a`:                         "∃ b ⊂ α: b ∥ a",
+		`ABCA_1B_1C_1 \text{ — призма}`:                                      "ABCA₁B₁C₁ — призма",
+	}
+	for in, want := range cases {
+		if got := Latex(in); got != want {
+			t.Errorf("Latex(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Obsidian shows each line of a paragraph on its own line, and so does the
+// plain view; rows of an inline array are separated by semicolons.
+func TestPlainKeepsObsidianLines(t *testing.T) {
+	body := "**Дано:**\n$\\begin{array}{l} ABCA_1B_1C_1 \\text{ — призма} \\\\ M \\in A_1B_1 \\end{array}$\n\n**Доказать:**\n$a \\parallel \\alpha$\n"
+	sec := Sections(body, 3500, Options{})[0]
+	if got, want := sec.Plain(), "Дано:\nABCA₁B₁C₁ — призма; M ∈ A₁B₁\n\nДоказать:\na ∥ α"; got != want {
+		t.Errorf("plain = %q, want %q", got, want)
+	}
+	r := Merge(body, sec, strings.Replace(sec.Plain(), "Доказать:", "Доказать: (устно)", 1))
+	if r.Source != strings.Replace(body[:len(body)-1], "**Доказать:**", "**Доказать:** (устно)", 1) {
+		t.Errorf("merged = %q", r.Source)
 	}
 }

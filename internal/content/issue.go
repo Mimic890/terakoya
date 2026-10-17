@@ -6,13 +6,17 @@ import "fmt"
 type Severity int
 
 const (
-	Warning Severity = iota
+	Info Severity = iota - 1
+	Warning
 	Error
 )
 
 func (s Severity) String() string {
-	if s == Error {
+	switch s {
+	case Error:
 		return "error"
+	case Info:
+		return "info"
 	}
 	return "warning"
 }
@@ -20,7 +24,7 @@ func (s Severity) String() string {
 // Issue is a problem found in the content, reported by the loader, the
 // converter or the linter.
 type Issue struct {
-	// Path is relative to the catalog root, slash-separated.
+	// Path is relative to the vault root, slash-separated.
 	Path     string
 	Line     int
 	Severity Severity

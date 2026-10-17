@@ -33,10 +33,16 @@ var symbols = map[string]string{
 	"limits": "", "nolimits": "",
 }
 
+// negated are the symbols with a precomposed negation for \not.
+var negated = map[string]string{
+	"⊂": "⊄", "⊆": "⊈", "∈": "∉", "∥": "∦", "=": "≠", "≡": "≢", "∼": "≁", "≅": "≇", "∃": "∄",
+}
+
 // unwrap lists commands whose argument is shown as is.
 var unwrap = map[string]string{
 	"text": "", "mathrm": "", "mathbf": "", "mathit": "", "mathsf": "", "textbf": "", "textit": "",
 	"operatorname": "", "mbox": "", "boldsymbol": "", "overline": "", "underline": "",
+	"mathbin": "", "mathrel": "", "mathop": "", "mathord": "",
 	"vec": "⃗", "overrightarrow": "⃗", "hat": "̂", "bar": "̅",
 }
 
@@ -155,6 +161,24 @@ func (p *latexParser) command() string {
 			}
 		}
 		return "√" + paren(p.arg())
+	case "not":
+		// \not\subset → ⊄; other negations get a combining slash.
+		raw := p.arg()
+		arg := strings.TrimSpace(raw)
+		neg, ok := negated[arg]
+		if !ok {
+			neg = arg + "\u0338"
+		}
+		if raw != arg {
+			return " " + neg + " " // keep the spacing of a relation
+		}
+		return neg
+	case "dot", "ddot":
+		mark := "\u0307"
+		if name == "ddot" {
+			mark = "\u0308"
+		}
+		return strings.TrimSpace(p.arg()) + mark
 	case "begin", "end":
 		p.arg() // environment name
 		if p.i < len(p.src) && p.src[p.i] == '{' && name == "begin" {
@@ -171,7 +195,7 @@ func (p *latexParser) command() string {
 	}
 	if s, ok := symbols[name]; ok {
 		switch {
-		case isWordRune(s) && len(s) > 1:
+		case isWordRune(s) && utf8.RuneCountInString(s) > 1:
 			// sin, log: keep a space before the argument.
 			return s + " "
 		case binary[name]:

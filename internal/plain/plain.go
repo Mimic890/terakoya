@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/render"
 )
 
@@ -67,9 +68,6 @@ var (
 	fenceStart  = regexp.MustCompile("^[ \t]{0,3}(`{3,}|~{3,})")
 	headingLine = regexp.MustCompile(`^[ \t]{0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$`)
 	listItem    = regexp.MustCompile(`^([ \t]*)([-*+]|\d{1,9}[.)])[ \t]+(?:\[([ xX])\][ \t]+)?(.*)$`)
-	imageLine   = regexp.MustCompile(`^!\[([^\]]*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"([^"]*)")?\s*\)$`)
-	imageAt     = regexp.MustCompile(`^!\[([^\]]*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"([^"]*)")?\s*\)`)
-	linkAt      = regexp.MustCompile(`^\[([^\]]+)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"([^"]*)")?\s*\)`)
 	tableRule   = regexp.MustCompile(`^\|?[ \t]*:?-+:?[ \t]*(\|[ \t]*:?-+:?[ \t]*)*\|?$`)
 )
 
@@ -164,8 +162,11 @@ func (b *Block) render(lines []string, opt Options) {
 		b.Kind = classify(lines)
 		switch b.Kind {
 		case Image:
-			m := imageLine.FindStringSubmatch(strings.TrimSpace(lines[0]))
-			p := imageText(m[1])
+			l, _ := imageOnly(lines[0])
+			p := imageText(l.Text)
+			if l.Wiki {
+				p = imageMark
+			}
 			add(p, []Span{{Plain: p, Source: b.Source}})
 		case Table:
 			for _, l := range lines {
@@ -216,20 +217,28 @@ func (b *Block) render(lines []string, opt Options) {
 			for _, l := range lines {
 				text = append(text, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), ">")))
 			}
-			add(inline(strings.Join(text, " "), opt))
+			// Obsidian shows every line of a paragraph on its own line.
+			add(inline(strings.Join(text, "\n"), opt))
 		default:
 			var text []string
 			for _, l := range lines {
 				text = append(text, strings.TrimSpace(l))
 			}
-			add(inline(strings.Join(text, " "), opt))
+			add(inline(strings.Join(text, "\n"), opt))
 		}
 	}
 	b.Plain = joinLines(out)
 }
 
+// imageOnly parses a line that is just an image.
+func imageOnly(line string) (content.Link, bool) {
+	t := strings.TrimSpace(line)
+	l, ok := content.LinkAt(t)
+	return l, ok && l.Image && l.Len == len(t)
+}
+
 func classify(lines []string) Kind {
-	if len(lines) == 1 && imageLine.MatchString(strings.TrimSpace(lines[0])) {
+	if _, ok := imageOnly(lines[0]); ok && len(lines) == 1 {
 		return Image
 	}
 	if listItem.MatchString(lines[0]) {
@@ -337,61 +346,38 @@ func inline(s string, opt Options) (string, []Span) {
 			if strings.HasPrefix(rest, "$$") {
 				d = 2
 			}
-			span(rest[:n], strings.ReplaceAll(Latex(rest[d:n-d]), "\n", " "), nil)
+			// Rows of an inline array or aligned block, on one line.
+			span(rest[:n], strings.ReplaceAll(Latex(rest[d:n-d]), "\n", "; "), nil)
 			j += n
 
-		case strings.HasPrefix(rest, "![["):
-			end := strings.Index(rest, "]]")
-			if end < 0 {
+		case ch == '[' || ch == '!':
+			l, ok := content.LinkAt(rest)
+			if !ok {
 				b.WriteByte(ch)
 				j++
 				continue
 			}
-			span(rest[:end+2], imageMark, nil)
-			j += end + 2
-
-		case strings.HasPrefix(rest, "[["):
-			end := strings.Index(rest, "]]")
-			if end < 0 {
-				b.WriteByte(ch)
-				j++
-				continue
+			src := rest[:l.Len]
+			switch {
+			case l.Image && l.Wiki:
+				span(src, imageMark, nil)
+			case l.Image:
+				span(src, imageText(l.Text), nil)
+			case l.Wiki:
+				label := l.Text
+				target := strings.TrimSuffix(content.FileTarget(l), ".md")
+				if label == "" && opt.LinkTitle != nil {
+					label = opt.LinkTitle(target)
+				}
+				if label == "" {
+					label = content.TitleFromFile(target)
+				}
+				span(src, label, nil)
+			default:
+				p, inner := inline(l.Text, opt)
+				span(src, p, inner)
 			}
-			inner := strings.ReplaceAll(rest[2:end], `\|`, "|")
-			target, label, _ := strings.Cut(inner, "|")
-			if h := strings.IndexAny(target, "#^"); h >= 0 {
-				target = target[:h]
-			}
-			target, label = strings.TrimSpace(target), strings.TrimSpace(label)
-			if label == "" && opt.LinkTitle != nil {
-				label = opt.LinkTitle(target)
-			}
-			if label == "" {
-				label = target
-			}
-			span(rest[:end+2], label, nil)
-			j += end + 2
-
-		case strings.HasPrefix(rest, "!["):
-			m := imageAt.FindStringSubmatch(rest)
-			if m == nil {
-				b.WriteByte(ch)
-				j++
-				continue
-			}
-			span(m[0], imageText(m[1]), nil)
-			j += len(m[0])
-
-		case ch == '[':
-			m := linkAt.FindStringSubmatch(rest)
-			if m == nil {
-				b.WriteByte(ch)
-				j++
-				continue
-			}
-			p, inner := inline(m[1], opt)
-			span(m[0], p, inner)
-			j += len(m[0])
+			j += l.Len
 
 		case ch == '*' || ch == '_' || ch == '~':
 			n, delim := emphasis(s, j)
