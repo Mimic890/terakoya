@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -26,6 +28,27 @@ type Config struct {
 	RepoBranch    string `yaml:"repo_branch" env:"TERAKOYA_REPO_BRANCH"`
 	ContentSubdir string `yaml:"content_subdir" env:"TERAKOYA_CONTENT_SUBDIR"`
 
+	// Git host for suggestions: "github" or "forgejo". Empty disables
+	// suggestions, webhooks and sync.
+	GitHost          string `yaml:"git_host" env:"TERAKOYA_GIT_HOST"`
+	GitAPIURL        string `yaml:"git_api_url" env:"TERAKOYA_GIT_API_URL"`
+	GitRepo          string `yaml:"git_repo" env:"TERAKOYA_GIT_REPO"`
+	GitToken         string `yaml:"git_token" env:"TERAKOYA_GIT_TOKEN"`
+	GitWebhookSecret string `yaml:"git_webhook_secret" env:"TERAKOYA_GIT_WEBHOOK_SECRET"`
+	GitAuthorName    string `yaml:"git_author_name" env:"TERAKOYA_GIT_AUTHOR_NAME"`
+	GitAuthorEmail   string `yaml:"git_author_email" env:"TERAKOYA_GIT_AUTHOR_EMAIL"`
+	// AcceptedLabel marks an error report (an issue) as accepted when it is
+	// closed.
+	AcceptedLabel string `yaml:"accepted_label" env:"TERAKOYA_ACCEPTED_LABEL"`
+
+	HTTPAddr     string        `yaml:"http_addr" env:"TERAKOYA_HTTP_ADDR"`
+	SyncInterval time.Duration `yaml:"sync_interval" env:"TERAKOYA_SYNC_INTERVAL"`
+
+	SuggestCooldown time.Duration `yaml:"suggest_cooldown" env:"TERAKOYA_SUGGEST_COOLDOWN"`
+	SuggestMaxOpen  int64         `yaml:"suggest_max_open" env:"TERAKOYA_SUGGEST_MAX_OPEN"`
+	SuggestMaxBytes int64         `yaml:"suggest_max_bytes" env:"TERAKOYA_SUGGEST_MAX_BYTES"`
+	ImageMaxBytes   int64         `yaml:"image_max_bytes" env:"TERAKOYA_IMAGE_MAX_BYTES"`
+
 	DataDir     string `yaml:"data_dir" env:"TERAKOYA_DATA_DIR"`
 	CacheChatID int64  `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
 	Ranks       string `yaml:"ranks" env:"TERAKOYA_RANKS"`
@@ -38,12 +61,21 @@ type Config struct {
 // Default returns the built-in defaults.
 func Default() Config {
 	return Config{
-		RepoDir:       "./content",
-		RepoBranch:    "main",
-		ContentSubdir: "content",
-		DataDir:       "./data",
-		Ranks:         ranks.Default,
-		LogLevel:      "info",
+		RepoDir:         "./content",
+		RepoBranch:      "main",
+		ContentSubdir:   "content",
+		DataDir:         "./data",
+		GitAuthorName:   "terakoya",
+		GitAuthorEmail:  "terakoya@localhost",
+		AcceptedLabel:   "accepted",
+		HTTPAddr:        ":8080",
+		SyncInterval:    5 * time.Minute,
+		SuggestCooldown: time.Minute,
+		SuggestMaxOpen:  5,
+		SuggestMaxBytes: 256 << 10,
+		ImageMaxBytes:   5 << 20,
+		Ranks:           ranks.Default,
+		LogLevel:        "info",
 	}
 }
 
@@ -86,6 +118,14 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 			continue
 		}
 		f := v.Field(i)
+		if f.Type() == reflect.TypeOf(time.Duration(0)) {
+			d, err := time.ParseDuration(strings.TrimSpace(val))
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			f.SetInt(int64(d))
+			continue
+		}
 		switch f.Kind() {
 		case reflect.String:
 			f.SetString(val)
@@ -110,10 +150,43 @@ func (c Config) DBPath() string {
 	return filepath.Join(c.DataDir, "terakoya.db")
 }
 
+// Suggestions reports whether the git host is configured, which enables
+// suggestions, git webhooks and content sync.
+func (c Config) Suggestions() bool { return c.GitHost != "" }
+
 // Validate checks the options needed to run the bot.
 func (c Config) Validate() error {
 	if c.BotToken == "" {
 		return fmt.Errorf("TERAKOYA_BOT_TOKEN is required")
+	}
+	if !c.Suggestions() {
+		return nil
+	}
+	switch c.GitHost {
+	case "github", "forgejo":
+	default:
+		return fmt.Errorf("TERAKOYA_GIT_HOST must be github or forgejo")
+	}
+	var missing []string
+	for name, v := range map[string]string{
+		"TERAKOYA_REPO_URL":           c.RepoURL,
+		"TERAKOYA_GIT_REPO":           c.GitRepo,
+		"TERAKOYA_GIT_TOKEN":          c.GitToken,
+		"TERAKOYA_GIT_WEBHOOK_SECRET": c.GitWebhookSecret,
+	} {
+		if v == "" {
+			missing = append(missing, name)
+		}
+	}
+	if c.GitHost == "forgejo" && c.GitAPIURL == "" {
+		missing = append(missing, "TERAKOYA_GIT_API_URL")
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("with TERAKOYA_GIT_HOST set, these are required: %s", strings.Join(missing, ", "))
+	}
+	if strings.Count(c.GitRepo, "/") != 1 {
+		return fmt.Errorf("TERAKOYA_GIT_REPO must be owner/name")
 	}
 	return nil
 }

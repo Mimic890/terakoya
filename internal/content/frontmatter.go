@@ -22,13 +22,19 @@ var knownFrontmatterKeys = map[string]bool{
 	"tags": true, "cssclasses": true,
 }
 
+// CleanSource drops a byte order mark and converts CRLF line endings, as
+// SplitFrontmatter does before splitting; the body it returns is a suffix
+// of the cleaned source.
+func CleanSource(raw []byte) []byte {
+	return bytes.ReplaceAll(bytes.TrimPrefix(raw, []byte("\ufeff")), []byte("\r\n"), []byte("\n"))
+}
+
 // SplitFrontmatter separates a leading "---" YAML block from the body.
 // It returns the YAML source (without delimiters), the body, and the 1-based
 // line where the body starts. ok is false if there is no frontmatter; an
 // unterminated block is reported as an error.
 func SplitFrontmatter(raw []byte) (yamlSrc, body string, bodyLine int, ok bool, err error) {
-	src := string(bytes.TrimPrefix(raw, []byte("\ufeff")))
-	src = strings.ReplaceAll(src, "\r\n", "\n")
+	src := string(CleanSource(raw))
 	if !strings.HasPrefix(src, "---\n") {
 		return "", src, 1, false, nil
 	}

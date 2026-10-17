@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	tg "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
 	"github.com/Mimic890/terakoya/internal/config"
 	"github.com/Mimic890/terakoya/internal/content"
+	"github.com/Mimic890/terakoya/internal/githost"
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/media"
@@ -28,10 +30,14 @@ type Bot struct {
 	store *store.Store
 	repo  *gitrepo.Repo
 	media *media.Resolver
+	host  githost.Host // nil when suggestions are off
 	log   *slog.Logger
 	t     i18n.Strings
 
-	msgs *tracker
+	msgs        *tracker
+	userLocks   userLocks
+	syncMu      sync.Mutex
+	rejectGrace time.Duration
 
 	mu  sync.RWMutex
 	cat *content.Catalog
@@ -39,13 +45,15 @@ type Bot struct {
 }
 
 // New creates the bot and loads the catalog.
-func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, log *slog.Logger) (*Bot, error) {
-	b := &Bot{cfg: cfg, store: st, repo: repo, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log}}
-	api, err := tg.New(cfg.BotToken,
+// Extra options are passed to the Telegram client.
+func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
+	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
+		rejectGrace: rejectGrace}
+	api, err := tg.New(cfg.BotToken, append([]tg.Option{
 		tg.WithDefaultHandler(b.handle),
 		tg.WithAllowedUpdates(tg.AllowedUpdates{"message", "callback_query", "my_chat_member"}),
 		tg.WithErrorsHandler(func(err error) { log.Error("telegram", "err", err) }),
-	)
+	}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +72,10 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 	return b, nil
 }
 
-// Run polls Telegram for updates until ctx is cancelled.
+// Run polls Telegram for updates and syncs content until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
-	b.log.Info("bot started", "username", b.cfg.BotUsername)
+	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil)
+	go b.syncLoop(ctx)
 	b.api.Start(ctx)
 }
 
@@ -123,6 +132,20 @@ func (b *Bot) logGroupMessage(m *models.Message) {
 func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	b.msgs.seen(ctx, m.Chat.ID, m.ID)
 	cmd, arg := splitCommand(m.Text)
+	switch cmd {
+	case "/cancel":
+		b.cancelSuggestion(ctx, m.Chat.ID, m.From.ID)
+		return
+	case "/start":
+		// Navigating away abandons a pending suggestion.
+		if err := b.store.DeleteSession(ctx, m.From.ID); err != nil {
+			b.log.Error("delete session", "err", err)
+		}
+	case "":
+		if b.onSessionMessage(ctx, m) {
+			return
+		}
+	}
 	switch cmd {
 	case "/start":
 		if arg != "" {

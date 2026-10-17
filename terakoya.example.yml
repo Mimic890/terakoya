@@ -10,3 +10,20 @@ data_dir: ./data
 cache_chat_id: 0
 ranks: "kōhai:0,senpai:3,sensei:10"
 log_level: info
+
+# Suggestions, git webhooks and content sync (all off while git_host is empty).
+git_host: ""            # github or forgejo
+git_api_url: ""         # Forgejo base URL, e.g. https://git.example.org; GitHub: https://api.github.com
+git_repo: ""            # owner/name of the content repository
+git_token: ""
+git_webhook_secret: ""
+git_author_name: terakoya
+git_author_email: terakoya@localhost
+# Label that marks an error report (an issue) as accepted.
+# accepted_label: accepted
+http_addr: ":8080"
+sync_interval: 5m
+suggest_cooldown: 1m
+suggest_max_open: 5
+suggest_max_bytes: 262144
+image_max_bytes: 5242880
