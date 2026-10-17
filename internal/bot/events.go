@@ -189,11 +189,17 @@ func (b *Bot) Sync(ctx context.Context) {
 	}
 }
 
-// syncLoop pulls periodically as a fallback for missed push webhooks, and
-// checks open suggestions as a fallback for missed pull request and issue
-// webhooks.
+// syncLoop pulls on start and then periodically as a fallback for missed
+// push webhooks, and checks open suggestions as a fallback for missed pull
+// request and issue webhooks.
 func (b *Bot) syncLoop(ctx context.Context) {
-	if !b.repo.Managed() || b.cfg.SyncInterval <= 0 {
+	if !b.repo.Managed() {
+		return
+	}
+	// A checkout from an earlier run may be behind.
+	b.Sync(ctx)
+	b.reconcile(ctx)
+	if b.cfg.SyncInterval <= 0 {
 		return
 	}
 	t := time.NewTicker(b.cfg.SyncInterval)
