@@ -1,9 +1,11 @@
-// Package render converts article Markdown into Telegram Rich Markdown.
+// Package render converts vault notes into Telegram Rich Markdown.
 //
 // The conversion works on the source text so that everything Telegram
-// already understands passes through unchanged. It only rewrites what
-// Telegram cannot render from a content repository: block math, local
-// images, [[wikilinks]] and stray dollar signs.
+// already understands passes through unchanged. It rewrites what Telegram
+// cannot render from a vault: block math, local images, links between
+// notes, Obsidian's line breaks, stray dollar signs and the back-link block
+// at the end of a note. Notes too long for one message are split at
+// headings into several parts.
 package render
 
 import (
@@ -12,10 +14,8 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -25,42 +25,52 @@ import (
 // MaxImageSize is the largest image Telegram accepts as a photo.
 const MaxImageSize = 10 << 20
 
-// ImageExts are the image formats that can be sent as photos.
-var ImageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true}
+// ImageExts are the picture formats of a vault. SVG is rasterized before
+// sending.
+var ImageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".svg": true}
 
-// ArticleCallbackPrefix starts the callback_data of buttons that open an
-// article; the rest is the article ID.
+// ArticleCallbackPrefix starts the callback_data of buttons that open a
+// note; the rest is the note ID.
 const ArticleCallbackPrefix = "a:"
 
 // Options configure a conversion.
 type Options struct {
 	Limits Limits
+	// Continued formats the title repeated at the top of every part after
+	// the first, e.g. "%s (продолжение)".
+	Continued string
 }
 
 // Media is a local image referenced from the converted Markdown as
 // tg://photo?id=<ID>.
 type Media struct {
-	ID      string
+	ID string
+	// SHA256 is the hash of the file as stored (the SVG source for SVGs).
 	SHA256  string
 	AbsPath string
+	Path    string // vault-relative
+	SVG     bool
+}
+
+// Part is one rich message.
+type Part struct {
+	Markdown string
+	// Media lists each distinct local image once, in order of first use.
+	Media []Media
+	Stats Stats
 }
 
 // Result of a conversion.
 type Result struct {
-	Markdown string
-	// Media lists each distinct local image once, in order of first use.
-	Media  []Media
-	Stats  Stats
+	Parts  []Part
 	Issues []content.Issue
 }
 
-// LimitErrors returns the issues caused by Telegram message limits.
-func (r *Result) LimitErrors() []content.Issue {
-	var out []content.Issue
-	for _, i := range r.Issues {
-		if strings.HasPrefix(i.Msg, limitPrefix) {
-			out = append(out, i)
-		}
+// Media returns the images of all parts.
+func (r *Result) Media() []Media {
+	var out []Media
+	for _, p := range r.Parts {
+		out = append(out, p.Media...)
 	}
 	return out
 }
@@ -68,61 +78,140 @@ func (r *Result) LimitErrors() []content.Issue {
 // MediaID returns the rich message media ID for a file hash.
 func MediaID(sha string) string { return "p" + sha[:24] }
 
-// Convert renders an article from cat.
-func Convert(cat *content.Catalog, a *content.Article, opts Options) *Result {
+// Convert renders a note from cat, split into as many parts as the
+// Telegram limits require.
+func Convert(cat *content.Catalog, n *content.Note, opts Options) *Result {
 	if opts.Limits == (Limits{}) {
 		opts.Limits = DefaultLimits
 	}
-	c := &converter{cat: cat, art: a, opts: opts, res: &Result{}, mediaSeen: map[string]bool{}}
-	c.run()
-	c.res.Stats = Measure(c.res.Markdown)
-	c.res.Stats.Media = c.mediaRefs
-	for _, msg := range opts.Limits.Check(c.res.Stats) {
-		c.issue(0, content.Error, "%s", msg)
+	if opts.Continued == "" {
+		opts.Continued = "%s (cont.)"
 	}
-	return c.res
+	body, _ := content.SplitBacklink(n.Body)
+	lines := strings.Split(body, "\n")
+	src := make([]srcLine, len(lines))
+	for i, l := range lines {
+		src[i] = srcLine{l, i + 1}
+	}
+	res := &Result{}
+	issues := map[content.Issue]bool{}
+	add := func(is []content.Issue) {
+		for _, i := range is {
+			if !issues[i] {
+				issues[i] = true
+				res.Issues = append(res.Issues, i)
+			}
+		}
+	}
+
+	conv := func(src []srcLine, first bool) (*converter, []string) {
+		if !first {
+			head := srcLine{"# " + fmt.Sprintf(opts.Continued, n.Title), 0}
+			src = append([]srcLine{head, {"", 0}}, src...)
+		}
+		c := &converter{cat: cat, note: n, mediaSeen: map[string]bool{}}
+		c.run(src)
+		return c, opts.Limits.Check(c.part.Stats)
+	}
+	if c, over := conv(src, true); len(over) == 0 {
+		res.Parts = []Part{c.part}
+		add(c.issues)
+		return res
+	}
+
+	pieces := split(src, func(p []srcLine) bool {
+		_, over := conv(p, false)
+		return len(over) == 0
+	})
+	var cur []srcLine
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		c, over := conv(cur, len(res.Parts) == 0)
+		add(c.issues)
+		for _, msg := range over {
+			add([]content.Issue{{Path: n.Path, Line: cur[0].no, Severity: content.Error,
+				Msg: msg + "; this block cannot be split further"}})
+		}
+		res.Parts = append(res.Parts, c.part)
+		cur = nil
+	}
+	for _, p := range pieces {
+		if len(cur) > 0 {
+			if _, over := conv(join(cur, p), len(res.Parts) == 0); len(over) > 0 {
+				flush()
+			}
+		}
+		cur = join(cur, p)
+	}
+	flush()
+	if len(res.Parts) > 1 {
+		add([]content.Issue{{Path: n.Path, Severity: content.Info,
+			Msg: fmt.Sprintf("too long for one message; sent in %d parts", len(res.Parts))}})
+	}
+	return res
+}
+
+func join(a, b []srcLine) []srcLine {
+	out := append([]srcLine{}, a...)
+	if len(out) > 0 && len(b) > 0 {
+		out = append(out, srcLine{"", 0})
+	}
+	return append(out, b...)
+}
+
+type srcLine struct {
+	text string
+	no   int // 1-based line in the note, 0 for generated lines
 }
 
 type converter struct {
 	cat       *content.Catalog
-	art       *content.Article
-	opts      Options
-	res       *Result
+	note      *content.Note
+	part      Part
+	issues    []content.Issue
 	out       []string
+	breakable []bool // whether out[i] is ordinary text that may take a line break
 	mediaSeen map[string]bool
 	mediaRefs int
 }
 
 func (c *converter) issue(line int, sev content.Severity, format string, args ...any) {
-	is := content.Issue{Path: c.art.Path, Line: line, Severity: sev, Msg: fmt.Sprintf(format, args...)}
-	for _, prev := range c.res.Issues {
+	is := content.Issue{Path: c.note.Path, Line: line, Severity: sev, Msg: fmt.Sprintf(format, args...)}
+	for _, prev := range c.issues {
 		if prev == is {
 			return
 		}
 	}
-	c.res.Issues = append(c.res.Issues, is)
+	c.issues = append(c.issues, is)
+}
+
+func (c *converter) emit(line string, text bool) {
+	c.out = append(c.out, line)
+	c.breakable = append(c.breakable, text)
 }
 
 var (
 	fenceOpen = regexp.MustCompile("^([ \t]*(?:>[ \t]?)*[ \t]*)(`{3,}|~{3,})(.*)$")
 	// linePrefix matches indentation and blockquote markers.
 	linePrefix = regexp.MustCompile(`^[ \t]*(?:>[ \t]?)*[ \t]*`)
-	imageLine  = regexp.MustCompile(`^!\[([^\]]*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"([^"]*)")?\s*\)$`)
-	imageAt    = regexp.MustCompile(`^!\[([^\]]*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"([^"]*)")?\s*\)`)
+	// blockStart matches lines that start a new block rather than continue
+	// a paragraph.
+	blockStart = regexp.MustCompile(`^[ \t]*(?:[-*+][ \t]|\d+[.)][ \t]|#{1,6}([ \t]|$)|\||` + "```" + `|~~~|\$\$|>)`)
 )
 
-func (c *converter) run() {
-	lines := strings.Split(strings.TrimLeft(c.art.Body, "\n"), "\n")
-	// Keep line numbers right after trimming leading blank lines.
-	first := c.art.BodyLine + strings.Count(c.art.Body, "\n") - strings.Count(strings.TrimLeft(c.art.Body, "\n"), "\n")
-
+func (c *converter) run(src []srcLine) {
+	// Leading blank lines carry no content.
+	for len(src) > 0 && strings.TrimSpace(src[0].text) == "" {
+		src = src[1:]
+	}
 	var fence string // closing fence marker while inside a code block
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		lineNo := first + i
+	for i := 0; i < len(src); i++ {
+		line, lineNo := src[i].text, src[i].no
 
 		if fence != "" {
-			c.out = append(c.out, line)
+			c.emit(line, false)
 			rest := strings.TrimSpace(linePrefix.ReplaceAllString(line, ""))
 			if strings.HasPrefix(rest, fence) && strings.Trim(rest, fence[:1]) == "" {
 				fence = ""
@@ -131,7 +220,7 @@ func (c *converter) run() {
 		}
 		if m := fenceOpen.FindStringSubmatch(line); m != nil && !(m[2][0] == '`' && strings.Contains(m[3], "`")) {
 			fence = m[2]
-			c.out = append(c.out, line)
+			c.emit(line, false)
 			continue
 		}
 
@@ -139,46 +228,73 @@ func (c *converter) run() {
 		body := strings.TrimSpace(line[len(prefix):])
 
 		if strings.HasPrefix(body, "$$") {
-			if n := c.blockMath(lines[i:], prefix, lineNo); n > 0 {
+			if n := c.blockMath(src[i:], prefix, lineNo); n > 0 {
 				i += n - 1
 				continue
 			}
 		}
-		if m := imageLine.FindStringSubmatch(body); m != nil {
-			c.imageBlock(prefix, m, lineNo)
+		if l, ok := content.LinkAt(body); ok && l.Image && l.Len == len(body) {
+			c.imageBlock(prefix, l, lineNo)
 			continue
 		}
-		c.out = append(c.out, prefix+c.inline(body, lineNo))
+		text := body != "" && !strings.HasPrefix(body, "|")
+		c.emit(prefix+c.inline(body, lineNo), text)
 	}
-	c.res.Markdown = strings.TrimRight(strings.Join(c.out, "\n"), "\n") + "\n"
+	c.lineBreaks()
+	c.part.Markdown = strings.TrimRight(strings.Join(c.out, "\n"), "\n") + "\n"
+	c.part.Stats = Measure(c.part.Markdown)
+	c.part.Stats.Media = c.mediaRefs
 }
 
-// blockMath converts a $$…$$ block that starts at lines[0] into a ```math
+// lineBreaks keeps Obsidian's line breaks: a single newline inside a
+// paragraph is a line break there, while Markdown would join the lines.
+// Two trailing spaces make it a hard break.
+func (c *converter) lineBreaks() {
+	for i := 0; i+1 < len(c.out); i++ {
+		if !c.breakable[i] || !c.breakable[i+1] {
+			continue
+		}
+		next := c.out[i+1]
+		if blockStart.MatchString(next) && !continuesQuote(c.out[i], next) {
+			continue
+		}
+		c.out[i] = strings.TrimRight(c.out[i], " \t") + "  "
+	}
+}
+
+// continuesQuote reports whether next is the next line of the quote that
+// line is in, rather than the start of a new block.
+func continuesQuote(line, next string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), ">") && strings.HasPrefix(strings.TrimSpace(next), ">") &&
+		!blockStart.MatchString(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(next), ">")))
+}
+
+// blockMath converts a $$…$$ block that starts at src[0] into a ```math
 // fence and returns the number of lines consumed, or 0 if the block is not
 // terminated.
-func (c *converter) blockMath(lines []string, prefix string, lineNo int) int {
+func (c *converter) blockMath(src []srcLine, prefix string, lineNo int) int {
 	strip := func(l string) string {
 		if strings.HasPrefix(l, prefix) {
 			return l[len(prefix):]
 		}
 		return strings.TrimLeft(l, " \t>")
 	}
-	first := strings.TrimLeft(strings.TrimSpace(strip(lines[0]))[2:], " \t")
-	var src []string
+	first := strings.TrimLeft(strings.TrimSpace(strip(src[0].text))[2:], " \t")
+	var lines []string
 	n := 0
 	if end := strings.Index(first, "$$"); end >= 0 {
 		if tail := strings.TrimSpace(first[end+2:]); tail != "" {
 			c.issue(lineNo, content.Error, "text after closing $$ on the same line")
 		}
-		src = append(src, first[:end])
+		lines = append(lines, first[:end])
 		n = 1
 	} else {
-		src = append(src, first)
-		for j := 1; j < len(lines); j++ {
-			l := strip(lines[j])
+		lines = append(lines, first)
+		for j := 1; j < len(src); j++ {
+			l := strip(src[j].text)
 			t := strings.TrimRight(l, " \t")
 			if strings.HasSuffix(t, "$$") {
-				src = append(src, strings.TrimSuffix(t, "$$"))
+				lines = append(lines, strings.TrimSuffix(t, "$$"))
 				n = j + 1
 				break
 			}
@@ -186,7 +302,7 @@ func (c *converter) blockMath(lines []string, prefix string, lineNo int) int {
 				// A blank line ends a paragraph, so the block cannot continue.
 				break
 			}
-			src = append(src, l)
+			lines = append(lines, l)
 		}
 	}
 	if n == 0 {
@@ -194,7 +310,7 @@ func (c *converter) blockMath(lines []string, prefix string, lineNo int) int {
 		return 0
 	}
 	var body []string
-	for _, l := range src {
+	for _, l := range lines {
 		if strings.TrimSpace(l) != "" {
 			body = append(body, strings.TrimRight(l, " \t"))
 		}
@@ -202,11 +318,11 @@ func (c *converter) blockMath(lines []string, prefix string, lineNo int) int {
 	if len(body) == 0 {
 		c.issue(lineNo, content.Error, "empty $$ block")
 	}
-	c.out = append(c.out, prefix+"```math")
+	c.emit(prefix+"```math", false)
 	for _, l := range dedent(body) {
-		c.out = append(c.out, prefix+l)
+		c.emit(prefix+l, false)
 	}
-	c.out = append(c.out, prefix+"```")
+	c.emit(prefix+"```", false)
 	return n
 }
 
@@ -225,68 +341,55 @@ func dedent(lines []string) []string {
 	return out
 }
 
-func (c *converter) imageBlock(prefix string, m []string, lineNo int) {
-	alt, target, title := m[1], strings.Trim(m[2], "<>"), m[3]
-	if isRemote(target) {
+func (c *converter) imageBlock(prefix string, l content.Link, lineNo int) {
+	if !l.Wiki && content.IsRemote(l.Target) {
 		c.mediaRefs++
-		c.out = append(c.out, prefix+m[0])
+		c.emit(prefix+"!["+l.Text+"]("+l.Target+")", false)
 		return
 	}
-	media, err := c.localImage(target)
+	media, err := c.localImage(l)
 	if err != nil {
-		c.issue(lineNo, content.Error, "image %s: %v", target, err)
-		if alt != "" {
-			c.out = append(c.out, prefix+escapeText(alt))
+		c.issue(lineNo, content.Error, "image %s: %v", content.FileTarget(l), err)
+		if l.Text != "" && !l.Wiki {
+			c.emit(prefix+escapeText(l.Text), true)
 		}
 		return
 	}
 	c.mediaRefs++
 	if !c.mediaSeen[media.ID] {
 		c.mediaSeen[media.ID] = true
-		c.res.Media = append(c.res.Media, media)
+		c.part.Media = append(c.part.Media, media)
+	}
+	alt := l.Text
+	if l.Wiki {
+		alt = ""
 	}
 	ref := "![" + alt + "](tg://photo?id=" + media.ID
-	if title != "" {
-		ref += ` "` + title + `"`
+	if l.Title != "" {
+		ref += ` "` + l.Title + `"`
 	}
-	c.out = append(c.out, prefix+ref+")")
+	c.emit(prefix+ref+")", false)
 }
 
-func isRemote(target string) bool {
-	return strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "tg://")
-}
-
-// localImage resolves an image path relative to the article and hashes it.
-func (c *converter) localImage(target string) (Media, error) {
-	p, err := url.PathUnescape(target)
+// localImage resolves an image link and hashes the file.
+func (c *converter) localImage(l content.Link) (Media, error) {
+	rel, err := c.cat.ResolveImage(c.note, l)
 	if err != nil {
-		p = target
+		return Media{}, err
 	}
-	if path.IsAbs(p) || strings.Contains(p, "\\") {
-		return Media{}, fmt.Errorf("path must be relative to the article")
+	ext := strings.ToLower(path.Ext(rel))
+	if !ImageExts[ext] {
+		return Media{}, fmt.Errorf("unsupported format %q (use svg, png or jpg)", ext)
 	}
-	rel := path.Clean(path.Join(path.Dir(c.art.Path), p))
-	if rel == ".." || strings.HasPrefix(rel, "../") {
-		return Media{}, fmt.Errorf("path leaves the content directory")
-	}
-	if ext := strings.ToLower(path.Ext(rel)); !ImageExts[ext] {
-		return Media{}, fmt.Errorf("unsupported format %q (use png, jpg or webp)", ext)
-	}
-	abs := filepath.Join(c.cat.Root, filepath.FromSlash(rel))
+	abs := c.cat.Root + "/" + rel
 	f, err := os.Open(abs)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return Media{}, fmt.Errorf("file not found")
-		}
 		return Media{}, err
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
 		return Media{}, err
-	}
-	if st.IsDir() {
-		return Media{}, fmt.Errorf("is a directory")
 	}
 	if st.Size() > MaxImageSize {
 		return Media{}, fmt.Errorf("file is larger than %d MB", MaxImageSize>>20)
@@ -296,7 +399,7 @@ func (c *converter) localImage(target string) (Media, error) {
 		return Media{}, err
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	return Media{ID: MediaID(sum), SHA256: sum, AbsPath: abs}, nil
+	return Media{ID: MediaID(sum), SHA256: sum, AbsPath: abs, Path: rel, SVG: ext == ".svg"}, nil
 }
 
 // inline rewrites one line of text outside code blocks.
@@ -329,36 +432,15 @@ func (c *converter) inline(s string, lineNo int) string {
 			b.WriteString(`\$`)
 			j++
 
-		case strings.HasPrefix(s[j:], "![["):
-			end := strings.Index(s[j+3:], "]]")
-			if end < 0 {
+		case ch == '[' || ch == '!':
+			l, ok := content.LinkAt(s[j:])
+			if !ok {
 				b.WriteByte(ch)
 				j++
 				continue
 			}
-			c.issue(lineNo, content.Error, "![[%s]] embeds are not supported; use ![alt](assets/file.png)", s[j+3:j+3+end])
-			j += 3 + end + 2
-
-		case strings.HasPrefix(s[j:], "[["):
-			end := strings.Index(s[j+2:], "]]")
-			if end < 0 {
-				b.WriteByte(ch)
-				j++
-				continue
-			}
-			b.WriteString(c.wikilink(s[j+2:j+2+end], lineNo))
-			j += 2 + end + 2
-
-		case ch == '!' && strings.HasPrefix(s[j:], "!["):
-			m := imageAt.FindStringSubmatch(s[j:])
-			if m == nil {
-				b.WriteByte(ch)
-				j++
-				continue
-			}
-			c.issue(lineNo, content.Error, "image %s must be on its own line", m[2])
-			b.WriteString(escapeText(m[1]))
-			j += len(m[0])
+			b.WriteString(c.link(l, lineNo))
+			j += l.Len
 
 		default:
 			b.WriteByte(ch)
@@ -368,30 +450,37 @@ func (c *converter) inline(s string, lineNo int) string {
 	return b.String()
 }
 
-func (c *converter) wikilink(inner string, lineNo int) string {
-	// Inside tables Obsidian escapes the alias separator as \|.
-	inner = strings.ReplaceAll(inner, `\|`, "|")
-	target, label, _ := strings.Cut(inner, "|")
-	if h := strings.IndexAny(target, "#^"); h >= 0 {
-		target = target[:h]
+// link renders a link inside a line: a note link becomes a callback button
+// that opens the note in place, a web link stays as it is.
+func (c *converter) link(l content.Link, lineNo int) string {
+	if l.Image {
+		c.issue(lineNo, content.Error, "image %s must be on its own line", content.FileTarget(l))
+		return escapeText(l.Text)
 	}
-	target = strings.TrimSpace(target)
-	label = strings.TrimSpace(label)
-	a := c.cat.Resolve(c.art, target)
-	if a == nil {
-		c.issue(lineNo, content.Error, "link [[%s]] does not match any article", target)
+	if !l.Wiki && content.IsRemote(l.Target) {
+		return "[" + l.Text + "](" + l.Target + ")"
+	}
+	label := l.Text
+	n, err := c.cat.ResolveNote(c.note, l)
+	if err != nil {
+		c.issue(lineNo, content.Error, "link to %s: %v", content.FileTarget(l), err)
 		if label == "" {
-			label = target
+			label = content.TitleFromFile(path.Base(content.FileTarget(l)))
 		}
 		return escapeText(label)
 	}
 	if label == "" {
-		label = a.Title
+		label = n.Title
 	}
-	// An inline callback button styled as a link opens the article in place;
-	// a t.me deep link would make the user send a visible /start message.
-	return `<tg-button type="callback_data" style="link" data="` + html.EscapeString(ArticleCallbackPrefix+a.ID) + `">` +
-		html.EscapeString(label) + "</tg-button>"
+	// Button text is plain: drop Markdown and math markers.
+	return `<tg-button type="callback_data" style="link" data="` + html.EscapeString(ArticleCallbackPrefix+n.ID) + `">` +
+		html.EscapeString(plainLabel(label)) + "</tg-button>"
+}
+
+var labelMarks = strings.NewReplacer("**", "", "__", "", "~~", "", "`", "", "$", "", `\`, "")
+
+func plainLabel(s string) string {
+	return strings.TrimSpace(labelMarks.Replace(s))
 }
 
 func escapeText(s string) string {

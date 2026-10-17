@@ -23,10 +23,9 @@ type Config struct {
 	BotToken    string `yaml:"bot_token" env:"TERAKOYA_BOT_TOKEN"`
 	BotUsername string `yaml:"bot_username" env:"TERAKOYA_BOT_USERNAME"`
 
-	RepoDir       string `yaml:"repo_dir" env:"TERAKOYA_REPO_DIR"`
-	RepoURL       string `yaml:"repo_url" env:"TERAKOYA_REPO_URL"`
-	RepoBranch    string `yaml:"repo_branch" env:"TERAKOYA_REPO_BRANCH"`
-	ContentSubdir string `yaml:"content_subdir" env:"TERAKOYA_CONTENT_SUBDIR"`
+	RepoDir    string `yaml:"repo_dir" env:"TERAKOYA_REPO_DIR"`
+	RepoURL    string `yaml:"repo_url" env:"TERAKOYA_REPO_URL"`
+	RepoBranch string `yaml:"repo_branch" env:"TERAKOYA_REPO_BRANCH"`
 
 	// Git host for suggestions: "github" or "forgejo". Empty disables
 	// suggestions, webhooks and sync.
@@ -49,6 +48,11 @@ type Config struct {
 	SuggestMaxBytes int64         `yaml:"suggest_max_bytes" env:"TERAKOYA_SUGGEST_MAX_BYTES"`
 	ImageMaxBytes   int64         `yaml:"image_max_bytes" env:"TERAKOYA_IMAGE_MAX_BYTES"`
 
+	// Resvg is the resvg binary used to rasterize SVG drawings; FontsDir
+	// holds the DejaVu fonts it uses (found automatically when empty).
+	Resvg    string `yaml:"resvg" env:"TERAKOYA_RESVG"`
+	FontsDir string `yaml:"fonts_dir" env:"TERAKOYA_FONTS_DIR"`
+
 	DataDir     string `yaml:"data_dir" env:"TERAKOYA_DATA_DIR"`
 	CacheChatID int64  `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
 	Ranks       string `yaml:"ranks" env:"TERAKOYA_RANKS"`
@@ -63,7 +67,6 @@ func Default() Config {
 	return Config{
 		RepoDir:         "./content",
 		RepoBranch:      "main",
-		ContentSubdir:   "content",
 		DataDir:         "./data",
 		GitAuthorName:   "terakoya",
 		GitAuthorEmail:  "terakoya@localhost",
@@ -76,6 +79,7 @@ func Default() Config {
 		ImageMaxBytes:   5 << 20,
 		Ranks:           ranks.Default,
 		LogLevel:        "info",
+		Resvg:           "resvg",
 	}
 }
 
@@ -138,11 +142,6 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 		}
 	}
 	return nil
-}
-
-// ContentDir is the catalog root inside the repository checkout.
-func (c Config) ContentDir() string {
-	return filepath.Join(c.RepoDir, c.ContentSubdir)
 }
 
 // DBPath is the SQLite database file.

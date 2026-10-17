@@ -121,6 +121,18 @@ var migrations = []string{
 	ALTER TABLE suggestions_new RENAME TO suggestions;
 	CREATE INDEX suggestions_tg_id ON suggestions(tg_id);
 	CREATE INDEX suggestions_pr ON suggestions(pr_number);`,
+	// The Obsidian vault format: notes may be sent as several messages, and
+	// cached file_ids and archives of the old format are of no use.
+	`CREATE TABLE message_parts (
+		chat_id  INTEGER NOT NULL,
+		msg_id   INTEGER NOT NULL,
+		group_id INTEGER NOT NULL,
+		PRIMARY KEY (chat_id, msg_id)
+	) WITHOUT ROWID;
+	CREATE INDEX message_parts_group ON message_parts(chat_id, group_id);
+	DELETE FROM media_cache;
+	DELETE FROM archives;
+	DELETE FROM sessions;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -262,5 +274,24 @@ func (s *Store) Session(ctx context.Context, tgID int64) (Session, error) {
 // DeleteSession ends the user's dialog.
 func (s *Store) DeleteSession(ctx context.Context, tgID int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE tg_id = ?`, tgID)
+	return err
+}
+
+// ArchiveFileID returns the file_id of the vault archive sent for a
+// commit, so /download does not upload the same zip again.
+func (s *Store) ArchiveFileID(ctx context.Context, commit string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT file_id FROM archives WHERE commit_sha = ?`, commit).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return id, err
+}
+
+// PutArchiveFileID remembers the archive of a commit.
+func (s *Store) PutArchiveFileID(ctx context.Context, commit, fileID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO archives (commit_sha, file_id, created_at) VALUES (?, ?, ?)
+		ON CONFLICT (commit_sha) DO UPDATE SET file_id = excluded.file_id`, commit, fileID, s.now().Unix())
 	return err
 }

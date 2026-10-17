@@ -62,12 +62,21 @@ type Change struct {
 	ArticleURL, CurrentURL string
 	// AcceptLabel is the label that marks a report as accepted.
 	AcceptLabel string
+	// NoteKind is the kind folder of a new note, such as "теоремы"; empty
+	// for a new topic.
+	NoteKind string
+	// Files are the changed files besides RepoPath, such as the main page
+	// that links a new note.
+	Files []string
 }
 
 // PRTitle is the title of the pull request or issue.
 func (c Change) PRTitle() string {
 	switch c.Kind {
 	case KindNew:
+		if c.NoteKind != "" {
+			return "Suggest new " + strings.ToLower(content.KindLabel(c.NoteKind)) + ": " + c.Title
+		}
 		return "Suggest new topic: " + c.Title
 	case KindReport:
 		return "Error report: " + c.Title
@@ -106,13 +115,18 @@ func (c Change) facts(b *strings.Builder) {
 // text as sent and the lint findings.
 func (c Change) PRBody() string {
 	var b strings.Builder
-	if c.Kind == KindNew {
+	if c.Kind == KindNew && c.NoteKind != "" {
+		c.who(&b, "New note suggested")
+	} else if c.Kind == KindNew {
 		c.who(&b, "New topic suggested")
 	} else {
 		c.who(&b, "Edit suggested")
 	}
 	c.facts(&b)
-	fmt.Fprintf(&b, "- Article: `%s`\n", c.RepoPath)
+	fmt.Fprintf(&b, "- Note: `%s`\n", c.RepoPath)
+	for _, f := range c.Files {
+		fmt.Fprintf(&b, "- Also changed: `%s`\n", f)
+	}
 	if c.Section != "" {
 		fmt.Fprintf(&b, "- Section: %s\n", c.Section)
 	}
@@ -121,7 +135,10 @@ func (c Change) PRBody() string {
 
 	if c.Kind == KindNew {
 		b.WriteString("\n### To check\n\n")
-		b.WriteString("- The text was typed as plain text: add formatting, formulas and [[links]].\n")
+		b.WriteString("- The text was typed as plain text: add formatting, formulas and links.\n")
+		if c.NoteKind != "" {
+			b.WriteString("- The main page links the new note; add a short summary after the link, like the other items.\n")
+		}
 	}
 	if m := c.Merge; m != nil {
 		b.WriteString("\n### To check\n\n")

@@ -3,65 +3,56 @@ package content
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-const (
-	subjectFile = "_subject.yml"
-	gradeFile   = "_grade.yml"
-)
+// FileExts are the files a vault may contain; everything else is ignored.
+var FileExts = map[string]bool{".md": true, ".svg": true, ".png": true, ".jpg": true, ".jpeg": true}
 
-type subjectMeta struct {
-	Title string `yaml:"title"`
-	Emoji string `yaml:"emoji"`
-	Order *int   `yaml:"order"`
-}
+// AssetsDir is the folder with a topic's pictures.
+const AssetsDir = "_assets"
 
-type gradeMeta struct {
-	Title string `yaml:"title"`
-	Notes string `yaml:"notes"`
-	Order *int   `yaml:"order"`
-}
+// Hidden reports whether a file or folder is ignored because its name
+// starts with a dot: .obsidian, .trash, .git, .gitignore.
+func Hidden(name string) bool { return strings.HasPrefix(name, ".") }
 
-var orderPrefix = regexp.MustCompile(`^(\d+)[-_. ]+`)
-
-// Load reads the catalog rooted at dir. Problems with individual files are
-// returned as issues; the error is only set when the directory itself cannot
-// be read.
-func Load(dir string) (*Catalog, []Issue, error) {
-	root, err := filepath.Abs(dir)
+// Load reads the vault at root. Structural problems are returned as issues;
+// the catalog skips what it cannot use.
+func Load(root string) (*Catalog, []Issue, error) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, nil, err
 	}
-	entries, err := os.ReadDir(root)
+	l := &loader{cat: &Catalog{Root: abs, byID: map[string]*Note{}, byPath: map[string]*Note{}, groups: map[string]any{},
+		files: map[string]bool{}, byName: map[string][]string{}, byFolded: map[string][]string{}}}
+	if err := l.indexFiles(); err != nil {
+		return nil, nil, err
+	}
+	entries, err := l.readDir("")
 	if err != nil {
 		return nil, nil, err
 	}
-	l := &loader{cat: &Catalog{
-		Root:    root,
-		byID:    map[string]*Article{},
-		byTitle: map[string][]*Article{},
-		bySlug:  map[string][]*Article{},
-	}}
 	for _, e := range entries {
-		if !e.IsDir() || skipName(e.Name()) {
+		if !e.IsDir() {
+			l.unexpected(e.Name(), "file in the vault root; subjects are folders")
 			continue
 		}
-		l.loadSubject(e.Name())
-	}
-	sort.SliceStable(l.cat.Subjects, func(i, j int) bool {
-		a, b := l.cat.Subjects[i], l.cat.Subjects[j]
-		if a.Order != b.Order {
-			return a.Order < b.Order
+		if s := l.subject(e.Name()); s != nil {
+			l.cat.Subjects = append(l.cat.Subjects, s)
 		}
-		return a.Dir < b.Dir
-	})
+	}
+	sort.SliceStable(l.cat.Subjects, func(i, j int) bool { return l.cat.Subjects[i].Name < l.cat.Subjects[j].Name })
+	for _, n := range l.cat.Notes() {
+		if other := l.cat.byID[n.ID]; other != nil && other != n {
+			l.issue(n.Path, 0, Error, "ID %s collides with %s; rename one of them", n.ID, other.Path)
+			continue
+		}
+		l.cat.byID[n.ID] = n
+	}
 	return l.cat, l.issues, nil
 }
 
@@ -70,216 +61,294 @@ type loader struct {
 	issues []Issue
 }
 
-func (l *loader) issue(path string, line int, sev Severity, format string, args ...any) {
-	l.issues = append(l.issues, Issue{Path: path, Line: line, Severity: sev, Msg: fmt.Sprintf(format, args...)})
+func (l *loader) issue(p string, line int, sev Severity, format string, args ...any) {
+	l.issues = append(l.issues, Issue{Path: p, Line: line, Severity: sev, Msg: fmt.Sprintf(format, args...)})
 }
 
-func skipName(name string) bool {
-	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "assets"
-}
+func (l *loader) unexpected(p, why string) { l.issue(p, 0, Warning, "unexpected %s", why) }
 
-func (l *loader) loadSubject(dir string) {
-	abs := filepath.Join(l.cat.Root, dir)
-	metaPath := dir + "/" + subjectFile
-	var meta subjectMeta
-	data, err := os.ReadFile(filepath.Join(abs, subjectFile))
-	if os.IsNotExist(err) {
-		l.issue(dir, 0, Warning, "directory has no %s and is ignored", subjectFile)
-		return
-	}
+// readDir lists a vault folder without hidden entries.
+func (l *loader) readDir(rel string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(filepath.Join(l.cat.Root, filepath.FromSlash(rel)))
 	if err != nil {
-		l.issue(metaPath, 0, Error, "%v", err)
-		return
+		return nil, err
 	}
-	if err := yaml.Unmarshal(data, &meta); err != nil {
-		l.issue(metaPath, 0, Error, "invalid YAML: %v", err)
-	}
-	if strings.TrimSpace(meta.Title) == "" {
-		l.issue(metaPath, 0, Error, "title is required")
-		meta.Title = dir
-	}
-	s := &Subject{Dir: dir, Title: meta.Title, Emoji: meta.Emoji, Order: orderOr(meta.Order, 1<<30)}
-
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		l.issue(dir, 0, Error, "%v", err)
-		return
-	}
+	var out []os.DirEntry
 	for _, e := range entries {
-		name := e.Name()
-		switch {
-		case skipName(name):
-		case e.IsDir():
-			if g := l.loadGrade(s, name); g != nil {
-				s.Grades = append(s.Grades, g)
-			}
-		case strings.HasSuffix(name, ".md"):
-			l.issue(dir+"/"+name, 0, Warning, "articles must be inside a grade directory; file is ignored")
+		if !Hidden(e.Name()) {
+			out = append(out, e)
 		}
 	}
-	sort.SliceStable(s.Grades, func(i, j int) bool {
-		a, b := s.Grades[i], s.Grades[j]
-		if a.Order != b.Order {
-			return a.Order < b.Order
-		}
-		return a.Dir < b.Dir
-	})
-	l.cat.Subjects = append(l.cat.Subjects, s)
+	return out, nil
 }
 
-func (l *loader) loadGrade(s *Subject, dir string) *Grade {
-	rel := s.Dir + "/" + dir
-	abs := filepath.Join(l.cat.Root, s.Dir, dir)
-	if len(s.Dir)+len(dir) > MaxDirsLength {
-		l.issue(rel, 0, Error, "subject and grade directory names are longer than %d bytes together", MaxDirsLength)
+// indexFiles records every usable file for link resolution, and reports
+// files of other types.
+func (l *loader) indexFiles() error {
+	return filepath.WalkDir(l.cat.Root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == l.cat.Root {
+			return nil
+		}
+		if Hidden(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(l.cat.Root, p)
+		rel = filepath.ToSlash(rel)
+		if !FileExts[strings.ToLower(path.Ext(rel))] {
+			l.unexpected(rel, "file type; only .md, .svg, .png, .jpg and .jpeg are used")
+			return nil
+		}
+		l.cat.files[rel] = true
+		name := path.Base(rel)
+		l.cat.byName[name] = append(l.cat.byName[name], rel)
+		l.cat.byFolded[strings.ToLower(name)] = append(l.cat.byFolded[strings.ToLower(name)], rel)
+		return nil
+	})
+}
+
+func (l *loader) subject(name string) *Subject {
+	s := &Subject{ID: ID(name), Name: name}
+	l.cat.groups[s.ID] = s
+	entries, err := l.readDir(name)
+	if err != nil {
+		l.issue(name, 0, Error, "%v", err)
 		return nil
 	}
-	g := &Grade{Subject: s, Dir: dir, Order: 1 << 30}
-	if n, err := strconv.Atoi(dir); err == nil {
-		g.Order = n
-	}
-	data, err := os.ReadFile(filepath.Join(abs, gradeFile))
-	switch {
-	case err == nil:
-		var meta gradeMeta
-		if err := yaml.Unmarshal(data, &meta); err != nil {
-			l.issue(rel+"/"+gradeFile, 0, Error, "invalid YAML: %v", err)
+	for _, e := range entries {
+		rel := name + "/" + e.Name()
+		n, ok := ParseGrade(e.Name())
+		switch {
+		case !e.IsDir():
+			l.unexpected(rel, "file in a subject folder; grades are folders named «<N> класс»")
+		case !ok:
+			l.unexpected(rel, "folder in a subject; grades are named «<N> класс»")
+		default:
+			g := &Grade{ID: ID(rel), Subject: s, Dir: e.Name(), Number: n}
+			l.cat.groups[g.ID] = g
+			l.grade(g)
+			s.Grades = append(s.Grades, g)
 		}
-		g.Title, g.Notes = meta.Title, meta.Notes
-		g.Order = orderOr(meta.Order, g.Order)
-	case !os.IsNotExist(err):
-		l.issue(rel+"/"+gradeFile, 0, Error, "%v", err)
 	}
+	sort.SliceStable(s.Grades, func(i, j int) bool { return s.Grades[i].Number < s.Grades[j].Number })
+	return s
+}
 
-	entries, err := os.ReadDir(abs)
+func (l *loader) grade(g *Grade) {
+	entries, err := l.readDir(g.Path())
+	if err != nil {
+		l.issue(g.Path(), 0, Error, "%v", err)
+		return
+	}
+	numbers := map[int]string{}
+	for _, e := range entries {
+		rel := g.Path() + "/" + e.Name()
+		if !e.IsDir() {
+			l.unexpected(rel, "file in a grade folder; topics are folders")
+			continue
+		}
+		t := &Topic{Grade: g, Dir: e.Name()}
+		t.Number, _, t.Width, t.HasNumber = ParseNumber(e.Name())
+		if !t.HasNumber {
+			l.issue(rel, 0, Warning, "topic folder has no number, so it is listed last; name it like «05 %s»", e.Name())
+		} else if other, dup := numbers[t.Number]; dup {
+			l.issue(rel, 0, Error, "topic number %d is also used by «%s»", t.Number, other)
+		} else {
+			numbers[t.Number] = e.Name()
+		}
+		if l.topic(t) {
+			g.Topics = append(g.Topics, t)
+		}
+	}
+	sort.SliceStable(g.Topics, func(i, j int) bool {
+		a, b := g.Topics[i], g.Topics[j]
+		if a.HasNumber != b.HasNumber {
+			return a.HasNumber
+		}
+		if a.HasNumber && a.Number != b.Number {
+			return a.Number < b.Number
+		}
+		return stripNumber(a.Dir) < stripNumber(b.Dir)
+	})
+}
+
+// topic loads the main page and the notes of a topic folder.
+func (l *loader) topic(t *Topic) bool {
+	entries, err := l.readDir(t.Path())
+	if err != nil {
+		l.issue(t.Path(), 0, Error, "%v", err)
+		return false
+	}
+	var mains []string
+	for _, e := range entries {
+		rel := t.Path() + "/" + e.Name()
+		switch {
+		case e.IsDir() && e.Name() == AssetsDir:
+		case e.IsDir():
+			l.kindFolder(t, rel, strings.ToLower(e.Name()))
+		case strings.EqualFold(path.Ext(e.Name()), ".md"):
+			mains = append(mains, rel)
+		case l.cat.files[rel]:
+			l.unexpected(rel, "picture in the topic folder; put pictures into "+AssetsDir+"/")
+		}
+	}
+	switch len(mains) {
+	case 0:
+		l.issue(t.Path(), 0, Error, "topic folder has no main page (.md file in the folder itself)")
+		return false
+	case 1:
+	default:
+		l.issue(t.Path(), 0, Error, "topic folder has %d .md files in its root; only the main page may be there: %s",
+			len(mains), strings.Join(baseNames(mains), ", "))
+	}
+	t.Main = l.note(t, mains[0], "")
+	if t.Main == nil {
+		return false
+	}
+	l.order(t)
+	return true
+}
+
+func baseNames(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = path.Base(p)
+	}
+	return out
+}
+
+// kindFolder loads the notes of a kind folder and its subfolders, such as
+// теоремы/следствия. The kind of a note is the folder it is in.
+func (l *loader) kindFolder(t *Topic, rel, kind string) {
+	entries, err := l.readDir(rel)
 	if err != nil {
 		l.issue(rel, 0, Error, "%v", err)
-		return nil
+		return
 	}
 	for _, e := range entries {
-		name := e.Name()
-		if skipName(name) {
-			continue
-		}
-		if e.IsDir() {
-			l.issue(rel+"/"+name, 0, Warning, "nested directories other than assets are ignored")
-			continue
-		}
-		if !strings.HasSuffix(name, ".md") {
-			continue
-		}
-		if a := l.loadArticle(g, name); a != nil {
-			g.Articles = append(g.Articles, a)
+		p := rel + "/" + e.Name()
+		switch {
+		case e.IsDir():
+			l.kindFolder(t, p, strings.ToLower(e.Name()))
+		case strings.EqualFold(path.Ext(e.Name()), ".md"):
+			if n := l.note(t, p, kind); n != nil {
+				t.Notes = append(t.Notes, n)
+			}
 		}
 	}
-	sort.SliceStable(g.Articles, func(i, j int) bool {
-		a, b := g.Articles[i], g.Articles[j]
-		if a.Order != b.Order {
-			return a.Order < b.Order
-		}
-		return a.Path < b.Path
-	})
-	return g
 }
 
-func (l *loader) loadArticle(g *Grade, name string) *Article {
-	rel := g.Subject.Dir + "/" + g.Dir + "/" + name
+var h1 = regexp.MustCompile(`^#[ \t]+(.+?)[ \t#]*$`)
+
+func (l *loader) note(t *Topic, rel, kind string) *Note {
 	abs := filepath.Join(l.cat.Root, filepath.FromSlash(rel))
 	raw, err := os.ReadFile(abs)
 	if err != nil {
 		l.issue(rel, 0, Error, "%v", err)
 		return nil
 	}
-	stem := strings.TrimSuffix(name, ".md")
-	slug := orderPrefix.ReplaceAllString(stem, "")
-	a := &Article{
-		Grade:   g,
-		Slug:    slug,
-		Path:    rel,
-		AbsPath: abs,
-		Raw:     raw,
-		Order:   1 << 30,
-	}
-	if m := orderPrefix.FindStringSubmatch(stem); m != nil {
-		a.Order, _ = strconv.Atoi(m[1])
-	}
-
-	yamlSrc, body, bodyLine, ok, err := SplitFrontmatter(raw)
-	a.Body, a.BodyLine = body, bodyLine
-	var fm Frontmatter
-	switch {
-	case err != nil:
-		l.issue(rel, 1, Error, "%v", err)
-	case !ok:
-		l.issue(rel, 1, Error, "frontmatter with a title is required")
-	default:
-		var unknown []string
-		fm, unknown, err = ParseFrontmatter(yamlSrc)
-		if err != nil {
-			l.issue(rel, 1, Error, "invalid frontmatter: %v", err)
+	n := &Note{Topic: t, ID: ID(rel), Kind: kind, Path: rel, AbsPath: abs, Raw: raw, Body: string(CleanSource(raw))}
+	ScanLines(n.Body, func(line int, s string, code bool) {
+		if n.TitleLine == 0 && !code {
+			if m := h1.FindStringSubmatch(s); m != nil {
+				n.Title, n.TitleLine = strings.TrimSpace(m[1]), line
+			}
 		}
-		sort.Strings(unknown)
-		for _, k := range unknown {
-			l.issue(rel, 1, Warning, "unknown frontmatter key %q", k)
-		}
-		if strings.TrimSpace(fm.Title) == "" {
-			l.issue(rel, 1, Error, "frontmatter title is required")
-		}
+	})
+	if n.Title == "" {
+		n.Title = TitleFromFile(path.Base(rel))
+		l.issue(rel, 0, Warning, "note has no title line «# …»; using the file name")
 	}
-
-	a.Title = strings.TrimSpace(fm.Title)
-	if a.Title == "" {
-		a.Title = slug
-	}
-	a.Order = orderOr(fm.Order, a.Order)
-	for _, al := range fm.Aliases {
-		if al = strings.TrimSpace(al); al != "" {
-			a.Aliases = append(a.Aliases, al)
-		}
-	}
-
-	if fm.ID != "" {
-		a.ID = fm.ID
-		if !ValidID(a.ID) {
-			l.issue(rel, 1, Error, "id %q must be 1-%d characters of A-Z, a-z, 0-9, _ and -", a.ID, MaxIDLength)
-			return nil
-		}
-	} else {
-		a.ID = g.Subject.Dir + "-" + g.Dir + "-" + slug
-		if !ValidID(a.ID) {
-			l.issue(rel, 1, Error, "derived id %q is not valid (1-%d characters of A-Z, a-z, 0-9, _ and -); set id in frontmatter", a.ID, MaxIDLength)
-			return nil
-		}
-	}
-	if prev := l.cat.byID[a.ID]; prev != nil {
-		l.issue(rel, 1, Error, "id %q is already used by %s", a.ID, prev.Path)
-		return nil
-	}
-
-	l.cat.byID[a.ID] = a
-	for _, key := range append([]string{a.Title}, a.Aliases...) {
-		k := foldKey(key)
-		l.cat.byTitle[k] = appendUnique(l.cat.byTitle[k], a)
-	}
-	l.cat.bySlug[slug] = append(l.cat.bySlug[slug], a)
-	if stem != slug {
-		l.cat.bySlug[stem] = append(l.cat.bySlug[stem], a)
-	}
-	return a
+	l.cat.byPath[rel] = n
+	return n
 }
 
-func appendUnique(list []*Article, a *Article) []*Article {
-	for _, x := range list {
-		if x == a {
-			return list
+var listItem = regexp.MustCompile(`^([ \t]*)(?:[-*+]|\d+[.)])[ \t]`)
+
+// order sorts a topic's notes as its main page links them. A note linked
+// from a list item nested under another note's item gets that note as its
+// parent. Unlinked notes follow, by the number in their "(…)", then by name.
+func (l *loader) order(t *Topic) {
+	inTopic := map[*Note]bool{}
+	for _, n := range t.Notes {
+		inTopic[n] = true
+	}
+	type item struct {
+		indent int
+		note   *Note
+	}
+	var ordered []*Note
+	seen := map[*Note]bool{}
+	var stack []item
+	ScanLines(t.Main.Body, func(_ int, line string, code bool) {
+		if code {
+			return
+		}
+		m := listItem.FindStringSubmatch(line)
+		indent := -1
+		if m != nil {
+			indent = width(m[1])
+			for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
+				stack = stack[:len(stack)-1]
+			}
+		} else if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			stack = nil
+		}
+		first := true
+		for _, lk := range Links(line) {
+			if lk.Image || IsRemote(lk.Target) {
+				continue
+			}
+			n, err := l.cat.ResolveNote(t.Main, lk)
+			if err != nil || !inTopic[n] {
+				continue
+			}
+			if !seen[n] {
+				seen[n] = true
+				ordered = append(ordered, n)
+				if m != nil && first && len(stack) > 0 {
+					n.Parent = stack[len(stack)-1].note
+				}
+			}
+			if m != nil && first {
+				stack = append(stack, item{indent, n})
+			}
+			first = false
+		}
+	})
+	var rest []*Note
+	for _, n := range t.Notes {
+		if !seen[n] {
+			rest = append(rest, n)
 		}
 	}
-	return append(list, a)
+	sort.SliceStable(rest, func(i, j int) bool {
+		a, b := rest[i].FileName(), rest[j].FileName()
+		if less, ok := lessHint(sortHint(a), sortHint(b)); ok {
+			return less
+		}
+		return a < b
+	})
+	t.Notes = append(ordered, rest...)
 }
 
-func orderOr(p *int, def int) int {
-	if p != nil {
-		return *p
+// width counts indentation, a tab as four spaces.
+func width(s string) int {
+	n := 0
+	for _, c := range s {
+		if c == '\t' {
+			n += 4
+		} else {
+			n++
+		}
 	}
-	return def
+	return n
 }

@@ -1,24 +1,29 @@
-// Package media turns the local images of a converted article into
-// rich message media entries, reusing Telegram file_ids where possible.
+// Package media turns the local images of a converted note into rich
+// message media entries, reusing Telegram file_ids where possible. SVG
+// drawings are rasterized to PNG once; the file_id of the PNG is cached by
+// the hash of the SVG source.
 package media
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
+	"github.com/Mimic890/terakoya/internal/raster"
 	"github.com/Mimic890/terakoya/internal/render"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
-// Cache stores file_ids by file hash.
+// Cache stores file_ids by cache key: the file hash, prefixed for SVGs
+// with the rasterizer settings.
 type Cache interface {
 	MediaFileID(ctx context.Context, sha string) (string, error)
 	PutMediaFileID(ctx context.Context, sha, fileID string) error
@@ -39,77 +44,135 @@ type Resolver struct {
 	// uploaded with the article itself and their file_ids are read back from
 	// the sent message.
 	CacheChatID int64
+	Raster      raster.Rasterizer
 	Log         *slog.Logger
+}
+
+// Key is the cache key of an image: its SHA-256, and for an SVG the
+// rasterizer tag in front, so an unchanged drawing is never converted or
+// uploaded again while a changed one gets a new key.
+func (r *Resolver) Key(m render.Media) string {
+	if m.SVG {
+		tag := "svg"
+		if r.Raster != nil {
+			tag = r.Raster.Tag()
+		}
+		return tag + ":" + m.SHA256
+	}
+	return m.SHA256
 }
 
 // Prepared is the media list for one message.
 type Prepared struct {
 	Entries []models.InputRichMessageMedia
-	// pending are images attached in this message whose file_id is not known yet.
-	pending map[string]render.Media
-	files   []io.Closer
+	// Failed are the media IDs of SVGs that could not be rasterized; the
+	// message is sent without them (see Strip).
+	Failed map[string]error
+	// pending are images attached in this message whose file_id is not
+	// known yet, by media ID, with their cache keys.
+	pending map[string]pendingMedia
 }
 
-// Close releases the files opened for attachments.
-func (p *Prepared) Close() {
-	for _, f := range p.files {
-		f.Close()
+type pendingMedia struct {
+	render.Media
+	key string
+}
+
+var imageRef = regexp.MustCompile(`(?m)^[ \t>]*!\[[^\]]*\]\(tg://photo\?id=([A-Za-z0-9_-]+)[^)]*\)[ \t]*\n?`)
+
+// Strip removes the images that failed to convert from the Markdown.
+func (p *Prepared) Strip(markdown string) string {
+	if len(p.Failed) == 0 {
+		return markdown
 	}
-	p.files = nil
+	out := imageRef.ReplaceAllStringFunc(markdown, func(line string) string {
+		if p.Failed[imageRef.FindStringSubmatch(line)[1]] != nil {
+			return ""
+		}
+		return line
+	})
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
+	}
+	return out
 }
 
-// Prepare builds the media entries for res.
-func (r *Resolver) Prepare(ctx context.Context, res *render.Result) (*Prepared, error) {
-	p := &Prepared{pending: map[string]render.Media{}}
-	for _, m := range res.Media {
-		fileID, err := r.Cache.MediaFileID(ctx, m.SHA256)
+// Prepare builds the media entries for one part of a note. An SVG is
+// rasterized only when its PNG is not cached; if that fails, the image is
+// left out and listed in Failed.
+func (r *Resolver) Prepare(ctx context.Context, part render.Part) (*Prepared, error) {
+	p := &Prepared{pending: map[string]pendingMedia{}, Failed: map[string]error{}}
+	for _, m := range part.Media {
+		key := r.Key(m)
+		fileID, err := r.Cache.MediaFileID(ctx, key)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			p.Close()
 			return nil, err
 		}
 		if fileID != "" {
-			r.Log.Debug("image from file_id cache", "file", m.AbsPath, "sha256", m.SHA256[:12])
-		} else if r.CacheChatID != 0 {
-			fileID, err = r.uploadToCacheChat(ctx, m)
-			if err != nil {
-				r.Log.Warn("upload to cache chat failed; attaching instead", "file", m.AbsPath, "err", err)
-			} else {
-				r.Log.Info("image uploaded to cache chat", "file", m.AbsPath, "sha256", m.SHA256[:12])
-			}
-		}
-		if fileID != "" {
-			p.Entries = append(p.Entries, models.InputRichMessageMedia{
-				ID:    m.ID,
-				Media: &models.InputMediaPhoto{Media: fileID},
-			})
+			r.Log.Debug("image from file_id cache", "file", m.Path, "key", short(key))
+			p.Entries = append(p.Entries, models.InputRichMessageMedia{ID: m.ID, Media: &models.InputMediaPhoto{Media: fileID}})
 			continue
 		}
-		f, err := os.Open(m.AbsPath)
+		data, name, err := r.load(ctx, m)
 		if err != nil {
-			p.Close()
-			return nil, err
+			r.Log.Error("image left out of the message", "file", m.Path, "err", err)
+			p.Failed[m.ID] = err
+			continue
 		}
-		r.Log.Info("image attached to message", "file", m.AbsPath, "sha256", m.SHA256[:12])
-		p.files = append(p.files, f)
-		p.pending[m.ID] = m
+		if r.CacheChatID != 0 {
+			fileID, err = r.uploadToCacheChat(ctx, key, name, data)
+			if err != nil {
+				r.Log.Warn("upload to cache chat failed; attaching instead", "file", m.Path, "err", err)
+			} else {
+				r.Log.Info("image uploaded to cache chat", "file", m.Path, "key", short(key))
+				p.Entries = append(p.Entries, models.InputRichMessageMedia{ID: m.ID, Media: &models.InputMediaPhoto{Media: fileID}})
+				continue
+			}
+		}
+		r.Log.Info("image attached to message", "file", m.Path, "key", short(key))
+		p.pending[m.ID] = pendingMedia{m, key}
 		p.Entries = append(p.Entries, models.InputRichMessageMedia{
 			ID:    m.ID,
-			Media: &models.InputMediaPhoto{Media: "attach://" + m.ID, MediaAttachment: f},
+			Media: &models.InputMediaPhoto{Media: "attach://" + m.ID, MediaAttachment: bytes.NewReader(data)},
 		})
 	}
 	return p, nil
 }
 
-func (r *Resolver) uploadToCacheChat(ctx context.Context, m render.Media) (string, error) {
-	f, err := os.Open(m.AbsPath)
-	if err != nil {
-		return "", err
+// load reads an image, rasterizing SVGs, and returns its bytes and a file
+// name for the upload.
+func (r *Resolver) load(ctx context.Context, m render.Media) ([]byte, string, error) {
+	name := filepath.Base(m.AbsPath)
+	if !m.SVG {
+		data, err := os.ReadFile(m.AbsPath)
+		return data, name, err
 	}
-	defer f.Close()
+	if r.Raster == nil {
+		return nil, "", errors.New("no SVG rasterizer configured")
+	}
+	data, err := r.Raster.Rasterize(ctx, m.AbsPath)
+	if err != nil {
+		return nil, "", err
+	}
+	r.Log.Info("SVG rasterized", "file", m.Path, "bytes", len(data))
+	return data, strings.TrimSuffix(name, filepath.Ext(name)) + ".png", nil
+}
+
+func short(key string) string {
+	if i := strings.LastIndexByte(key, ':'); i >= 0 && len(key)-i > 13 {
+		return key[:i+13]
+	}
+	if len(key) > 12 {
+		return key[:12]
+	}
+	return key
+}
+
+func (r *Resolver) uploadToCacheChat(ctx context.Context, key, name string, data []byte) (string, error) {
 	msg, err := r.Sender.SendPhoto(ctx, &bot.SendPhotoParams{
 		ChatID:              r.CacheChatID,
-		Photo:               &models.InputFileUpload{Filename: filepath.Base(m.AbsPath), Data: f},
-		Caption:             m.SHA256,
+		Photo:               &models.InputFileUpload{Filename: name, Data: bytes.NewReader(data)},
+		Caption:             key,
 		DisableNotification: true,
 	})
 	if err != nil {
@@ -119,17 +182,18 @@ func (r *Resolver) uploadToCacheChat(ctx context.Context, m render.Media) (strin
 	if id == "" {
 		return "", errors.New("no photo in response")
 	}
-	if err := r.Cache.PutMediaFileID(ctx, m.SHA256, id); err != nil {
+	if err := r.Cache.PutMediaFileID(ctx, key, id); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
-// Forget drops every cached file_id used by res, so that the next attempt
-// uploads the files again. It is used when Telegram rejects a message.
-func (r *Resolver) Forget(ctx context.Context, res *render.Result) {
-	for _, m := range res.Media {
-		if err := r.Cache.DeleteMediaFileID(ctx, m.SHA256); err != nil {
+// Forget drops every cached file_id used by a part, so that the next
+// attempt uploads the files again. It is used when Telegram rejects a
+// message.
+func (r *Resolver) Forget(ctx context.Context, part render.Part) {
+	for _, m := range part.Media {
+		if err := r.Cache.DeleteMediaFileID(ctx, r.Key(m)); err != nil {
 			r.Log.Warn("forget file_id", "err", err)
 		}
 	}
@@ -164,10 +228,10 @@ func (r *Resolver) Learn(ctx context.Context, p *Prepared, markdown string, msg 
 		if !ok || ids[i] == "" {
 			continue
 		}
-		if err := r.Cache.PutMediaFileID(ctx, m.SHA256, ids[i]); err != nil {
+		if err := r.Cache.PutMediaFileID(ctx, m.key, ids[i]); err != nil {
 			r.Log.Warn("store file_id", "err", err)
 		} else {
-			r.Log.Info("file_id learned from sent message", "file", m.AbsPath, "sha256", m.SHA256[:12])
+			r.Log.Info("file_id learned from sent message", "file", m.Path, "key", short(m.key))
 		}
 		delete(p.pending, ref)
 	}

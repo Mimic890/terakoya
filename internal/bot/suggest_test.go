@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -71,8 +72,14 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var result any = true
 	switch method {
-	case "sendMessage", "sendDocument", "editMessageReplyMarkup", "editMessageText", "sendRichMessage":
+	case "sendMessage", "editMessageReplyMarkup", "editMessageText", "sendRichMessage":
 		result = map[string]any{"message_id": id, "date": 0, "chat": map[string]any{"id": 42, "type": "private"}}
+	case "sendDocument":
+		result = map[string]any{"message_id": id, "date": 0, "chat": map[string]any{"id": 42, "type": "private"},
+			"document": map[string]any{"file_id": fmt.Sprintf("doc%d", id), "file_unique_id": "u"}}
+	case "sendPhoto":
+		result = map[string]any{"message_id": id, "date": 0, "chat": map[string]any{"id": -100, "type": "supergroup"},
+			"photo": []map[string]any{{"file_id": fmt.Sprintf("photo%d", id), "file_unique_id": "u", "width": 800, "height": 600}}}
 	case "getFile":
 		result = map[string]any{"file_id": params["file_id"], "file_unique_id": "u", "file_size": 7,
 			"file_path": "photos/" + params["file_id"]}
@@ -161,7 +168,7 @@ func (h *fakeHost) RawURL(ref, path string) string  { return "https://host/raw/"
 
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "core.quotepath=off"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 	out, err := cmd.CombinedOutput()
@@ -183,8 +190,8 @@ type harness struct {
 	msgID    int
 }
 
-// newHarness serves examples/content plus extra files (catalog-relative
-// path → content) from a local bare repository.
+// newHarness serves examples/vault plus the triangles topic of testdata
+// and extra files (vault path → content) from a local bare repository.
 func newHarness(t *testing.T, extra map[string]string) *harness {
 	t.Helper()
 	ctx := context.Background()
@@ -193,11 +200,18 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 	upstream := filepath.Join(root, "upstream")
 	git(t, root, "init", "--quiet", "--bare", "--initial-branch=main", remote)
 	git(t, root, "clone", "--quiet", remote, upstream)
-	if err := os.CopyFS(filepath.Join(upstream, "content"), os.DirFS("../../examples/content")); err != nil {
+	if err := os.CopyFS(upstream, os.DirFS("../../examples/vault")); err != nil {
 		t.Fatal(err)
 	}
+	files := map[string]string{triangles: readFile(t, "testdata/triangles.md"),
+		path.Dir(triangles) + "/_assets/triangle.png": readFile(t, "testdata/triangle.png")}
 	for p, data := range extra {
-		if err := os.WriteFile(filepath.Join(upstream, "content", p), []byte(data), 0o644); err != nil {
+		files[p] = data
+	}
+	for p, data := range files {
+		abs := filepath.Join(upstream, filepath.FromSlash(p))
+		os.MkdirAll(filepath.Dir(abs), 0o755)
+		if err := os.WriteFile(abs, []byte(data), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -230,6 +244,7 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	b.media.Raster = fakeRaster{}
 	return &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100}
 }
 
@@ -306,6 +321,33 @@ func wantPrompt(t *testing.T, calls []call, text string, buttons ...string) {
 
 func (h *harness) file(ref, path string) string { return git(h.t, h.remote, "show", ref+":"+path) }
 
+// id is the ID of the note at a vault path.
+func (h *harness) id(p string) string {
+	h.t.Helper()
+	n := h.bot.catalog().NoteByPath(p)
+	if n == nil {
+		h.t.Fatalf("no note %s", p)
+	}
+	return n.ID
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// fakeRaster turns any SVG into a fake PNG.
+type fakeRaster struct{}
+
+func (fakeRaster) Tag() string { return "fake" }
+func (fakeRaster) Rasterize(context.Context, string) ([]byte, error) {
+	return []byte("\x89PNG"), nil
+}
+
 func (b *Bot) mustDialog(t *testing.T) *dialog {
 	t.Helper()
 	d, _ := b.loadDialog(context.Background(), 42, 42)
@@ -315,15 +357,19 @@ func (b *Bot) mustDialog(t *testing.T) *dialog {
 	return d
 }
 
-const triangles = "content/geometry/7/02-triangles.md"
+const (
+	triangles = "Геометрия/7 класс/01 Треугольники/Треугольники.md"
+	vtopic    = "Геометрия/10 класс/05 Параллельность прямой и плоскости"
+	vmain     = vtopic + "/Параллельность прямой и плоскости.md"
+)
 
 func TestFixText(t *testing.T) {
 	h := newHarness(t, nil)
 	base := h.bot.repo.HeadSHA(h.ctx)
 	orig := h.file("main", triangles)
 
-	h.tap("e:triangles")
-	wantPrompt(t, h.tg.take(), i18n.RU.SuggestMenu, "Исправить текст", "Сообщить об ошибке", "Отмена")
+	h.tap("e:" + h.id(triangles))
+	wantPrompt(t, h.tg.take(), i18n.RU.SuggestMenuMain, "Исправить текст", "Сообщить об ошибке", "Добавить теорему, задачу…", "Отмена")
 
 	h.tap(cbFix)
 	calls := h.tg.take()
@@ -359,7 +405,7 @@ func TestFixText(t *testing.T) {
 		t.Fatalf("PRs = %+v", h.host.prs)
 	}
 	pr := h.host.prs[0]
-	if !strings.HasPrefix(pr.Head, "suggest/42-triangles-") || pr.Title != "Suggest edit: Треугольники" {
+	if !strings.HasPrefix(pr.Head, "suggest/42-treugolniki-") || pr.Title != "Suggest edit: Треугольники" {
 		t.Errorf("pr = %+v", pr)
 	}
 	// The branch starts from the commit the user saw, and only the edited
@@ -370,8 +416,8 @@ func TestFixText(t *testing.T) {
 	if got := h.file(pr.Head, triangles); got != strings.Replace(orig, "равна $180^\\circ$:", "всегда равна $180^\\circ$:", 1) {
 		t.Errorf("committed file:\n%s", got)
 	}
-	short := strings.TrimPrefix(pr.Head, "suggest/42-triangles-")
-	img := "content/geometry/7/assets/triangles-" + short + "-1.jpg"
+	short := strings.TrimPrefix(pr.Head, "suggest/42-treugolniki-")
+	img := "Геометрия/7 класс/01 Треугольники/_assets/treugolniki-" + short + "-1.jpg"
 	if got := h.file(pr.Head, img); got != "IMG:pic1" {
 		t.Errorf("picture = %q", got)
 	}
@@ -386,7 +432,7 @@ func TestFixText(t *testing.T) {
 	}
 
 	// Rate limit.
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	if c := h.tg.take(); len(c) != 1 || c[0].params["text"] != i18n.RU.TooOften {
 		t.Errorf("rate limit = %+v", c)
 	}
@@ -395,7 +441,7 @@ func TestFixText(t *testing.T) {
 	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 7, HeadBranch: pr.Head})
 	c := last(t, h.tg.take())
 	if !strings.Contains(c.params["text"], "Ваша правка в «Треугольники» принята") || !strings.Contains(c.params["text"], "senpai") ||
-		!strings.Contains(c.params["reply_markup"], `"o:triangles"`) {
+		!strings.Contains(c.params["reply_markup"], `"o:`+h.id(triangles)+`"`) {
 		t.Errorf("merge notification = %+v", c.params)
 	}
 	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 7, HeadBranch: pr.Head})
@@ -403,7 +449,7 @@ func TestFixText(t *testing.T) {
 		t.Errorf("repeated delivery sent %+v", calls)
 	}
 	// The notification button opens the article and keeps the notification.
-	h.tapOn(555, "o:triangles")
+	h.tapOn(555, "o:"+h.id(triangles))
 	calls = h.tg.take()
 	if len(texts(calls, "sendRichMessage")) != 1 || len(texts(calls, "deleteMessage")) != 0 {
 		t.Errorf("open = %+v", calls)
@@ -412,7 +458,7 @@ func TestFixText(t *testing.T) {
 
 func TestFixTextUnchangedShrunkAndGlued(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	h.tg.take()
 	h.tap(cbFix)
 	plainText := texts(h.tg.take(), "sendMessage")[0]
@@ -444,14 +490,15 @@ func TestFixTextUnchangedShrunkAndGlued(t *testing.T) {
 
 func TestFixTextLongArticle(t *testing.T) {
 	var b strings.Builder
-	b.WriteString("---\ntitle: Длинная тема\n---\n\n# Длинная тема\n\nВступление.\n\n## Первый раздел\n\n")
+	b.WriteString("# Длинная тема\n\nВступление.\n\n## Первый раздел\n\n")
 	for i := 0; i < 12; i++ {
 		fmt.Fprintf(&b, "Абзац %d: %s\n\n", i, strings.Repeat("много слов про $x^2$ и треугольники ", 10))
 	}
 	b.WriteString("## Второй раздел\n\nКороткий **раздел**.\n")
-	h := newHarness(t, map[string]string{"geometry/7/05-long.md": b.String()})
+	long := "Геометрия/7 класс/05 Длинная/Длинная.md"
+	h := newHarness(t, map[string]string{long: b.String()})
 
-	h.tap("e:geometry-7-long")
+	h.tap("e:" + h.id(long))
 	h.tap(cbFix)
 	wantPrompt(t, h.tg.take(), i18n.RU.ChooseSection, "Начало", "Первый раздел (1)", "Первый раздел (2)", "Второй раздел")
 
@@ -465,7 +512,7 @@ func TestFixTextLongArticle(t *testing.T) {
 	h.tap(cbSend)
 	h.tg.take()
 	pr := h.host.prs[0]
-	got := h.file(pr.Head, "content/geometry/7/05-long.md")
+	got := h.file(pr.Head, long)
 	if got+"\n" != strings.Replace(b.String(), "Короткий **раздел**.", "Короткий, но важный **раздел**.", 1) {
 		t.Errorf("committed:\n%s", got)
 	}
@@ -479,7 +526,7 @@ func TestReport(t *testing.T) {
 	h.bot.rejectGrace = 0
 	base := h.bot.repo.HeadSHA(h.ctx)
 
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	h.tap(cbReport)
 	wantPrompt(t, h.tg.take(), i18n.RU.ReportPrompt, "Отмена")
 	h.say("в теореме опечатка, должно быть 180°")
@@ -495,7 +542,7 @@ func TestReport(t *testing.T) {
 	}
 	body := h.host.bodies[7]
 	for _, want := range []string{"> в теореме опечатка, должно быть 180°", "https://host/src/" + base + "/" + triangles,
-		"вот тут", "https://host/attachments/7/triangles-", "`accepted` label"} {
+		"вот тут", "https://host/attachments/7/treugolniki-", "`accepted` label"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("issue body misses %q:\n%s", want, body)
 		}
@@ -535,17 +582,23 @@ func TestReport(t *testing.T) {
 
 func TestNewTopic(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("n:geometry:8")
-	g := h.bot.catalog().Subject("geometry").Grade("8")
-	wantPrompt(t, h.tg.take(), fmt.Sprintf(i18n.RU.NewTitlePrompt, g.Subject.Label(), gradeTitle(i18n.RU, g)), "Отмена")
+	g := h.bot.catalog().NoteByPath(triangles).Grade()
+	h.tap("n:" + g.ID)
+	wantPrompt(t, h.tg.take(), "Новая тема: Геометрия · 7 класс. Как она называется?", "Отмена")
 
 	h.photo("early", "")
 	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.NewTitleFirst {
 		t.Errorf("photo before title = %q", s)
 	}
-	h.say("четырёхугольники")
-	wantPrompt(t, h.tg.take(), "Тема «Четырёхугольники» уже есть. Пришлите другое название или откройте её.",
-		"Открыть «Четырёхугольники»", "Отмена")
+	// A note with this file name exists, in any topic.
+	h.say("треугольники")
+	wantPrompt(t, h.tg.take(), "«Треугольники» уже есть. Пришлите другое название или откройте то, что есть.",
+		"Открыть «Треугольники»", "Отмена")
+	h.say("Новая: тема?")
+	wantPrompt(t, h.tg.take(), i18n.RU.NewTextPrompt)
+	h.tap(cbCancel)
+	h.tap("n:" + g.ID)
+	h.tg.take()
 	h.say(strings.Repeat("очень ", 20) + "длинно")
 	wantPrompt(t, h.tg.take(), i18n.RU.NewTitleTooLong)
 
@@ -563,13 +616,13 @@ func TestNewTopic(t *testing.T) {
 	}
 
 	pr := h.host.prs[0]
-	want := "---\ntitle: Ромб\norder: 2\n---\n\n# Ромб\n\nРомб — параллелограмм, у которого все стороны равны.\n\n" +
+	want := "# Ромб\n\nРомб — параллелограмм, у которого все стороны равны.\n\n" +
 		"Диагонали ромба перпендикулярны: AC перпендикулярно BD."
-	if got := h.file(pr.Head, "content/geometry/8/02-romb.md"); got != want {
+	if got := h.file(pr.Head, "Геометрия/7 класс/02 Ромб/Ромб.md"); got != want {
 		t.Errorf("new file:\n%s", got)
 	}
 	files := git(t, h.remote, "diff", "--name-only", pr.Head+"^", pr.Head)
-	if !strings.Contains(files, "content/geometry/8/assets/romb-") || pr.Title != "Suggest new topic: Ромб" ||
+	if !strings.Contains(files, "Геометрия/7 класс/02 Ромб/_assets/romb-") || pr.Title != "Suggest new topic: Ромб" ||
 		!strings.Contains(pr.Body, "после первого абзаца") {
 		t.Errorf("files %q PR %+v", files, pr)
 	}
@@ -583,7 +636,7 @@ func TestNewTopic(t *testing.T) {
 
 func TestDialogEdges(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	menu := h.bot.mustDialog(t).p.PromptID
 	h.tg.take()
 
@@ -619,7 +672,7 @@ func TestDialogEdges(t *testing.T) {
 	}
 
 	// An expired dialog says so.
-	h.tap("n:geometry:8")
+	h.tap("n:" + h.bot.catalog().NoteByPath(triangles).Grade().ID)
 	h.tg.take()
 	d := h.bot.mustDialog(t)
 	d.ses.ExpiresAt = time.Now().Add(-time.Minute)
@@ -636,7 +689,7 @@ func TestDialogEdges(t *testing.T) {
 
 func TestReconcile(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	h.tg.take()
 	h.tap(cbFix)
 	plainText := texts(h.tg.take(), "sendMessage")[0]
@@ -661,7 +714,7 @@ func TestReconcile(t *testing.T) {
 
 func TestGlueMidSentence(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:triangles")
+	h.tap("e:" + h.id(triangles))
 	h.tg.take()
 	h.tap(cbFix)
 	plainText := texts(h.tg.take(), "sendMessage")[0]

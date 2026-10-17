@@ -1,0 +1,18 @@
+# Сечение призмы через ребро и точку
+
+> Постройте сечение призмы $ABCA_1B_1C_1$ плоскостью через ребро $AC$ и точку $M \in A_1B_1$.
+
+![](tg://photo?id=p7ac8d907ddefbaa858495468)
+
+**Решение:**
+
+1) $AC \parallel A_1C_1 \Rightarrow AC \parallel (A_1B_1C_1)$ (по <tg-button type="callback_data" style="link" data="a:zde7G5B6jOT">признаку параллельности прямой и плоскости</tg-button>)
+2) Плоскость сечения пересекает $(A_1B_1C_1)$ по прямой $MN \parallel AC$ (по <tg-button type="callback_data" style="link" data="a:_yoHnKVjnIE">теореме о прямой пересечения</tg-button>)
+3) $AMNC$ — сечение
+
+**Ответ:** $AMNC$.
+==== media ====
+p7ac8d907ddefbaa858495468 Геометрия/10 класс/05 Параллельность прямой и плоскости/_assets/Чертёж — сечение призмы (задача 1).svg svg=true
+==== stats ====
+{Chars:373 Blocks:13 Media:1 Nesting:4 Columns:0}
+==== issues ====

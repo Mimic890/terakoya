@@ -93,3 +93,16 @@ func TestReopenKeepsSchema(t *testing.T) {
 	}
 	s.Close()
 }
+
+func TestArchives(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	if _, err := s.ArchiveFileID(ctx, "abc"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v", err)
+	}
+	s.PutArchiveFileID(ctx, "abc", "f1")
+	s.PutArchiveFileID(ctx, "abc", "f2")
+	if id, err := s.ArchiveFileID(ctx, "abc"); err != nil || id != "f2" {
+		t.Errorf("id = %q, %v", id, err)
+	}
+}

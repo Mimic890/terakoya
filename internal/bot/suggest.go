@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ const (
 	stateEditConfirm   = "suggest_edit_confirm"   // text received, «Отправить»
 	stateReport        = "suggest_report"         // waiting for a description
 	stateReportConfirm = "suggest_report_confirm" // description received, «Отправить»
+	stateKind          = "suggest_kind"           // «Добавить…»: which kind of note
+	stateParent        = "suggest_parent"         // a corollary: of which note
 	stateNewTitle      = "suggest_new_title"
 	stateNewText       = "suggest_new_text"
 	stateNewImages     = "suggest_new_images" // text received, «Готово»
@@ -45,7 +48,10 @@ const (
 	cbSection = "es:" // es:<n>
 	cbSend    = "ok"
 	cbCancel  = "x"
-	cbOpen    = "o:" // o:<id>, opens an article without replacing the message
+	cbOpen    = "o:" // o:<id>, opens a note without replacing the message
+	cbAddNote = "ea"
+	cbKind    = "ek:" // ek:<n>, index into the kind list
+	cbParent  = "ep:" // ep:<note id>
 )
 
 const (
@@ -65,9 +71,13 @@ var downloadClient = &http.Client{Timeout: time.Minute}
 
 // sessionPayload is the JSON stored with a suggestion session.
 type sessionPayload struct {
-	ArticleID string `json:"article_id,omitempty"`
-	Grade     string `json:"grade,omitempty"` // <subject>:<grade>
-	ShortID   string `json:"short_id"`
+	NoteID  string `json:"note_id,omitempty"`
+	GradeID string `json:"grade_id,omitempty"`
+	// Kind and ParentID describe a new note of a topic (the main page is
+	// NoteID); for a new topic Kind is empty.
+	Kind     string `json:"kind,omitempty"`
+	ParentID string `json:"parent_id,omitempty"`
+	ShortID  string `json:"short_id"`
 	// Raw is the article as the user saw it; edits are merged into it.
 	Raw     string `json:"raw,omitempty"`
 	Section int    `json:"section,omitempty"`
@@ -142,8 +152,9 @@ func (b *Bot) canSuggest(ctx context.Context, q *models.CallbackQuery) (string, 
 	return base, true
 }
 
-// startSuggestion opens the «Предложить правку» menu for an article.
-func (b *Bot) startSuggestion(ctx context.Context, q *models.CallbackQuery, chatID int64, a *content.Article) {
+// startSuggestion opens the «Предложить правку» menu for a note. Under a
+// main page it also offers to add a theorem, a task and so on.
+func (b *Bot) startSuggestion(ctx context.Context, q *models.CallbackQuery, chatID int64, n *content.Note) {
 	unlock := b.userLocks.lock(q.From.ID)
 	defer unlock()
 	base, ok := b.canSuggest(ctx, q)
@@ -152,13 +163,15 @@ func (b *Bot) startSuggestion(ctx context.Context, q *models.CallbackQuery, chat
 	}
 	b.answer(ctx, q, "", false)
 	d := &dialog{chatID: chatID,
-		ses: store.Session{TgID: q.From.ID, State: stateMenu, BaseSHA: base, ArticlePath: a.Path},
-		p:   sessionPayload{ArticleID: a.ID, ShortID: suggest.ShortID(), Raw: string(a.Raw)}}
-	b.prompt(ctx, d, b.t.SuggestMenu, keyboard(
-		row(button(b.t.FixText, cbFix)),
-		row(button(b.t.ReportError, cbReport)),
-		cancelRow(b.t.Cancel),
-	))
+		ses: store.Session{TgID: q.From.ID, State: stateMenu, BaseSHA: base, ArticlePath: n.Path},
+		p:   sessionPayload{NoteID: n.ID, ShortID: suggest.ShortID(), Raw: string(n.Raw)}}
+	rows := [][]models.InlineKeyboardButton{row(button(b.t.FixText, cbFix)), row(button(b.t.ReportError, cbReport))}
+	text := b.t.SuggestMenu
+	if n.IsMain() {
+		rows = append(rows, row(button(b.t.AddNote, cbAddNote)))
+		text = b.t.SuggestMenuMain
+	}
+	b.prompt(ctx, d, text, keyboard(append(rows, cancelRow(b.t.Cancel))...))
 }
 
 // startNewTopic asks for the title of a new topic in grade g.
@@ -172,8 +185,8 @@ func (b *Bot) startNewTopic(ctx context.Context, q *models.CallbackQuery, chatID
 	b.answer(ctx, q, "", false)
 	d := &dialog{chatID: chatID,
 		ses: store.Session{TgID: q.From.ID, State: stateNewTitle, BaseSHA: base},
-		p:   sessionPayload{Grade: g.Subject.Dir + ":" + g.Dir, ShortID: suggest.ShortID()}}
-	b.prompt(ctx, d, fmt.Sprintf(b.t.NewTitlePrompt, g.Subject.Label(), gradeTitle(b.t, g)), keyboard(cancelRow(b.t.Cancel)))
+		p:   sessionPayload{GradeID: g.ID, ShortID: suggest.ShortID()}}
+	b.prompt(ctx, d, fmt.Sprintf(b.t.NewTitlePrompt, g.Subject.Name, g.Title()), keyboard(cancelRow(b.t.Cancel)))
 }
 
 // quotaProblem returns a message if the user may not suggest right now.
@@ -286,28 +299,119 @@ func (b *Bot) onDialogCallback(ctx context.Context, q *models.CallbackQuery, msg
 		b.submitReport(ctx, d, &q.From)
 	case data == cbSend && d.ses.State == stateNewImages:
 		b.submitNew(ctx, d, &q.From)
+	case data == cbAddNote && d.ses.State == stateMenu:
+		b.chooseKind(ctx, d)
+	case strings.HasPrefix(data, cbKind) && d.ses.State == stateKind:
+		i, err := strconv.Atoi(strings.TrimPrefix(data, cbKind))
+		if kinds := b.kinds(d); err == nil && i >= 0 && i < len(kinds) {
+			b.onKind(ctx, d, kinds[i])
+		}
+	case strings.HasPrefix(data, cbParent) && d.ses.State == stateParent:
+		if n := b.catalog().Note(strings.TrimPrefix(data, cbParent)); n != nil {
+			d.p.ParentID = n.ID
+			b.askNoteTitle(ctx, d)
+		}
 	}
+}
+
+// kinds lists the kinds a new note of the dialog's topic can have: the
+// usual ones, then other kind folders the topic already has.
+func (b *Bot) kinds(d *dialog) []string {
+	out := append([]string{}, content.Kinds...)
+	n := b.dialogNote(d)
+	if n == nil {
+		return out
+	}
+	known := map[string]bool{}
+	for _, k := range out {
+		known[k] = true
+	}
+	for _, x := range n.Topic.Notes {
+		if !known[x.Kind] {
+			known[x.Kind] = true
+			out = append(out, x.Kind)
+		}
+	}
+	return out
+}
+
+// chooseKind asks which kind of note to add to the topic.
+func (b *Bot) chooseKind(ctx context.Context, d *dialog) {
+	var rows [][]models.InlineKeyboardButton
+	var cur []models.InlineKeyboardButton
+	for i, k := range b.kinds(d) {
+		cur = append(cur, button(content.KindLabel(k), cbKind+strconv.Itoa(i)))
+		if len(cur) == 2 {
+			rows, cur = append(rows, cur), nil
+		}
+	}
+	if len(cur) > 0 {
+		rows = append(rows, cur)
+	}
+	d.ses.State = stateKind
+	b.prompt(ctx, d, b.t.ChooseKind, keyboard(append(rows, cancelRow(b.t.Cancel))...))
+}
+
+// onKind continues with the title, or for a corollary first asks which
+// note it belongs to.
+func (b *Bot) onKind(ctx context.Context, d *dialog, kind string) {
+	d.p.Kind = kind
+	main := b.dialogNote(d)
+	if kind != "следствия" || main == nil {
+		b.askNoteTitle(ctx, d)
+		return
+	}
+	var rows [][]models.InlineKeyboardButton
+	for _, n := range main.Topic.Notes {
+		if n.Kind == "следствия" {
+			continue
+		}
+		rows = append(rows, row(button(shorten(n.KindLabel()+": "+n.Title, 60), cbParent+n.ID)))
+	}
+	if len(rows) == 0 {
+		b.askNoteTitle(ctx, d)
+		return
+	}
+	d.ses.State = stateParent
+	b.prompt(ctx, d, b.t.ChooseParent, keyboard(append(rows, cancelRow(b.t.Cancel))...))
+}
+
+func (b *Bot) askNoteTitle(ctx context.Context, d *dialog) {
+	main := b.dialogNote(d)
+	if main == nil {
+		b.cancel(ctx, d, b.t.NotFound)
+		return
+	}
+	d.ses.State = stateNewTitle
+	b.prompt(ctx, d, fmt.Sprintf(b.t.NewNoteTitlePrompt, content.KindLabel(d.p.Kind), main.Topic.Title()), keyboard(cancelRow(b.t.Cancel)))
+}
+
+func shorten(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return strings.TrimSpace(string(r[:max-1])) + "…"
+	}
+	return s
 }
 
 func (b *Bot) dropButtonsOf(ctx context.Context, msg *models.Message) {
 	b.dropButtons(ctx, &dialog{chatID: msg.Chat.ID, p: sessionPayload{PromptID: msg.ID}})
 }
 
-// article returns the session's article in the current catalog.
-func (b *Bot) dialogArticle(d *dialog) *content.Article {
+// dialogNote returns the session's note in the current catalog.
+func (b *Bot) dialogNote(d *dialog) *content.Note {
 	cat := b.catalog()
-	if a := cat.ArticleByPath(d.ses.ArticlePath); a != nil {
-		return a
+	if n := cat.NoteByPath(d.ses.ArticlePath); n != nil {
+		return n
 	}
-	return cat.Article(d.p.ArticleID)
+	return cat.Note(d.p.NoteID)
 }
 
-// sections splits the session's article for editing. The [[link]] titles
-// are recorded on first use, so later calls render the same text.
+// sections splits the session's note for editing, without its back-link
+// block, which is kept as it is. The [[link]] titles are recorded on first
+// use, so later calls render the same text.
 func (b *Bot) sections(d *dialog) (body string, secs []plain.Section) {
-	src := string(content.CleanSource([]byte(d.p.Raw)))
-	_, body, _, _, _ = content.SplitFrontmatter([]byte(src))
-	cat, a := b.catalog(), b.dialogArticle(d)
+	body, _ = content.SplitBacklink(string(content.CleanSource([]byte(d.p.Raw))))
+	cat, a := b.catalog(), b.dialogNote(d)
 	record := d.p.Links == nil
 	if record {
 		d.p.Links = map[string]string{}
@@ -318,7 +422,7 @@ func (b *Bot) sections(d *dialog) (body string, secs []plain.Section) {
 		}
 		title := ""
 		if a != nil {
-			if to := cat.Resolve(a, target); to != nil {
+			if to, err := cat.ResolveNote(a, content.Link{Target: target, Wiki: true}); err == nil {
 				title = to.Title
 			}
 		}
@@ -577,43 +681,36 @@ func (b *Bot) onEditText(ctx context.Context, d *dialog) {
 	}
 }
 
-// onNewTitle checks the title of a new topic.
+// onNewTitle checks the title of a new topic or note. Its file name must
+// not be used anywhere in the vault yet.
 func (b *Bot) onNewTitle(ctx context.Context, d *dialog, title string) {
 	title = strings.Join(strings.Fields(title), " ")
 	if utf8.RuneCountInString(title) > maxTitleRunes {
 		b.prompt(ctx, d, b.t.NewTitleTooLong, keyboard(cancelRow(b.t.Cancel)))
 		return
 	}
-	g := findGrade(b.catalog(), d.p.Grade)
-	if g == nil {
-		b.cancel(ctx, d, b.t.NotFound)
+	name := content.SafeFileName(title)
+	if name == "" {
+		b.prompt(ctx, d, b.t.NameInvalid, keyboard(cancelRow(b.t.Cancel)))
 		return
 	}
-	if a := topicNamed(g, title); a != nil {
-		b.prompt(ctx, d, fmt.Sprintf(b.t.NewTitleTaken, a.Title), keyboard(
-			row(button(fmt.Sprintf(b.t.OpenNamed, a.Title), cbOpen+a.ID)),
-			cancelRow(b.t.Cancel),
-		))
+	cat := b.catalog()
+	for _, p := range cat.FileNamed(name + ".md") {
+		if n := cat.NoteByPath(p); n != nil {
+			b.prompt(ctx, d, fmt.Sprintf(b.t.NewTitleTaken, n.Title), keyboard(
+				row(button(fmt.Sprintf(b.t.OpenNamed, shorten(n.Title, 40)), cbOpen+n.ID)),
+				cancelRow(b.t.Cancel),
+			))
+			return
+		}
+	}
+	if d.p.Kind == "" && cat.Grade(d.p.GradeID) == nil || d.p.Kind != "" && b.dialogNote(d) == nil {
+		b.cancel(ctx, d, b.t.NotFound)
 		return
 	}
 	d.p.Title = title
 	d.ses.State = stateNewText
 	b.prompt(ctx, d, b.t.NewTextPrompt, keyboard(cancelRow(b.t.Cancel)))
-}
-
-// topicNamed finds a topic of the grade with this title or alias.
-func topicNamed(g *content.Grade, title string) *content.Article {
-	for _, a := range g.Articles {
-		if strings.EqualFold(a.Title, title) {
-			return a
-		}
-		for _, al := range a.Aliases {
-			if strings.EqualFold(al, title) {
-				return a
-			}
-		}
-	}
-	return nil
 }
 
 // cancel ends the dialog with a message.
@@ -687,7 +784,7 @@ func submitter(u *models.User) suggest.Submitter {
 // submitEdit merges the edited text into the article as the user saw it
 // and opens a pull request from the commit they saw.
 func (b *Bot) submitEdit(ctx context.Context, d *dialog, from *models.User) {
-	a := b.dialogArticle(d)
+	a := b.dialogNote(d)
 	if a == nil {
 		b.cancel(ctx, d, b.t.NotFound)
 		return
@@ -699,9 +796,9 @@ func (b *Bot) submitEdit(ctx context.Context, d *dialog, from *models.User) {
 	}
 	sec := secs[d.p.Section]
 	merged := plain.Merge(body, sec, d.p.Text)
-	src := string(content.CleanSource([]byte(d.p.Raw)))
-	data := src[:len(src)-len(body)] + body[:sec.Start] + merged.Source + body[sec.End:]
-	res, err := suggest.Edit(b.catalog(), a, []byte(data), nil, b.cfg.SuggestMaxBytes)
+	_, tail := content.SplitBacklink(string(content.CleanSource([]byte(d.p.Raw))))
+	data := body[:sec.Start] + merged.Source + body[sec.End:] + tail
+	res, err := suggest.Edit(b.catalog(), a, []byte(data), b.cfg.SuggestMaxBytes)
 	var prob *suggest.Problem
 	if errors.As(err, &prob) && prob.Code == suggest.TooLarge {
 		d.ses.State = stateEditText
@@ -719,49 +816,88 @@ func (b *Bot) submitEdit(ctx context.Context, d *dialog, from *models.User) {
 		}
 		ch := suggest.Change{Kind: suggest.KindEdit, Title: res.Title, Section: section, Text: d.p.Text,
 			Merge: &merged, Issues: res.Issues}
-		_, err = b.openPullRequest(ctx, d, from, a.Grade, res, ch)
+		_, err = b.openPullRequest(ctx, d, from, a.Topic.Path(), res, ch)
 	}
 	b.finish(ctx, d, msgID, err, b.t.SubmittedEdit)
 }
 
-// submitNew opens a pull request with a new topic.
+// submitNew opens a pull request with a new topic, or a new note of a
+// topic together with the main page that links it.
 func (b *Bot) submitNew(ctx context.Context, d *dialog, from *models.User) {
 	cat := b.catalog()
-	g := findGrade(cat, d.p.Grade)
-	if g == nil {
-		b.cancel(ctx, d, b.t.NotFound)
-		return
+	var res *suggest.Result
+	var err error
+	var topicDir string
+	if d.p.Kind == "" {
+		g := cat.Grade(d.p.GradeID)
+		if g == nil {
+			b.cancel(ctx, d, b.t.NotFound)
+			return
+		}
+		res, err = suggest.NewTopic(cat, g, d.p.Title, d.p.Text, b.cfg.SuggestMaxBytes)
+		if err == nil {
+			topicDir = path.Dir(res.Path)
+		}
+	} else {
+		main := b.dialogNote(d)
+		if main == nil {
+			b.cancel(ctx, d, b.t.NotFound)
+			return
+		}
+		res, err = suggest.NewNote(cat, main.Topic, d.p.Kind, cat.Note(d.p.ParentID), d.p.Title, d.p.Text, b.cfg.SuggestMaxBytes)
+		topicDir = main.Topic.Path()
 	}
-	res, err := suggest.NewTopic(cat, g, d.p.Title, d.p.Text, nil, b.cfg.SuggestMaxBytes)
 	var prob *suggest.Problem
-	if errors.As(err, &prob) && prob.Code == suggest.TooLarge {
-		b.prompt(ctx, d, b.t.TextTooLong, b.sendKeyboard(b.t.Done))
-		return
+	if errors.As(err, &prob) {
+		switch prob.Code {
+		case suggest.TooLarge:
+			b.prompt(ctx, d, b.t.TextTooLong, b.sendKeyboard(b.t.Done))
+			return
+		case suggest.TakenName:
+			// Someone added a note with this name meanwhile.
+			d.ses.State = stateNewTitle
+			b.prompt(ctx, d, b.t.NameTaken, keyboard(cancelRow(b.t.Cancel)))
+			return
+		}
 	}
 	msgID := b.submitting(ctx, d)
 	if msgID == 0 {
 		return
 	}
+	done := fmt.Sprintf(b.t.SubmittedNew, d.p.Title)
 	if err == nil {
-		ch := suggest.Change{Kind: suggest.KindNew, Title: res.Title, Text: d.p.Text, Issues: res.Issues}
-		_, err = b.openPullRequest(ctx, d, from, g, res, ch)
+		ch := suggest.Change{Kind: suggest.KindNew, NoteKind: d.p.Kind, Title: res.Title, Text: d.p.Text, Issues: res.Issues}
+		_, err = b.openPullRequest(ctx, d, from, topicDir, res, ch)
+		if d.p.Kind != "" {
+			done = fmt.Sprintf(b.t.SubmittedNote, d.p.Title)
+		}
 	}
-	b.finish(ctx, d, msgID, err, fmt.Sprintf(b.t.SubmittedNew, d.p.Title))
+	b.finish(ctx, d, msgID, err, done)
 }
 
-// openPullRequest commits the article and the pictures on a new branch
-// whose parent is the commit the user saw, and opens a pull request.
-func (b *Bot) openPullRequest(ctx context.Context, d *dialog, from *models.User, g *content.Grade,
+// openPullRequest commits the files and the pictures (into the topic's
+// _assets) on a new branch whose parent is the commit the user saw, and
+// opens a pull request.
+func (b *Bot) openPullRequest(ctx context.Context, d *dialog, from *models.User, topicDir string,
 	res *suggest.Result, ch suggest.Change) (githost.PR, error) {
-	articlePath, err := suggest.RepoPath(b.cfg.ContentSubdir, res.Path)
+	articlePath, err := suggest.RepoPath(res.Path)
 	if err != nil {
 		return githost.PR{}, err
 	}
 	ch.RepoPath, ch.BaseSHA, ch.ShortID, ch.By = articlePath, d.ses.BaseSHA, d.p.ShortID, submitter(from)
 	branch := suggest.Branch(from.ID, res.Path, ch.ShortID)
 
-	changes := []gitrepo.Change{{Path: articlePath, Data: res.Data}}
-	pics, err := b.pictureChanges(ctx, d, g, res.Path)
+	var changes []gitrepo.Change
+	for _, f := range res.Files() {
+		if _, err := suggest.RepoPath(f.Path); err != nil {
+			return githost.PR{}, err
+		}
+		changes = append(changes, gitrepo.Change{Path: f.Path, Data: f.Data})
+		if f.Path != articlePath {
+			ch.Files = append(ch.Files, f.Path)
+		}
+	}
+	pics, err := b.pictureChanges(ctx, d, topicDir+"/"+content.AssetsDir, res.Path)
 	if err != nil {
 		return githost.PR{}, err
 	}
@@ -795,12 +931,12 @@ type picture struct {
 }
 
 // pictureChanges downloads the user's pictures and places them in the
-// grade's assets directory.
-func (b *Bot) pictureChanges(ctx context.Context, d *dialog, g *content.Grade, articlePath string) ([]picture, error) {
+// topic's _assets folder.
+func (b *Bot) pictureChanges(ctx context.Context, d *dialog, assets, articlePath string) ([]picture, error) {
 	var out []picture
 	for i, img := range d.p.Images {
 		name := suggest.ImageName(articlePath, d.p.ShortID, i+1, img.Ext)
-		rel, err := suggest.RepoPath(b.cfg.ContentSubdir, g.Subject.Dir+"/"+g.Dir+"/assets/"+name)
+		rel, err := suggest.RepoPath(assets + "/" + name)
 		if err != nil {
 			return nil, err
 		}
@@ -833,7 +969,7 @@ func (b *Bot) record(ctx context.Context, d *dialog, from *models.User, kind, ar
 // issue attachments, or, on hosts without an attachment API, files on a
 // report/ branch.
 func (b *Bot) submitReport(ctx context.Context, d *dialog, from *models.User) {
-	a := b.dialogArticle(d)
+	a := b.dialogNote(d)
 	if a == nil {
 		b.cancel(ctx, d, b.t.NotFound)
 		return
@@ -845,8 +981,8 @@ func (b *Bot) submitReport(ctx context.Context, d *dialog, from *models.User) {
 	b.finish(ctx, d, msgID, b.openIssue(ctx, d, from, a), b.t.SubmittedReport)
 }
 
-func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, a *content.Article) error {
-	articlePath, err := suggest.RepoPath(b.cfg.ContentSubdir, d.ses.ArticlePath)
+func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, a *content.Note) error {
+	articlePath, err := suggest.RepoPath(d.ses.ArticlePath)
 	if err != nil {
 		return err
 	}
@@ -859,7 +995,7 @@ func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, a *co
 	}
 	branch := ""
 	if len(d.p.Images) > 0 {
-		pics, err := b.pictureChanges(ctx, d, a.Grade, d.ses.ArticlePath)
+		pics, err := b.pictureChanges(ctx, d, a.Topic.Path()+"/"+content.AssetsDir, d.ses.ArticlePath)
 		if err != nil {
 			return err
 		}

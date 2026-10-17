@@ -1,0 +1,48 @@
+# Проверка
+
+Ссылки: <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">признак</tg-button>, <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">Признак</tg-button>, <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">с подписью</tg-button>,  
+по пути <tg-button type="callback_data" style="link" data="a:en59LBFZtfR">другая</tg-button>, сайт [пример](https://example.org).  
+Двусмысленная общая и битая нет.  
+Подпись **жирная** и $x^2$ в <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">ссылке a</tg-button>.
+
+**Дано:**  
+$a \parallel b$  
+$b \subset \alpha$
+
+> Цитата в две  
+> строки.
+
+1) первый пункт  
+продолжение пункта
+2) второй пункт
+
+- маркер
+	- вложенный
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+```math
+\frac{a}{b}
+```
+
+![](tg://photo?id=p77c31b8a3bbae7654e3f3ebe)
+
+![подпись](tg://photo?id=p2d4566582844690f8634a8b2)
+
+Встроенная  картинка и цена \$5.
+
+```
+[[Не ссылка]] и $ не формула
+```
+==== media ====
+p77c31b8a3bbae7654e3f3ebe Геометрия/7 класс/01 Проверка/_assets/рисунок.svg svg=true
+p2d4566582844690f8634a8b2 Геометрия/7 класс/01 Проверка/_assets/фото.png svg=false
+==== stats ====
+{Chars:337 Blocks:24 Media:2 Nesting:5 Columns:2}
+==== issues ====
+Геометрия/7 класс/01 Проверка/Проверка.md:5: error: link to Общая.md: ambiguous: several files have this name; write the path
+Геометрия/7 класс/01 Проверка/Проверка.md:5: error: link to Нет такой.md: not found
+Геометрия/7 класс/01 Проверка/Проверка.md:34: error: image фото.png must be on its own line
+Геометрия/7 класс/01 Проверка/Проверка.md:34: warning: unmatched $; write \$ for a literal dollar sign

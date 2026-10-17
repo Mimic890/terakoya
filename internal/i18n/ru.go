@@ -24,61 +24,71 @@ type Strings struct {
 
 	// Suggestions. Users are schoolchildren and teachers: no file names,
 	// Markdown or LaTeX here, and every step offers «Отмена».
-	SuggestDisabled   string
-	SuggestMenu       string
-	FixText           string
-	ReportError       string
-	Cancel            string
-	Send              string
-	SendAnyway        string
-	Done              string
-	OpenTopic         string
-	OpenNamed         string // %s: topic title
-	ChooseSection     string
-	SectionStart      string
-	SectionPart       string // %s: section title, %d: part number
-	EditInstructions  string
-	EditEmptySection  string
-	EditReceived      string
-	EditUnchanged     string
-	EditShrunk        string
-	EditImageFirst    string // %d: pictures so far
-	ImageAdded        string // %d: pictures so far
-	ReportPrompt      string
-	ReportReceived    string
-	NewTitlePrompt    string // %s: subject label, %s: grade title
-	NewTitleTaken     string // %s: existing topic title
-	NewTitleTooLong   string
-	NewTitleFirst     string
-	NewTextPrompt     string
-	NewImageFirst     string // %d: pictures so far
-	NewImagesPrompt   string
-	NewMoreText       string
-	NewImageAdded     string // %d: pictures so far
-	UseButtons        string
-	OnlyTextAndImages string
-	ImageTooLarge     string
-	TooManyImages     string // %d: limit
-	TextTooLong       string
-	Expired           string
-	Cancelled         string
-	NothingToCancel   string
-	TooOften          string
-	TooManyOpen       string // %d: open suggestions
-	Submitting        string
-	SubmittedEdit     string
-	SubmittedReport   string
-	SubmittedNew      string // %s: topic title
-	SubmitFailed      string
-	AcceptedEdit      string // %s: topic title
-	AcceptedNew       string // %s: topic title
-	AcceptedReport    string // %s: topic title
-	AcceptedCount     string // %d: accepted suggestions
-	RankUp            string // %s: rank
-	RejectedEdit      string // %s: topic title
-	RejectedNew       string // %s: topic title
-	RejectedReport    string // %s: topic title
-	ReviewComment     string // %s: comment
+	SuggestDisabled    string
+	SuggestMenu        string
+	SuggestMenuMain    string
+	AddNote            string
+	ChooseKind         string
+	ChooseParent       string
+	NewNoteTitlePrompt string // %s: kind label, %s: topic title
+	NameInvalid        string
+	NameTaken          string
+	SubmittedNote      string // %s: title
+	Continued          string // %s: note title
+	ArchiveName        string // %s: date
+	FixText            string
+	ReportError        string
+	Cancel             string
+	Send               string
+	SendAnyway         string
+	Done               string
+	OpenTopic          string
+	OpenNamed          string // %s: topic title
+	ChooseSection      string
+	SectionStart       string
+	SectionPart        string // %s: section title, %d: part number
+	EditInstructions   string
+	EditEmptySection   string
+	EditReceived       string
+	EditUnchanged      string
+	EditShrunk         string
+	EditImageFirst     string // %d: pictures so far
+	ImageAdded         string // %d: pictures so far
+	ReportPrompt       string
+	ReportReceived     string
+	NewTitlePrompt     string // %s: subject label, %s: grade title
+	NewTitleTaken      string // %s: existing topic title
+	NewTitleTooLong    string
+	NewTitleFirst      string
+	NewTextPrompt      string
+	NewImageFirst      string // %d: pictures so far
+	NewImagesPrompt    string
+	NewMoreText        string
+	NewImageAdded      string // %d: pictures so far
+	UseButtons         string
+	OnlyTextAndImages  string
+	ImageTooLarge      string
+	TooManyImages      string // %d: limit
+	TextTooLong        string
+	Expired            string
+	Cancelled          string
+	NothingToCancel    string
+	TooOften           string
+	TooManyOpen        string // %d: open suggestions
+	Submitting         string
+	SubmittedEdit      string
+	SubmittedReport    string
+	SubmittedNew       string // %s: topic title
+	SubmitFailed       string
+	AcceptedEdit       string // %s: topic title
+	AcceptedNew        string // %s: topic title
+	AcceptedReport     string // %s: topic title
+	AcceptedCount      string // %d: accepted suggestions
+	RankUp             string // %s: rank
+	RejectedEdit       string // %s: topic title
+	RejectedNew        string // %s: topic title
+	RejectedReport     string // %s: topic title
+	ReviewComment      string // %s: comment
 }
 
 // RU is the Russian UI.
@@ -106,21 +116,34 @@ var RU = Strings{
 	SuggestMenu: "Что хотите сделать?\n\n" +
 		"«Исправить текст» — поправите сами.\n" +
 		"«Сообщить об ошибке» — просто опишите, что не так, а мы исправим.",
-	FixText:          "Исправить текст",
-	ReportError:      "Сообщить об ошибке",
-	Cancel:           "Отмена",
-	Send:             "Отправить",
-	SendAnyway:       "Отправить как есть",
-	Done:             "Готово",
-	OpenTopic:        "Открыть тему",
-	OpenNamed:        "Открыть «%s»",
-	ChooseSection:    "Статья длинная. Какую часть исправить?",
-	SectionStart:     "Начало",
-	SectionPart:      "%s (%d)",
-	EditInstructions: "Скопируйте текст выше (нажмите на него → «Копировать»), исправьте и пришлите мне.",
-	EditEmptySection: "Здесь пока нет текста. Напишите его и пришлите мне.",
-	EditReceived:     "Получил! Если нужно, пришлите картинку — можно с подписью, куда её поставить.",
-	EditUnchanged:    "Текст не изменился. Исправьте что-нибудь и пришлите ещё раз.",
+	SuggestMenuMain: "Что хотите сделать?\n\n" +
+		"«Исправить текст» — поправите сами.\n" +
+		"«Сообщить об ошибке» — просто опишите, что не так, а мы исправим.\n" +
+		"«Добавить теорему, задачу…» — новая запись в этой теме.",
+	AddNote:            "Добавить теорему, задачу…",
+	ChooseKind:         "Что добавить?",
+	ChooseParent:       "К чему это следствие?",
+	NewNoteTitlePrompt: "Новая запись: %s, тема «%s».\n\nНапишите её название.",
+	NameInvalid:        "Такое название не подойдёт — напишите его словами.",
+	NameTaken:          "Такое название уже есть. Придумайте другое.",
+	SubmittedNote:      "Спасибо! Мы проверим «%s» и добавим в тему. Я напишу, когда это случится.",
+	Continued:          "%s (продолжение)",
+	ArchiveName:        "Теракоя %s.zip",
+	FixText:            "Исправить текст",
+	ReportError:        "Сообщить об ошибке",
+	Cancel:             "Отмена",
+	Send:               "Отправить",
+	SendAnyway:         "Отправить как есть",
+	Done:               "Готово",
+	OpenTopic:          "Открыть тему",
+	OpenNamed:          "Открыть «%s»",
+	ChooseSection:      "Статья длинная. Какую часть исправить?",
+	SectionStart:       "Начало",
+	SectionPart:        "%s (%d)",
+	EditInstructions:   "Скопируйте текст выше (нажмите на него → «Копировать»), исправьте и пришлите мне.",
+	EditEmptySection:   "Здесь пока нет текста. Напишите его и пришлите мне.",
+	EditReceived:       "Получил! Если нужно, пришлите картинку — можно с подписью, куда её поставить.",
+	EditUnchanged:      "Текст не изменился. Исправьте что-нибудь и пришлите ещё раз.",
 	EditShrunk: "Похоже, вы прислали только часть текста — остальное будет удалено.\n\n" +
 		"Если хотели исправить одно место, пришлите весь текст целиком, вместе с исправлением.",
 	EditImageFirst:  "Картинка добавлена (всего: %d). Теперь пришлите исправленный текст.",
@@ -128,7 +151,7 @@ var RU = Strings{
 	ReportPrompt:    "Опишите своими словами, что не так. Например: «в теореме опечатка, должно быть 180°». Можно приложить фото или скриншот.",
 	ReportReceived:  "Понял! Можно добавить ещё фото или сразу отправить.",
 	NewTitlePrompt:  "Новая тема: %s · %s. Как она называется?",
-	NewTitleTaken:   "Тема «%s» уже есть. Пришлите другое название или откройте её.",
+	NewTitleTaken:   "«%s» уже есть. Пришлите другое название или откройте то, что есть.",
 	NewTitleTooLong: "Слишком длинное название — сократите, пожалуйста.",
 	NewTitleFirst:   "Сначала напишите, как называется тема.",
 	NewTextPrompt:   "Отлично! Теперь пришлите текст темы.",

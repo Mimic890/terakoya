@@ -75,3 +75,64 @@ func (s *Store) LastChatMenu(ctx context.Context, chatID int64) (int, error) {
 	}
 	return id, err
 }
+
+// A note too long for one message is sent as a group of messages; the
+// message_parts table remembers the group, so the whole note can be
+// removed when the user moves on from any of its parts.
+
+// SetMessageGroup records the messages of one note, in order.
+func (s *Store) SetMessageGroup(ctx context.Context, chatID int64, msgIDs []int) error {
+	if len(msgIDs) < 2 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range msgIDs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO message_parts (chat_id, msg_id, group_id) VALUES (?, ?, ?)
+			ON CONFLICT (chat_id, msg_id) DO UPDATE SET group_id = excluded.group_id`,
+			chatID, id, msgIDs[0]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// MessageGroup returns all messages of the group msgID belongs to, in
+// order, or just msgID if it is not part of a group.
+func (s *Store) MessageGroup(ctx context.Context, chatID int64, msgID int) ([]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT msg_id FROM message_parts
+		WHERE chat_id = ? AND group_id = (SELECT group_id FROM message_parts WHERE chat_id = ? AND msg_id = ?)
+		ORDER BY msg_id`, chatID, chatID, msgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		out = []int{msgID}
+	}
+	return out, nil
+}
+
+// DropMessageGroup forgets the group msgID belongs to.
+func (s *Store) DropMessageGroup(ctx context.Context, chatID int64, msgID int) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM message_parts WHERE chat_id = ? AND group_id = (
+			SELECT group_id FROM message_parts WHERE chat_id = ? AND msg_id = ?)`, chatID, chatID, msgID)
+	return err
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/media"
+	"github.com/Mimic890/terakoya/internal/raster"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
@@ -65,7 +66,8 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 		}
 		b.cfg.BotUsername = me.Username
 	}
-	b.media = &media.Resolver{Cache: st, Sender: api, CacheChatID: cfg.CacheChatID, Log: log}
+	b.media = &media.Resolver{Cache: st, Sender: api, CacheChatID: cfg.CacheChatID,
+		Raster: raster.New(cfg.Resvg, cfg.FontsDir), Log: log}
 	if err := b.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -81,7 +83,7 @@ func (b *Bot) Run(ctx context.Context) {
 
 // Reload reads the catalog from disk and swaps it in.
 func (b *Bot) Reload(ctx context.Context) error {
-	cat, issues, err := content.Load(b.cfg.ContentDir())
+	cat, issues, err := content.Load(b.cfg.RepoDir)
 	if err != nil {
 		return fmt.Errorf("load content: %w", err)
 	}
@@ -92,7 +94,7 @@ func (b *Bot) Reload(ctx context.Context) error {
 	b.mu.Lock()
 	b.cat, b.sha = cat, sha
 	b.mu.Unlock()
-	b.log.Info("catalog loaded", "articles", len(cat.Articles()), "commit", sha)
+	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha)
 	return nil
 }
 
@@ -147,10 +149,12 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 		}
 	}
 	switch cmd {
+	case "/download":
+		b.sendArchive(ctx, m.Chat.ID)
 	case "/start":
 		if arg != "" {
-			if a := b.catalog().Article(arg); a != nil {
-				b.sendArticle(ctx, m.Chat.ID, a)
+			if n := b.catalog().Note(arg); n != nil {
+				b.sendArticle(ctx, m.Chat.ID, n)
 				return
 			}
 			b.send(ctx, m.Chat.ID, b.t.NotFound, nil)
@@ -215,26 +219,6 @@ func (b *Bot) showMenu(ctx context.Context, chatID int64, text string, kb *model
 		return
 	}
 	b.sendMenu(ctx, chatID, text, kb)
-}
-
-// retire removes a message that has been replaced by a newer one. Telegram
-// refuses to delete messages older than 48 hours; those lose their keyboard
-// instead, so their buttons cannot be used any more.
-func (b *Bot) retire(ctx context.Context, msg *models.Message) {
-	chatID := msg.Chat.ID
-	_, err := b.api.DeleteMessage(ctx, &tg.DeleteMessageParams{ChatID: chatID, MessageID: msg.ID})
-	if err == nil {
-		b.msgs.gone(ctx, chatID, msg.ID)
-		return
-	}
-	b.log.Debug("delete message failed; removing its keyboard", "err", err)
-	b.msgs.dropMenu(ctx, chatID, msg.ID)
-	_, err = b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
-		ChatID: chatID, MessageID: msg.ID, ReplyMarkup: keyboard(),
-	})
-	if err != nil {
-		b.log.Debug("clear keyboard", "err", err)
-	}
 }
 
 func (b *Bot) answer(ctx context.Context, q *models.CallbackQuery, text string, alert bool) {

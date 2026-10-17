@@ -1,6 +1,8 @@
 package lint
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,8 +11,20 @@ import (
 	"github.com/Mimic890/terakoya/internal/content"
 )
 
-func TestExamplesAreClean(t *testing.T) {
-	issues, err := Run("../../examples/content")
+// fakeRaster fails on SVGs containing "broken".
+type fakeRaster struct{}
+
+func (fakeRaster) Tag() string { return "fake" }
+func (fakeRaster) Rasterize(_ context.Context, p string) ([]byte, error) {
+	data, _ := os.ReadFile(p)
+	if strings.Contains(string(data), "broken") {
+		return nil, errors.New("resvg: unexpected end of stream")
+	}
+	return []byte("\x89PNG"), nil
+}
+
+func TestExampleIsClean(t *testing.T) {
+	issues, err := Run(context.Background(), "../../examples/vault", fakeRaster{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,59 +49,62 @@ func writeTree(t *testing.T, files map[string]string) string {
 }
 
 func TestFindsProblems(t *testing.T) {
+	long := "# Длинная\n\n" + strings.Repeat("## Раздел\n\n"+strings.Repeat("слово ", 2000)+"\n\n", 4)
 	root := writeTree(t, map[string]string{
-		"geometry/_subject.yml":        "title: Geometry\n",
-		"geometry/7/01-a.md":           "---\ntitle: A\nid: same\n---\nSee [[Missing]].\n",
-		"geometry/7/02-b.md":           "---\ntitle: B\nid: same\n---\nBody\n",
-		"geometry/7/03-no-title.md":    "---\norder: 3\n---\nBody\n",
-		"geometry/7/04-no-fm.md":       "Body\n",
-		"geometry/7/05-треугольник.md": "---\ntitle: Cyrillic name\n---\nBody\n",
-		"geometry/7/06-bad-id.md":      "---\ntitle: Bad\nid: has space\n---\nBody\n",
-		"geometry/7/07-math.md":        "---\ntitle: Math\nfoo: bar\n---\n$$\nx\n",
-		"geometry/7/08-dup.md":         "---\ntitle: Shared\n---\n",
-		"geometry/8/01-dup.md":         "---\ntitle: Shared\n---\n",
-		"geometry/7/assets/unused.png": "png",
-		"physics/7/01-x.md":            "---\ntitle: X\n---\n",
-		"geometry/7/09-broken.md":      "---\ntitle: [unclosed\n---\n",
+		"Г/7 класс/01 А/А.md":               "# А\n\n[битая](Нет.md), [общая](Общая.md), [[Общая]], [по пути](теоремы/Общая.md)\n\n![](рис.svg)\n\n![](плохой.svg)\n",
+		"Г/7 класс/01 А/теоремы/Общая.md":   "Без заголовка.\n",
+		"Г/7 класс/01 А/_assets/рис.svg":    "<svg/>",
+		"Г/7 класс/01 А/_assets/плохой.svg": "<svg broken",
+		"Г/7 класс/01 А/_assets/лишний.png": "png",
+		"Г/7 класс/01 Б/Б.md":               "# Б\n",
+		"Г/7 класс/01 Б/теоремы/Общая.md":   "# Общая Б\n",
+		"Г/7 класс/02 Пустая/_assets/x.png": "png",
+		"Г/7 класс/03 Две/Одна.md":          "# Одна\n",
+		"Г/7 класс/03 Две/Другая.md":        "# Другая\n",
+		"Г/7 класс/04 Длинная/Длинная.md":   long,
+		"Г/7 класс/notes.docx":              "x",
+		".obsidian/app.json":                "{}",
 	})
-	issues, err := Run(root)
+	issues, err := Run(context.Background(), root, fakeRaster{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"geometry/7/01-a.md:5: error: link [[Missing]] does not match any article",
-		"geometry/7/02-b.md:1: error: id \"same\" is already used by geometry/7/01-a.md",
-		"geometry/7/03-no-title.md:1: error: frontmatter title is required",
-		"geometry/7/04-no-fm.md:1: error: frontmatter with a title is required",
-		"geometry/7/05-треугольник.md:1: error: derived id",
-		"geometry/7/06-bad-id.md:1: error: id \"has space\" must be",
-		"geometry/7/07-math.md:1: warning: unknown frontmatter key \"foo\"",
-		"geometry/7/07-math.md:5: error: unterminated $$ block",
-		"geometry/7/09-broken.md:1: error: invalid frontmatter",
-		"geometry/7/assets/unused.png: warning: image is not used by any article",
-		"geometry/8/01-dup.md:1: warning: title or alias is shared with geometry/7/08-dup.md",
-		"physics: warning: directory has no _subject.yml",
+	var b strings.Builder
+	for _, i := range issues {
+		b.WriteString(i.String() + "\n")
 	}
-	got := make([]string, len(issues))
-	for i, is := range issues {
-		got[i] = is.String()
-	}
-	for _, w := range want {
-		found := false
-		for _, g := range got {
-			if strings.HasPrefix(g, w) {
-				found = true
-				break
-			}
+	got := b.String()
+	for _, want := range []string{
+		"Г/7 класс/01 А/А.md:3: error: link to Нет.md: not found",
+		"Г/7 класс/01 А/А.md:3: error: link to Общая.md: ambiguous",
+		"Г/7 класс/01 А/_assets/плохой.svg: error: cannot rasterize: resvg: unexpected end of stream",
+		"Г/7 класс/01 А/_assets/лишний.png: warning: picture is not shown by any note",
+		"Г/7 класс/01 А/теоремы/Общая.md: warning: note has no title line",
+		"Г/7 класс/01 Б: error: topic number 1 is also used by «01 А»",
+		"Г/7 класс/02 Пустая: error: topic folder has no main page",
+		"Г/7 класс/03 Две: error: topic folder has 2 .md files in its root",
+		"Г/7 класс/04 Длинная/Длинная.md: info: too long for one message; sent in",
+		"Г/7 класс/notes.docx: warning: unexpected file type",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
 		}
-		if !found {
-			t.Errorf("missing issue %q", w)
+	}
+	// A path link to a duplicated name is fine; dot folders are ignored.
+	for _, bad := range []string{"теоремы/Общая.md: not found", ".obsidian", "рис.svg: error"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("unexpected %q in:\n%s", bad, got)
 		}
 	}
 	if !content.HasErrors(issues) {
-		t.Error("expected errors")
+		t.Error("no errors")
 	}
-	if t.Failed() {
-		t.Logf("got:\n%s", strings.Join(got, "\n"))
+}
+
+func TestSkipsSVGWithoutRasterizer(t *testing.T) {
+	root := writeTree(t, map[string]string{"Г/7 класс/01 А/А.md": "# А\n\n![](a.svg)\n", "Г/7 класс/01 А/_assets/a.svg": "<svg/>"})
+	issues, _ := Run(context.Background(), root, nil)
+	if len(issues) != 1 || issues[0].Severity != content.Info || !strings.Contains(issues[0].Msg, "not checked") {
+		t.Errorf("issues = %v", issues)
 	}
 }
