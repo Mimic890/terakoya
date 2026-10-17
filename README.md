@@ -3,18 +3,21 @@
 A Telegram bot that serves a wiki-like catalog of school material,
 starting with geometry for grades 7–11.
 
-The catalog is a git repository of plain Markdown files that reads well in
-Obsidian, on GitHub or in any Markdown editor. The bot renders articles as
-Telegram rich messages: formulas, tables, images and links between
-articles included. See [docs/content-guide.md](docs/content-guide.md) for
-the content format.
+The material is an Obsidian vault kept in a git repository: subjects,
+grades and numbered topics are folders, each topic has a main page and
+folders of theorems, tasks and so on, with SVG drawings in `_assets/`.
+There are no config files or frontmatter; everything comes from folder
+names and note text. The bot renders notes as Telegram rich messages
+(formulas, tables, drawings, links between notes), splitting long notes
+into several messages. See [docs/content-guide.md](docs/content-guide.md)
+(in Russian, for content authors) for the format.
 
 ## Status
 
-- [x] Content loader, Markdown → Telegram rich message converter, `lint`
-- [x] Read-only navigation: subjects → grades → topics, deep links, file download
+- [x] Obsidian vault loader, Markdown → Telegram rich message converter with SVG drawings and long-note splitting, `lint`
+- [x] Navigation: subjects → grades → topics → notes, deep links, note download, `/download` of the whole vault
 - [x] Suggestions from Telegram as pull requests and issues (GitHub or Forgejo), git host webhooks, content sync
-- [ ] Rank polish, `/download` of the whole catalog, Telegram webhook mode
+- [ ] Rank polish, Telegram webhook mode
 
 ## Running
 
@@ -42,26 +45,33 @@ Go 1.27 or later; no C toolchain is needed.
 
 ```sh
 go build ./cmd/terakoya
-TERAKOYA_BOT_TOKEN=… TERAKOYA_REPO_DIR=examples ./terakoya
+TERAKOYA_BOT_TOKEN=… TERAKOYA_REPO_DIR=examples/vault ./terakoya
 ```
 
-This serves the sample articles in `examples/content`.
+This serves the sample vault in `examples/vault`. SVG drawings need
+[resvg](https://github.com/linebender/resvg) (`cargo install resvg`) and
+the DejaVu fonts; the Docker image has both.
 
 ## Commands
 
 ```
 terakoya [serve] [-config file]     run the bot (default)
-terakoya lint [-strict] <dir>       validate a content directory
+terakoya lint [-strict] <vault>     validate a vault
 ```
+
+In Telegram, `/start` opens the catalog and `/download` sends the whole
+vault as a zip (without hidden files such as `.obsidian`).
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
-directory structure, frontmatter, ID uniqueness, `[[links]]`, images, math
-delimiters and Telegram message limits. The Docker image includes it, so a
+the folder structure, links and images (broken or ambiguous), duplicate
+topic numbers, notes without a title, unexpected files, SVGs that fail to
+rasterize, math delimiters and Telegram message limits, and lists notes
+that will be sent in several parts as `info`. The Docker image includes it, so a
 content repository can run it in CI without a Go toolchain:
 
 ```yaml
-# .github/workflows/lint.yml in the content repository
+# .github/workflows/lint.yml in the vault repository
 on: [push, pull_request]
 jobs:
   lint:
@@ -70,14 +80,14 @@ jobs:
       - uses: actions/checkout@v4
       - run: >
           docker run --rm -v "$PWD:/work:ro" -w /work
-          ghcr.io/mimic890/terakoya:latest lint content
+          ghcr.io/mimic890/terakoya:latest lint .
 ```
 
 Replace the image with wherever you publish it; a Forgejo Actions runner
 with Docker uses the same step. Locally:
 
 ```sh
-docker run --rm -v "$PWD:/work:ro" -w /work terakoya:dev lint content
+docker run --rm -v "$PWD:/work:ro" -w /work terakoya:dev lint .
 ```
 
 ## Configuration
@@ -94,11 +104,12 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_DIR` | `repo_dir` | `./content` (`/srv/content` in Docker) | Local checkout of the content repository. |
 | `TERAKOYA_REPO_URL` | `repo_url` | — | Content repository to clone when `repo_dir` is empty. Without it, `repo_dir` is used as is. |
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
-| `TERAKOYA_CONTENT_SUBDIR` | `content_subdir` | `content` | Catalog directory inside the repository. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
 | `TERAKOYA_RANKS` | `ranks` | `kōhai:0,senpai:3,sensei:10` | Rank titles and the number of merged suggestions each starts at. The first must start at 0. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
+| `TERAKOYA_RESVG` | `resvg` | `resvg` | The resvg binary that rasterizes SVG drawings. |
+| `TERAKOYA_FONTS_DIR` | `fonts_dir` | `/usr/share/fonts/dejavu` or `/usr/share/fonts/truetype/dejavu` | DejaVu fonts for the drawings' labels; system fonts are not used, so drawings look the same everywhere. |
 | `TERAKOYA_GIT_HOST` | `git_host` | — | `github` or `forgejo`. Enables suggestions, git webhooks and sync; requires `TERAKOYA_REPO_URL`. |
 | `TERAKOYA_GIT_API_URL` | `git_api_url` | `https://api.github.com` for GitHub | Base URL of the host. Required for Forgejo, e.g. `https://git.hyperchat.ru`. |
 | `TERAKOYA_GIT_REPO` | `git_repo` | — | Content repository as `owner/name`. |
@@ -119,12 +130,17 @@ file; empty variables are ignored. See
 
 Images are uploaded to Telegram once; afterwards the bot reuses the
 `file_id`, cached by the SHA-256 of the file, so a changed image is
-uploaded again automatically.
+uploaded again automatically. SVG drawings are rasterized with resvg at
+twice their size on a white background, only when their PNG is not cached
+yet: the cache key is the hash of the SVG source plus the rendering
+settings, so an unchanged drawing is never converted or uploaded again. If
+a drawing cannot be converted, the note is sent without it and the error
+is logged (lint reports it too).
 
 Without `TERAKOYA_CACHE_CHAT_ID`, a new image is attached to the first
-article message that uses it, and its `file_id` is read back from the sent
+message that uses it, and its `file_id` is read back from the sent
 message. With it, the bot first uploads new images to that chat (for
-example, a private channel where the bot is an admin) and sends articles
+example, a private channel where the bot is an admin) and sends notes
 with `file_id`s only. Use the cache chat if you see repeated uploads in the
 logs.
 
@@ -134,11 +150,14 @@ With `TERAKOYA_GIT_HOST` set, users can suggest changes without knowing
 anything about Markdown, LaTeX, files or git. The bot never shows them
 file names, frontmatter or syntax; everything is buttons and plain text.
 
-Under an article, «Предложить правку» offers two options:
+Under a note, «Предложить правку» offers two options, and a third under a
+topic's main page:
 
-- **«Исправить текст»**: the bot sends the article as plain readable text:
+- **«Исправить текст»**: the bot sends the note as plain readable text:
   no Markdown markers, formulas as Unicode (`∠A + ∠B = 180°`), pictures as
-  «[картинка]». Long articles are offered section by section. The user
+  «[картинка]», one line per line as in Obsidian, without the back-link
+  block at the end (which is kept). Long notes are offered section by
+  section. The user
   copies the text, fixes it and sends it back; pictures can be added along
   the way, with a caption saying where they go. After «Отправить», the bot
   merges the text into the Markdown source paragraph by paragraph:
@@ -152,17 +171,29 @@ Under an article, «Предложить правку» offers two options:
 - **«Сообщить об ошибке»**: the user describes the problem in their own
   words, optionally with photos. This opens an **issue** for a maintainer
   to fix by hand.
+- **«Добавить теорему, задачу…»**: the user picks the kind (theorem, axiom,
+  definition, task, corollary, or another kind folder the topic has), then
+  writes the title, the text and adds pictures. The note goes to
+  `<kind folder>/<title>.md` with a back-link to the topic, and the same
+  pull request links it from the main page: right after the last link to a
+  note of that kind, or under a new `## Теоремы` (etc.) section. For a
+  corollary the user picks its theorem; the note goes to that theorem's
+  `следствия/` folder and the link is nested under the theorem's.
 
 In a grade's topic list, «Добавить тему» asks for the title, then the text,
-then pictures. The file name, order and frontmatter are generated.
+then pictures. It creates `<number> <title>/<title>.md`, numbered after
+the last topic of the grade and padded like the others. File names are the
+title as typed, minus characters Windows or macOS do not allow; a title
+whose file name already exists in the vault is refused, so links by name
+keep working.
 
 Pull requests are created as follows: the bot remembers the content commit
 the user was looking at, commits the change with git plumbing on a new
 branch `suggest/<tg_id>-<slug>-<short_id>` whose parent is that commit, and
 opens a pull request. If `main` changed the same lines in the meantime, the
 pull request shows a conflict instead of silently overwriting them.
-Pictures go to the grade's `assets/` directory, not yet referenced from the
-article. The pull request lists what to check: the paragraphs that came in
+Pictures go to the topic's `_assets/` folder, not yet referenced from the
+note. The pull request lists what to check: the paragraphs that came in
 as plain text (before and after), merge notes, the pictures with their
 captions and previews, the text exactly as sent, and lint findings, which
 users never see.
@@ -217,8 +248,10 @@ already closed issue is only noticed through the webhook.
 ```sh
 go test ./...
 go test ./internal/render -update   # rewrite converter golden files
-go run ./cmd/terakoya lint examples/content
+go run ./cmd/terakoya lint examples/vault
 ```
 
-Converter tests compare the output for `internal/render/testdata/content`
-and `examples/content` with the files in `internal/render/testdata/golden`.
+Converter tests compare the output for `internal/render/testdata/vault`
+and `examples/vault` with the files in `internal/render/testdata/golden`.
+The SVG test runs resvg when it is installed (`TERAKOYA_RESVG` and
+`TERAKOYA_FONTS_DIR` point to it) and is skipped otherwise.
