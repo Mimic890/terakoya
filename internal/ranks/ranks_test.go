@@ -7,10 +7,21 @@ func TestDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for merged, want := range map[int]string{0: "kōhai", 2: "kōhai", 3: "senpai", 9: "senpai", 10: "sensei", 500: "sensei"} {
+	for merged, want := range map[int]string{0: "Novice", 1: "Pupil", 2: "Pupil", 3: "Student", 7: "Scholar", 14: "Scholar", 15: "Mentor",
+		30: "Teacher", 59: "Teacher", 60: "Master", 100: "Sage", 500: "Sage"} {
 		if got := l.For(merged).Title; got != want {
 			t.Errorf("For(%d) = %q, want %q", merged, got, want)
 		}
+	}
+}
+
+func TestNext(t *testing.T) {
+	l, _ := Parse(Default)
+	if n, ok := l.Next(l.For(4)); !ok || n.Title != "Scholar" || n.From != 7 {
+		t.Errorf("Next(Student) = %v, %v", n, ok)
+	}
+	if _, ok := l.Next(l.For(100)); ok {
+		t.Error("Sage has a next rank")
 	}
 }
 

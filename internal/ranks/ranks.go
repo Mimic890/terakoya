@@ -18,7 +18,7 @@ type Rank struct {
 type Ladder []Rank
 
 // Default is used when no ranks are configured.
-const Default = "kōhai:0,senpai:3,sensei:10"
+const Default = "Novice:0,Pupil:1,Student:3,Scholar:7,Mentor:15,Teacher:30,Master:60,Sage:100"
 
 // Parse reads "title:threshold,title:threshold,…". The lowest threshold
 // must be 0 so every user has a rank.
@@ -52,6 +52,16 @@ func Parse(s string) (Ladder, error) {
 		}
 	}
 	return l, nil
+}
+
+// Next returns the rank after r, and false at the top.
+func (l Ladder) Next(r Rank) (Rank, bool) {
+	for _, x := range l {
+		if x.From > r.From {
+			return x, true
+		}
+	}
+	return Rank{}, false
 }
 
 // For returns the rank for a number of merged suggestions.
