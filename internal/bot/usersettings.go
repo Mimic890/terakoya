@@ -100,11 +100,9 @@ func (b *Bot) onSettingsCallback(ctx context.Context, q *models.CallbackQuery, m
 			b.log.Error("reset nickname", "err", err)
 		}
 	case cbNickOwn:
+		// Also when it is the active choice: the user types a new one.
 		b.answer(ctx, q, "", false)
-		if u.Nickname != "" {
-			return // already an own nickname
-		}
-		b.startNick(ctx, q, msg)
+		b.startNick(ctx, q, msg, u)
 		return
 	}
 	b.answer(ctx, q, "", false)
@@ -135,8 +133,9 @@ func (b *Bot) showSettingsScreen(ctx context.Context, chatID int64, msgID int, u
 	}
 }
 
-// startNick asks for a nickname; the «Ник» screen stays above.
-func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *models.Message) {
+// startNick asks for a nickname, naming the current one if there is one;
+// the «Ник» screen stays above.
+func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *models.Message, u store.User) {
 	unlock := b.userLocks.lock(q.From.ID)
 	defer unlock()
 	if d, _ := b.loadDialog(ctx, q.From.ID, menu.Chat.ID); d != nil {
@@ -144,7 +143,11 @@ func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *mode
 	}
 	d := &dialog{chatID: menu.Chat.ID, ses: store.Session{TgID: q.From.ID, State: stateNick},
 		p: sessionPayload{OriginMsg: menu.ID}}
-	b.prompt(ctx, d, b.t.NickAsk, keyboard(cancelRow(b.t.Cancel)))
+	ask := b.t.NickAsk
+	if u.Nickname != "" {
+		ask = fmt.Sprintf(b.t.NickAskNew, u.Nickname)
+	}
+	b.prompt(ctx, d, ask, keyboard(cancelRow(b.t.Cancel)))
 }
 
 // onNickMessage checks a nickname. A refused one gets the reason and the

@@ -172,6 +172,7 @@ type Strings struct {
 	NickFromTelegram string
 	NickOwn          string
 	NickAsk          string
+	NickAskNew       string // %s: the current nickname
 	NickAgain        string
 	NickLength       string // %d: min, %d: max
 	NickChars        string
@@ -356,6 +357,7 @@ var RU = Strings{
 	NickFromTelegram: "Из Telegram",
 	NickOwn:          "Свой ник",
 	NickAsk:          "Пришлите ник: от 3 до 20 символов — буквы, цифры, «_», «-» и пробелы.",
+	NickAskNew:       "Сейчас: %s. Пришлите новый ник.",
 	NickAgain:        "Пришлите другой.",
 	NickLength:       "Ник должен быть от %d до %d символов.",
 	NickChars:        "В нике могут быть только буквы, цифры, «_», «-» и пробелы.",

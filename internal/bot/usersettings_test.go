@@ -108,10 +108,16 @@ func TestNickScreen(t *testing.T) {
 	if d, _ := h.bot.loadDialog(h.ctx, anya.ID, anya.ID); d != nil {
 		t.Error("the dialog survived")
 	}
+	// The active «Свой ник» asks for a new one right away.
 	h.tapOn(menu, cbNickOwn)
-	if c := h.tg.take(); len(c) != 1 || c[0].method != "answerCallbackQuery" {
-		t.Errorf("active «Свой ник» = %+v", c)
-	}
+	wantPrompt(t, h.tg.take(), "Сейчас: Ёжик. Пришлите новый ник.", "Отмена")
+	h.say("Ёжик-2")
+	nickScreen(t, h.tg.take(), menu, "Ёжик-2 (свой)", "Из Telegram", "Свой ник ✓")
+	// Keeping the same one is fine too.
+	h.tapOn(menu, cbNickOwn)
+	h.tg.take()
+	h.say("Ёжик-2")
+	nickScreen(t, h.tg.take(), menu, "Ёжик-2 (свой)", "Из Telegram", "Свой ник ✓")
 
 	// «Из Telegram» clears it and refreshes the screen.
 	h.tapOn(menu, cbNickTG)

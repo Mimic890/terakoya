@@ -165,10 +165,10 @@ main one shows «Ник: …» and «Показывать меня в топе: 
 the toggle «Топ: показывать ✓» / «Топ: скрыт», and «Закрыть». «Ник»
 replaces it with «Сейчас: Аня (из Telegram)» or «Сейчас: Ёжик (свой)»,
 «Ник видно в топе и в приветствии.», the choice «Из Telegram» /
-«Свой ник» with a ✓ on the active one (tapping it does nothing), and
-«Назад». «Из Telegram» clears the nickname; «Свой ник» asks for one, and
-saving or «Отмена» returns to the «Ник» screen. To change an own
-nickname, go back to «Из Telegram» first. A user who hides from the top
+«Свой ник» with a ✓ on the active one, and «Назад». «Из Telegram» clears
+the nickname (tapped while active, it does nothing); «Свой ник» asks for
+one, and while active asks for a new one («Сейчас: Ёжик. Пришлите новый
+ник.»). Saving or «Отмена» returns to the «Ник» screen. A user who hides from the top
 is left out of it for everyone else, and still sees their own place.
 
 Where the bot addresses the user (the /start greeting «Привет, …!», the
