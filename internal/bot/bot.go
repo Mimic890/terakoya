@@ -198,6 +198,8 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	switch cmd {
 	case "/download":
 		b.sendArchive(ctx, m.Chat.ID)
+	case "/top":
+		b.showTop(ctx, m.Chat.ID, m.From)
 	case "/start":
 		b.greet(ctx, m.Chat.ID, m.From)
 		if arg != "" {

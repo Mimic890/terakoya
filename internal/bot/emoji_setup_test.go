@@ -30,12 +30,14 @@ func (h *harness) wizardTap(data string) {
 
 func TestEmojiSetupWizard(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tg.emoji = []string{"5001", "5002"}
+	h.tg.emoji = []string{"5001", "5002", "5003"}
 	h.as(ivan)
+	// Two medals: the wizard asks for two places of the top, not five.
+	h.bot.settings.Update(func(s *settings.Settings) { s.Top.Medals = 2 })
 
 	h.say("/emoji_setup")
 	c := last(t, h.tg.take())
-	want := "Шаг 1 из 8. Кнопка «Предметы» в нижней клавиатуре.\n\nСейчас: нет\n\n" + i18n.RU.EmojiAsk
+	want := "Шаг 1 из 10. Кнопка «Предметы» в нижней клавиатуре.\n\nСейчас: нет\n\n" + i18n.RU.EmojiAsk
 	if c.params["text"] != want {
 		t.Errorf("step 1 = %q, want %q", c.params["text"], want)
 	}
@@ -59,12 +61,12 @@ func TestEmojiSetupWizard(t *testing.T) {
 		t.Errorf("preview = %+v", c.params)
 	}
 	h.wizardTap(cbEmojiAnother)
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 8.") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 10.") {
 		t.Errorf("after «Другой» = %q", c.params["text"])
 	}
 	h.custom("5001", "😀")
 	h.wizardTap(cbEmojiYes)
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 2 из 8. Кнопка «Закреплённые»") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 2 из 10. Кнопка «Закреплённые»") {
 		t.Errorf("step 2 = %q", c.params["text"])
 	}
 
@@ -72,24 +74,30 @@ func TestEmojiSetupWizard(t *testing.T) {
 	h.wizardTap(cbEmojiClear) // Аккаунт
 	h.wizardTap(cbEmojiSkip)  // Закрепить
 	c = last(t, h.tg.take())
-	if !strings.HasPrefix(c.params["text"], "Шаг 5 из 8. Приветствие после /start") ||
+	if !strings.HasPrefix(c.params["text"], "Шаг 5 из 10. Приветствие после /start") ||
 		!strings.Contains(c.params["text"], "\n"+i18n.RU.EmojiHintGreeting+"\n\nСейчас: нет") {
 		t.Errorf("greeting step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // Приветствие
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 6 из 8. Кнопка предмета «Геометрия» в списке предметов.") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 6 из 10. Кнопка предмета «Геометрия» в списке предметов.") {
 		t.Errorf("subject step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // Геометрия
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 7 из 8. Значок ранга kōhai (от 0 принятых сообщений)") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 7 из 10. Значок ранга kōhai (от 0 принятых сообщений)") {
 		t.Errorf("rank step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // kōhai
 	h.custom("5002", "🎓")
 	h.wizardTap(cbEmojiYes) // senpai
+	if c = last(t, h.tg.take()); c.params["text"] != "Шаг 9 из 10. Медаль 1 места в /top — вместо номера места.\n1 место\n\nСейчас: нет\n\n"+i18n.RU.EmojiAsk {
+		t.Errorf("medal step = %q", c.params["text"])
+	}
+	h.custom("5003", "🥇")
+	h.wizardTap(cbEmojiYes)  // top:1
+	h.wizardTap(cbEmojiSkip) // top:2
 
 	c = last(t, h.tg.take())
-	wantSum := "Готово, сохранено:\nПредметы: ⭐\nЗакреплённые: —\nАккаунт: —\nЗакрепить: —\nПриветствие: —\nПредмет «Геометрия»: —\nРанг kōhai: —\nРанг senpai: ⭐"
+	wantSum := "Готово, сохранено:\nПредметы: ⭐\nЗакреплённые: —\nАккаунт: —\nЗакрепить: —\nПриветствие: —\nПредмет «Геометрия»: —\nРанг kōhai: —\nРанг senpai: ⭐\nТоп, 1 место: ⭐\nТоп, 2 место: —"
 	if c.params["text"] != wantSum {
 		t.Errorf("summary =\n%q\nwant\n%q", c.params["text"], wantSum)
 	}
@@ -97,14 +105,14 @@ func TestEmojiSetupWizard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Emoji.KeyboardSubjects != "5001" || s.Ranks[1].Emoji != "5002" || s.Emoji.KeyboardAccount != "" {
+	if s.Emoji.KeyboardSubjects != "5001" || s.Ranks[1].Emoji != "5002" || s.Emoji.KeyboardAccount != "" || s.Emoji.Medal(1) != "5003" {
 		t.Errorf("saved = %+v", s)
 	}
 	if d, _ := h.bot.loadDialog(h.ctx, ivan.ID, ivan.ID); d != nil {
 		t.Error("the wizard did not end")
 	}
 	// In use at once.
-	if h.bot.emoji.Subjects() != "5001" || h.bot.emoji.Rank("senpai") != "5002" {
+	if h.bot.emoji.Subjects() != "5001" || h.bot.emoji.Rank("senpai") != "5002" || h.bot.emoji.Medal(1) != "5003" {
 		t.Errorf("in use: %q %q", h.bot.emoji.Subjects(), h.bot.emoji.Rank("senpai"))
 	}
 
@@ -131,9 +139,17 @@ func TestEmojiSetupOneSlotAndCancel(t *testing.T) {
 	h.say("/emoji_setup nowhere")
 	got := texts(h.tg.take(), "sendMessage")
 	if len(got) != 1 || !strings.HasPrefix(got[0], "Нет такого места.") || !strings.Contains(got[0], "\nsubject:Геометрия\n") ||
-		!strings.HasSuffix(got[0], "\nrank:senpai") {
+		!strings.Contains(got[0], "\nrank:senpai\n") || !strings.HasSuffix(got[0], "\ntop:5") {
 		t.Errorf("unknown slot = %q", got)
 	}
+
+	// A medal beyond top.medals can still be set by its slot.
+	h.say("/emoji_setup top:5")
+	if c := last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 1. Медаль 5 места в /top") {
+		t.Errorf("top:5 = %q", c.params["text"])
+	}
+	h.wizardTap(cbEmojiCancel)
+	h.tg.take()
 
 	// «Отмена» saves nothing, even answers already given.
 	before, _ := os.ReadFile(h.bot.settings.Path())
@@ -228,7 +244,7 @@ func TestCommandMenus(t *testing.T) {
 		t.Fatalf("calls = %+v", calls)
 	}
 	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") ||
-		!strings.Contains(all, `"start"`) {
+		!strings.Contains(all, `"start"`) || !strings.Contains(all, `"top"`) {
 		t.Errorf("everyone's menu = %v", calls[0].params)
 	}
 	if admin := calls[1].params; !strings.Contains(admin["scope"], `"chat_id":7`) ||

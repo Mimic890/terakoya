@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -39,8 +40,19 @@ type emojiSlot struct {
 }
 
 // emojiSlots lists the places in wizard order: the bottom keyboard, the
-// pin button, the greeting, each subject of the vault, each rank.
+// pin button, the greeting, each subject of the vault, each rank, and the
+// medals of the top up to top.medals.
 func (b *Bot) emojiSlots(s settings.Settings) []emojiSlot {
+	return b.slotsUpTo(s, s.Top.Medals)
+}
+
+// allSlots are the wizard's places plus every medal, which /emoji_setup
+// top:<n> sets even beyond top.medals.
+func (b *Bot) allSlots(s settings.Settings) []emojiSlot {
+	return b.slotsUpTo(s, settings.MaxMedals)
+}
+
+func (b *Bot) slotsUpTo(s settings.Settings, medals int) []emojiSlot {
 	t := b.t
 	out := []emojiSlot{
 		{"keyboard_subjects", t.EmojiShortSubjects, t.EmojiWhereSubjects, ""},
@@ -57,11 +69,15 @@ func (b *Bot) emojiSlots(s settings.Settings) []emojiSlot {
 		out = append(out, emojiSlot{"rank:" + r.Title, fmt.Sprintf(t.EmojiShortRank, r.Title),
 			fmt.Sprintf(t.EmojiWhereRank, r.Title, r.From, plural(r.From, t.AcceptedFrom)), t.EmojiHintRank})
 	}
+	for n := 1; n <= medals; n++ {
+		out = append(out, emojiSlot{fmt.Sprintf("top:%d", n), fmt.Sprintf(t.EmojiShortMedal, n),
+			fmt.Sprintf(t.EmojiWhereMedal, n), fmt.Sprintf(t.EmojiHintMedal, n)})
+	}
 	return out
 }
 
 func (b *Bot) emojiSlot(s settings.Settings, key string) (emojiSlot, bool) {
-	for _, slot := range b.emojiSlots(s) {
+	for _, slot := range b.allSlots(s) {
 		if strings.EqualFold(slot.key, key) {
 			return slot, true
 		}
@@ -84,6 +100,8 @@ func slotID(s settings.Settings, key string) string {
 		return s.Emoji.Greeting
 	case strings.HasPrefix(key, "subject:"):
 		return s.Emoji.Subjects[strings.TrimPrefix(key, "subject:")]
+	case strings.HasPrefix(key, "top:"):
+		return s.Emoji.Medal(medalPlace(key))
 	case strings.HasPrefix(key, "rank:"):
 		for _, r := range s.Ranks {
 			if r.Title == strings.TrimPrefix(key, "rank:") {
@@ -109,6 +127,10 @@ func setSlot(s *settings.Settings, key, id string) {
 		s.Emoji.Greeting = id
 	case strings.HasPrefix(key, "subject:"):
 		s.Emoji.Subjects[strings.TrimPrefix(key, "subject:")] = id
+	case strings.HasPrefix(key, "top:"):
+		if n := medalPlace(key); n >= 1 && n <= settings.MaxMedals {
+			s.Emoji.SetMedal(n, id)
+		}
 	case strings.HasPrefix(key, "rank:"):
 		for i := range s.Ranks {
 			if s.Ranks[i].Title == strings.TrimPrefix(key, "rank:") {
@@ -116,6 +138,12 @@ func setSlot(s *settings.Settings, key, id string) {
 			}
 		}
 	}
+}
+
+// medalPlace is the place of a top:<n> slot.
+func medalPlace(key string) int {
+	n, _ := strconv.Atoi(strings.TrimPrefix(key, "top:"))
+	return n
 }
 
 // emojiWizard is the session payload of /emoji_setup.
@@ -177,7 +205,7 @@ func (b *Bot) startEmojiSetup(ctx context.Context, m *models.Message, arg string
 		slot, ok := b.emojiSlot(s, arg)
 		if !ok {
 			var all []string
-			for _, slot := range b.emojiSlots(s) {
+			for _, slot := range b.allSlots(s) {
 				all = append(all, slot.key)
 			}
 			b.send(ctx, m.Chat.ID, fmt.Sprintf(b.t.EmojiUnknownSlot, strings.Join(all, "\n")), nil)
@@ -389,6 +417,7 @@ func (b *Bot) setCommands(ctx context.Context) {
 	common := []models.BotCommand{
 		{Command: "start", Description: b.t.CmdStart},
 		{Command: "download", Description: b.t.CmdDownload},
+		{Command: "top", Description: b.t.CmdTop},
 		{Command: "cancel", Description: b.t.CmdCancel},
 	}
 	if _, err := b.api.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: common}); err != nil {

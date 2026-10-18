@@ -92,6 +92,11 @@ type Strings struct {
 	HistoryItem     string // %s: title, %s: kind, %s: date
 	KindReportLabel string
 	KindGradeLabel  string
+	Top             string
+	TopTitle        string
+	TopEmpty        string
+	TopYou          string // %d: place, %d: accepted reports, %s: Reports in the right form
+	TopYouNone      string
 	// Kinds of earlier versions, still in the history.
 	KindEditLabel  string
 	KindTopicLabel string
@@ -108,6 +113,9 @@ type Strings struct {
 	EmojiWhereSubject  string // %s: subject
 	EmojiWhereRank     string // %s: rank, %d: accepted reports it starts at, %s: AcceptedFrom form
 	EmojiHintRank      string
+	EmojiWhereMedal    string // %d: place
+	EmojiHintMedal     string // %d: place
+	EmojiShortMedal    string // %d: place
 	EmojiShortSubjects string
 	EmojiShortPinned   string
 	EmojiShortAccount  string
@@ -139,6 +147,7 @@ type Strings struct {
 	CmdCancel     string
 	CmdEmojiSetup string
 	CmdRanks      string
+	CmdTop        string
 
 	// Months in the genitive case, for dates such as «25 октября».
 	Months [12]string
@@ -225,6 +234,11 @@ var RU = Strings{
 	HistoryItem:     "%s — %s, %s",
 	KindReportLabel: "ошибка",
 	KindGradeLabel:  "не хватает материала",
+	Top:             "Топ",
+	TopTitle:        "Топ участников",
+	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, чьи сообщения об ошибках приняли.",
+	TopYou:          "Ваше место: %d — %d %s",
+	TopYouNone:      "Вас пока нет в топе: сообщите об ошибке, и когда её примут, вы сюда попадёте.",
 	KindEditLabel:   "правка",
 	KindTopicLabel:  "новая тема",
 	KindNoteLabel:   "новая запись",
@@ -239,6 +253,9 @@ var RU = Strings{
 	EmojiWhereSubject:  "Кнопка предмета «%s» в списке предметов.",
 	EmojiWhereRank:     "Значок ранга %s (от %d %s): в «Аккаунте» и в поздравлении с новым рангом.",
 	EmojiHintRank:      "Лучше, чтобы значки становились солиднее от ранга к рангу.",
+	EmojiWhereMedal:    "Медаль %d места в /top — вместо номера места.",
+	EmojiHintMedal:     "%d место",
+	EmojiShortMedal:    "Топ, %d место",
 	EmojiShortSubjects: "Предметы",
 	EmojiShortPinned:   "Закреплённые",
 	EmojiShortAccount:  "Аккаунт",
@@ -269,6 +286,7 @@ var RU = Strings{
 	CmdCancel:     "Отменить текущее действие",
 	CmdEmojiSetup: "Настроить кастомные эмодзи",
 	CmdRanks:      "Показать ранги",
+	CmdTop:        "Топ участников",
 
 	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря"},
