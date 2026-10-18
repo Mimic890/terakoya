@@ -113,6 +113,7 @@ func TestUpdateAndReload(t *testing.T) {
 		"ranks:\n  - {title: a, from: 0}\nemoji:\n  pin: \"📌\"\n",
 		"ranks: [\n",
 		"ranks:\n  - {title: a, from: 0}\nunknown: 1\n",
+		"topic_list_style: grid\nranks:\n  - {title: a, from: 0}\n",
 	} {
 		log.Reset()
 		edit(bad)
@@ -135,5 +136,25 @@ func TestInvalidFileOnStart(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(path); string(data) != "ranks: []\n" {
 		t.Error("the bad file was overwritten")
+	}
+}
+
+func TestTopicListStyle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	f, _ := Open(path, nil, "", logger(nil))
+	if got := f.Get().TopicList(); got != TopicListList {
+		t.Errorf("default = %q", got)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "topic_list_style: list") {
+		t.Errorf("file:\n%s", data)
+	}
+	// Files from before the setting keep working, as lists.
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\n"), 0o644)
+	s, err := Load(path)
+	if err != nil || s.TopicList() != TopicListList {
+		t.Errorf("old file = %q, %v", s.TopicList(), err)
+	}
+	if err := f.Update(func(s *Settings) { s.TopicListStyle = TopicListButtons }); err != nil || f.Get().TopicList() != TopicListButtons {
+		t.Errorf("buttons = %q, %v", f.Get().TopicList(), err)
 	}
 }

@@ -193,19 +193,22 @@ file; empty variables are ignored. See
 | `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a suggestion. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
-### Settings file: ranks and custom emoji
+### Settings file: ranks, custom emoji, topic list
 
 What admins change while the bot runs lives in `settings.yml` in the data
 directory (`./data/settings.yml` with Docker Compose, so it survives
 redeploys). The bot creates it on first start with the default ranks
 (Novice 0 · Pupil 1 · Student 3 · Scholar 7 · Mentor 15 · Teacher 30 ·
-Master 60 · Sage 100 accepted suggestions) and no custom emoji, and
+Master 60 · Sage 100 accepted suggestions), no custom emoji and the list
+style for topic lists, and
 rereads it within seconds when it is edited by hand. A file that does not
 validate (the first rank must start at 0, thresholds must strictly
-increase, emoji IDs are numbers) is logged and ignored; the previous
+increase, emoji IDs are numbers, the topic list style is `list` or
+`buttons`) is logged and ignored; the previous
 settings stay in use.
 
 ```yaml
+topic_list_style: list   # or buttons
 ranks:
   - title: Novice
     from: 0
@@ -317,6 +320,16 @@ topic's main page:
   note of that kind, or under a new `## Теоремы` (etc.) section. For a
   corollary the user picks its theorem; the note goes to that theorem's
   `следствия/` folder and the link is nested under the theorem's.
+
+A grade's topic list is, by default (`topic_list_style: list`), a rich
+message: the heading «Геометрия · 10 класс» (with the subject's custom
+emoji, if set) and one line per topic, «§5 Параллельность прямой и
+плоскости», the number taken from the folder prefix without leading zeros
+(topics without a number have just the title). Each line is an in-text
+button that opens the topic in place of the list. Under it are only
+«Добавить тему» (when suggestions are on) and «Назад». With
+`topic_list_style: buttons` the topics are inline buttons instead, with
+the same «§5 » labels.
 
 In a grade's topic list, «Добавить тему» asks for the title, then the text,
 then pictures. It creates `<number> <title>/<title>.md`, numbered after

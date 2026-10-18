@@ -49,14 +49,14 @@ func TestViews(t *testing.T) {
 		t.Errorf("subject = %q %v", got, labels(kb))
 	}
 
-	text, kb = gradeView(tr, g)
+	text, kb = gradeView(tr, g, true)
 	if want := "Геометрия · 10 класс\n\nВыберите тему:"; text != want {
 		t.Errorf("grade text = %q, want %q", text, want)
 	}
 	if got := strings.Join(callbacks(kb), " "); got != "a:"+main.ID+" n:"+g.ID+" s:"+s.ID {
 		t.Errorf("grade callbacks = %q", got)
 	}
-	if labels(kb)[0] != "Параллельность прямой и плоскости" {
+	if labels(kb)[0] != "§5 Параллельность прямой и плоскости" {
 		t.Errorf("topic label = %q", labels(kb)[0])
 	}
 

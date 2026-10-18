@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +12,19 @@ import (
 
 	"github.com/Mimic890/terakoya/internal/i18n"
 )
+
+// richs returns the Markdown of the rich messages sent.
+func richs(calls []call) []string {
+	var out []string
+	for _, c := range calls {
+		if c.method == "sendRichMessage" {
+			var rm struct{ Markdown string }
+			json.Unmarshal([]byte(c.params["rich_message"]), &rm)
+			out = append(out, rm.Markdown)
+		}
+	}
+	return out
+}
 
 func ids(calls []call, method string) []string {
 	var out []string
@@ -75,7 +89,7 @@ func TestMultiPartNote(t *testing.T) {
 	if got := ids(calls, "deleteMessage"); len(got) != len(parts) {
 		t.Errorf("deleted %v, want all %d parts", got, len(parts))
 	}
-	if s := texts(calls, "sendMessage"); len(s) != 1 || !strings.HasPrefix(s[0], "Геометрия · 7 класс") {
+	if s := richs(calls); len(s) != 1 || !strings.HasPrefix(s[0], "# Геометрия · 7 класс") {
 		t.Errorf("topic list = %q", s)
 	}
 
@@ -120,7 +134,7 @@ func TestBackFromNoteAndTopic(t *testing.T) {
 		t.Errorf("main page = %s", md)
 	}
 	h.tapOn(301, "b:"+h.id(vmain))
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || !strings.Contains(s[0], "10 класс") {
+	if s := richs(h.tg.take()); len(s) != 1 || !strings.HasPrefix(s[0], "# Геометрия · 10 класс") {
 		t.Errorf("back from the main page = %q", s)
 	}
 }
