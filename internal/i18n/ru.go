@@ -14,80 +14,47 @@ type Strings struct {
 	GradeTitle     string // %s: grade directory name
 	Back           string
 	Home           string
-	SuggestEdit    string
-	AddTopic       string
 	DownloadMD     string
 	NotFound       string
 	TooLarge       string
 	SendFailed     string
 	UnknownCommand string
 
-	// Suggestions. Users are schoolchildren and teachers: no file names,
+	// Error reports. Users are schoolchildren and teachers: no file names,
 	// Markdown or LaTeX here, and every step offers «Отмена».
-	SuggestDisabled    string
-	SuggestMenu        string
-	SuggestMenuMain    string
-	AddNote            string
-	ChooseKind         string
-	ChooseParent       string
-	NewNoteTitlePrompt string // %s: kind label, %s: topic title
-	NameInvalid        string
-	NameTaken          string
-	SubmittedNote      string // %s: title
-	Continued          string // %s: note title
-	ArchiveName        string // %s: date
-	FixText            string
-	ReportError        string
-	Cancel             string
-	Send               string
-	SendAnyway         string
-	Done               string
-	OpenTopic          string
-	OpenNamed          string // %s: topic title
-	ChooseSection      string
-	SectionStart       string
-	SectionPart        string // %s: section title, %d: part number
-	EditInstructions   string
-	EditEmptySection   string
-	EditReceived       string
-	EditUnchanged      string
-	EditShrunk         string
-	EditImageFirst     string // %d: pictures so far
-	ImageAdded         string // %d: pictures so far
-	ReportPrompt       string
-	ReportReceived     string
-	NewTitlePrompt     string // %s: subject label, %s: grade title
-	NewTitleTaken      string // %s: existing topic title
-	NewTitleTooLong    string
-	NewTitleFirst      string
-	NewTextPrompt      string
-	NewImageFirst      string // %d: pictures so far
-	NewImagesPrompt    string
-	NewMoreText        string
-	NewImageAdded      string // %d: pictures so far
-	UseButtons         string
-	OnlyTextAndImages  string
-	ImageTooLarge      string
-	TooManyImages      string // %d: limit
-	TextTooLong        string
-	Expired            string
-	TooOften           string
-	TooManyOpen        string // %d: open suggestions
-	Submitting         string
-	SubmittedEdit      string
-	SubmittedReport    string
-	SubmittedNew       string // %s: topic title
-	SubmitFailed       string
-	AcceptedEdit       string // %s: topic title
-	AcceptedNew        string // %s: topic title
-	AcceptedReport     string // %s: topic title
-	AcceptedCount      string // %d: accepted suggestions
-	RankUp             string // %s: rank (after its emoji, if any)
-	RankUpPrefix       string
-	RejectedEdit       string // %s: topic title
-	RejectedNew        string // %s: topic title
-	RejectedReport     string // %s: topic title
-	ReviewComment      string // %s: comment
+	ReportDisabled      string
+	Continued           string // %s: note title
+	ArchiveName         string // %s: date
+	ReportError         string
+	Cancel              string
+	Send                string
+	OpenTopic           string
+	ReportPrompt        string
+	GradeReportPrompt   string // %s: subject label, %s: grade title
+	ReportReceived      string
+	OnlyTextAndImages   string
+	ImageTooLarge       string
+	TooManyImages       string // %d: limit
+	Expired             string
+	TooOften            string
+	TooManyOpen         string // %d: open reports
+	Submitting          string
+	SubmittedReport     string
+	SubmitFailed        string
+	AcceptedReport      string // %s: note title
+	AcceptedGradeReport string // %s: «subject · grade»
+	AcceptedCount       string // %d: accepted reports
+	RankUp              string // %s: rank (after its emoji, if any)
+	RankUpPrefix        string
+	RejectedReport      string // %s: note title
+	RejectedGradeReport string // %s: «subject · grade»
+	ReviewComment       string // %s: comment
+	// Outcomes of edits and new topics suggested in earlier versions,
+	// whose pull requests may still be open.
+	AcceptedEdit string // %s: topic title
+	AcceptedNew  string // %s: topic title
+	RejectedEdit string // %s: topic title
+	RejectedNew  string // %s: topic title
 
 	// The keyboard at the bottom of the chat.
 	KeySubjects string
@@ -108,54 +75,26 @@ type Strings struct {
 	PinnedTitle string
 	PinnedEmpty string
 
-	// Account and the list of suggestions, sent as rich messages
-	// (Markdown).
+	// Account and the list of reports, sent as rich messages (Markdown).
 	AccountRank     string // %s: rank
-	AccountNext     string // %d: accepted suggestions left, %s: «правка» in the right form
+	AccountNext     string // %d: accepted reports left, %s: Reports in the right form
 	AccountTop      string
-	AccountAccepted string // %d: accepted suggestions
-	AccountOpen     string // %d: open suggestions
+	AccountAccepted string // %d: accepted reports
+	AccountOpen     string // %d: open reports
 	AccountAdmin    string
-	Edits           [3]string // «правка», «правки», «правок»
+	Reports         [3]string // «принятое сообщение», «принятых сообщения», «принятых сообщений»
 	History         string
 	HistoryPending  string
 	HistoryAccepted string
 	HistoryRejected string
 	HistoryEmpty    string
 	HistoryItem     string // %s: title, %s: kind, %s: date
-	KindEditLabel   string
-	KindTopicLabel  string
-	KindNoteLabel   string
 	KindReportLabel string
-
-	// Edit access.
-	AccessNeeded      string
-	SendRequest       string
-	AccessRequested   string
-	AccessPending     string
-	AccessDeniedUntil string // %s: date
-	Understood        string
-	AccessNoAdmins    string
-	AccessHave        string
-	AdminRequest      string // %s: who, %d: accepted edits, %d: accepted reports
-	Allow             string
-	Deny              string
-	AdminAllowed      string // %s: admin
-	AdminDenied       string // %s: admin
-	AdminDecided      string // %s: admin
-	AccessGranted     string
-	AccessDenied      string
-	AccessRevoked     string
-	AccessGone        string
-	AccessList        string // %d: count, %s: «человека» or «человек»
-	AccessListEmpty   string
-	AccessListLine    string // %s: user, %s: date, %s: admin
-	AccessAdmins      string // %s: admins
-	RevokeUsage       string
-	RevokeDone        string // %s: user
-	RevokeUnknown     string
-	RevokeNoAccess    string
-	RevokeAdmin       string
+	KindGradeLabel  string
+	// Kinds of earlier versions, still in the history.
+	KindEditLabel  string
+	KindTopicLabel string
+	KindNoteLabel  string
 
 	// /emoji_setup: one step per place a custom emoji can go.
 	EmojiStep          string // %d: step, %d: steps, %s: where
@@ -166,7 +105,7 @@ type Strings struct {
 	EmojiWhereGreeting string
 	EmojiHintGreeting  string
 	EmojiWhereSubject  string // %s: subject
-	EmojiWhereRank     string // %s: rank, %d: accepted suggestions it starts at, %s: AcceptedFrom form
+	EmojiWhereRank     string // %s: rank, %d: accepted reports it starts at, %s: AcceptedFrom form
 	EmojiHintRank      string
 	EmojiShortSubjects string
 	EmojiShortPinned   string
@@ -189,16 +128,14 @@ type Strings struct {
 	EmojiUnknownSlot   string // %s: the slots
 	EmojiSaveFailed    string // %s: error
 	RanksTitle         string
-	RanksLine          string    // %s: rank, %d: accepted suggestions, %s: AcceptedFrom form
-	AcceptedFrom       [3]string // «от 1 принятой правки», «от 2 принятых правок»…
+	RanksLine          string    // %s: rank, %d: accepted reports, %s: AcceptedFrom form
+	AcceptedFrom       [3]string // «от 1 принятого сообщения», «от 2 принятых сообщений»…
 	RanksEdit          string
 
 	// The command menu.
 	CmdStart      string
 	CmdDownload   string
 	CmdCancel     string
-	CmdAccess     string
-	CmdRevoke     string
 	CmdEmojiSetup string
 	CmdRanks      string
 
@@ -219,85 +156,43 @@ var RU = Strings{
 	GradeTitle:     "%s класс",
 	Back:           "« Назад",
 	Home:           "В начало",
-	SuggestEdit:    "Предложить правку",
-	AddTopic:       "Добавить тему",
 	DownloadMD:     "Скачать",
 	NotFound:       "Тема не найдена. Возможно, каталог обновился.",
 	TooLarge:       "Эта тема слишком большая для одного сообщения. Нажмите «Скачать», чтобы получить её файлом.",
 	SendFailed:     "Не удалось отправить тему. Попробуйте позже.",
 	UnknownCommand: "Не понимаю. Нажмите /start, чтобы открыть каталог.",
 
-	SuggestDisabled: "Предлагать правки пока нельзя.",
-	SuggestMenu: "Что хотите сделать?\n\n" +
-		"«Исправить текст» — поправите сами.\n" +
-		"«Сообщить об ошибке» — просто опишите, что не так, а мы исправим.",
-	SuggestMenuMain: "Что хотите сделать?\n\n" +
-		"«Исправить текст» — поправите сами.\n" +
-		"«Сообщить об ошибке» — просто опишите, что не так, а мы исправим.\n" +
-		"«Добавить теорему, задачу…» — новая запись в этой теме.",
-	AddNote:            "Добавить теорему, задачу…",
-	ChooseKind:         "Что добавить?",
-	ChooseParent:       "К чему это следствие?",
-	NewNoteTitlePrompt: "Новая запись: %s, тема «%s».\n\nНапишите её название.",
-	NameInvalid:        "Такое название не подойдёт — напишите его словами.",
-	NameTaken:          "Такое название уже есть. Придумайте другое.",
-	SubmittedNote:      "Спасибо! Мы проверим «%s» и добавим в тему. Я напишу, когда это случится.",
-	Continued:          "%s (продолжение)",
-	ArchiveName:        "Теракоя %s.zip",
-	FixText:            "Исправить текст",
-	ReportError:        "Сообщить об ошибке",
-	Cancel:             "Отмена",
-	Send:               "Отправить",
-	SendAnyway:         "Отправить как есть",
-	Done:               "Готово",
-	OpenTopic:          "Открыть тему",
-	OpenNamed:          "Открыть «%s»",
-	ChooseSection:      "Статья длинная. Какую часть исправить?",
-	SectionStart:       "Начало",
-	SectionPart:        "%s (%d)",
-	EditInstructions:   "Скопируйте текст выше (нажмите на него → «Копировать»), исправьте и пришлите мне.",
-	EditEmptySection:   "Здесь пока нет текста. Напишите его и пришлите мне.",
-	EditReceived:       "Получил! Если нужно, пришлите картинку — можно с подписью, куда её поставить.",
-	EditUnchanged:      "Текст не изменился. Исправьте что-нибудь и пришлите ещё раз.",
-	EditShrunk: "Похоже, вы прислали только часть текста — остальное будет удалено.\n\n" +
-		"Если хотели исправить одно место, пришлите весь текст целиком, вместе с исправлением.",
-	EditImageFirst:  "Картинка добавлена (всего: %d). Теперь пришлите исправленный текст.",
-	ImageAdded:      "Картинка добавлена (всего: %d). Можно прислать ещё или отправить.",
-	ReportPrompt:    "Опишите своими словами, что не так. Например: «в теореме опечатка, должно быть 180°». Можно приложить фото или скриншот.",
-	ReportReceived:  "Понял! Можно добавить ещё фото или сразу отправить.",
-	NewTitlePrompt:  "Новая тема: %s · %s. Как она называется?",
-	NewTitleTaken:   "«%s» уже есть. Пришлите другое название или откройте то, что есть.",
-	NewTitleTooLong: "Слишком длинное название — сократите, пожалуйста.",
-	NewTitleFirst:   "Сначала напишите, как называется тема.",
-	NewTextPrompt:   "Отлично! Теперь пришлите текст темы.",
-	NewImageFirst:   "Картинка добавлена (всего: %d). Теперь пришлите текст темы.",
-	NewImagesPrompt: "Есть картинки? Пришлите их — можно с подписью, например «после первого абзаца». Или нажмите «Готово».\n\n" +
-		"Если текст не поместился в одно сообщение, пришлите продолжение.",
-	NewMoreText:       "Добавил продолжение. Пришлите ещё или нажмите «Готово».",
-	NewImageAdded:     "Картинок: %d. Пришлите ещё или нажмите «Готово».",
-	UseButtons:        "Выберите вариант кнопкой выше.",
-	OnlyTextAndImages: "Я понимаю только текст и картинки.",
-	ImageTooLarge:     "Эта картинка слишком большая — пришлите поменьше.",
-	TooManyImages:     "Больше %d картинок прислать нельзя.",
-	TextTooLong:       "Слишком длинный текст — пришлите его частями поменьше.",
-	Expired:           "Время вышло — начните заново кнопкой «Предложить правку».",
-	TooOften:          "Подождите минутку перед следующим предложением.",
-	TooManyOpen:       "Ваших предложений на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",
-	Submitting:        "Отправляю…",
-	SubmittedEdit:     "Спасибо! Мы проверим правку и напишем вам.",
-	SubmittedReport:   "Спасибо! Мы посмотрим и исправим. Я напишу, когда это случится.",
-	SubmittedNew:      "Спасибо! Мы проверим тему «%s» и добавим её. Я напишу, когда это случится.",
-	SubmitFailed:      "Не получилось отправить. Попробуйте ещё раз чуть позже.",
-	AcceptedEdit:      "Ваша правка в «%s» принята. Спасибо!",
-	AcceptedNew:       "Ваша тема «%s» добавлена. Спасибо!",
-	AcceptedReport:    "Ошибку в «%s» исправили. Спасибо, что сообщили!",
-	AcceptedCount:     "Принятых правок: %d.",
-	RankUp:            "%s!",
-	RankUpPrefix:      "Теперь вы ",
-	RejectedEdit:      "Правку в «%s» не приняли.",
-	RejectedNew:       "Тему «%s» не добавили.",
-	RejectedReport:    "Сообщение об ошибке в «%s» закрыли без исправлений.",
-	ReviewComment:     "Комментарий: «%s»",
+	ReportDisabled:      "Сообщать об ошибках пока нельзя.",
+	Continued:           "%s (продолжение)",
+	ArchiveName:         "Теракоя %s.zip",
+	ReportError:         "Сообщить об ошибке",
+	Cancel:              "Отмена",
+	Send:                "Отправить",
+	OpenTopic:           "Открыть тему",
+	ReportPrompt:        "Опишите своими словами, что не так. Например: «в теореме опечатка, должно быть 180°». Можно приложить фото или скриншот.",
+	GradeReportPrompt:   "%s · %s. Опишите, чего здесь не хватает или что не так. Например: «нет темы про подобные треугольники». Можно приложить фото или скриншот.",
+	ReportReceived:      "Понял! Можно добавить ещё фото или сразу отправить.",
+	OnlyTextAndImages:   "Я понимаю только текст и картинки.",
+	ImageTooLarge:       "Эта картинка слишком большая — пришлите поменьше.",
+	TooManyImages:       "Больше %d картинок прислать нельзя.",
+	Expired:             "Время вышло — начните заново кнопкой «Сообщить об ошибке».",
+	TooOften:            "Подождите минутку перед следующим сообщением.",
+	TooManyOpen:         "Ваших сообщений на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",
+	Submitting:          "Отправляю…",
+	SubmittedReport:     "Спасибо! Мы посмотрим и исправим. Я напишу, когда это случится.",
+	SubmitFailed:        "Не получилось отправить. Попробуйте ещё раз чуть позже.",
+	AcceptedReport:      "Ошибку в «%s» исправили. Спасибо, что сообщили!",
+	AcceptedGradeReport: "Ваше сообщение про «%s» учли. Спасибо!",
+	AcceptedCount:       "Принято сообщений: %d.",
+	RankUp:              "%s!",
+	RankUpPrefix:        "Теперь вы ",
+	RejectedReport:      "Сообщение об ошибке в «%s» закрыли без исправлений.",
+	RejectedGradeReport: "Сообщение про «%s» закрыли без изменений.",
+	ReviewComment:       "Комментарий: «%s»",
+	AcceptedEdit:        "Ваша правка в «%s» принята. Спасибо!",
+	AcceptedNew:         "Ваша тема «%s» добавлена. Спасибо!",
+	RejectedEdit:        "Правку в «%s» не приняли.",
+	RejectedNew:         "Тему «%s» не добавили.",
 
 	KeySubjects: "Предметы",
 	KeyPinned:   "Закреплённые",
@@ -316,48 +211,21 @@ var RU = Strings{
 	AccountRank:     "Ранг: %s",
 	AccountNext:     "До следующего ранга: ещё %d %s",
 	AccountTop:      "Это высший ранг",
-	AccountAccepted: "Принято правок: %d",
+	AccountAccepted: "Принято сообщений: %d",
 	AccountOpen:     "На рассмотрении: %d",
 	AccountAdmin:    "Уровень прав: admin",
-	Edits:           [3]string{"правка", "правки", "правок"},
-	History:         "Список правок",
+	Reports:         [3]string{"принятое сообщение", "принятых сообщения", "принятых сообщений"},
+	History:         "Мои сообщения",
 	HistoryPending:  "На рассмотрении",
 	HistoryAccepted: "Приняты",
 	HistoryRejected: "Отклонены",
 	HistoryEmpty:    "Пока нет",
 	HistoryItem:     "%s — %s, %s",
+	KindReportLabel: "ошибка",
+	KindGradeLabel:  "не хватает материала",
 	KindEditLabel:   "правка",
 	KindTopicLabel:  "новая тема",
 	KindNoteLabel:   "новая запись",
-	KindReportLabel: "ошибка",
-
-	AccessNeeded:      "Чтобы предлагать правки, нужно разрешение. Отправить запрос?",
-	SendRequest:       "Отправить запрос",
-	AccessRequested:   "Запрос отправлен. Я напишу, когда его рассмотрят.",
-	AccessPending:     "Запрос уже отправлен, ждём ответа.",
-	AccessDeniedUntil: "Запрос отклонён. Повторить можно с %s.",
-	Understood:        "Понятно",
-	AccessNoAdmins:    "Сейчас правки не принимаются.",
-	AccessHave:        "У вас уже есть доступ.",
-	AdminRequest:      "Запрос на право предлагать правки\n%s\nПринято правок: %d · сообщений об ошибках: %d",
-	Allow:             "Разрешить",
-	Deny:              "Отклонить",
-	AdminAllowed:      "Разрешено — %s",
-	AdminDenied:       "Отклонено — %s",
-	AdminDecided:      "Уже решено: %s",
-	AccessGranted:     "Теперь вы можете предлагать правки.",
-	AccessDenied:      "Запрос отклонён. Повторить можно через 7 дней.",
-	AccessRevoked:     "Право предлагать правки отозвано.",
-	AccessGone:        "Доступ отозван.",
-	AccessList:        "Доступ есть у %d %s:",
-	AccessListEmpty:   "Доступа пока нет ни у кого.",
-	AccessListLine:    "• %s — с %s, разрешил(а) %s",
-	AccessAdmins:      "Администраторы: %s",
-	RevokeUsage:       "Напишите так: /revoke 123456 или /revoke @username",
-	RevokeDone:        "Доступ отозван: %s.",
-	RevokeUnknown:     "Не нашёл такого пользователя.",
-	RevokeNoAccess:    "У этого пользователя нет доступа.",
-	RevokeAdmin:       "Это администратор: доступ администраторов задаётся в настройках бота.",
 
 	EmojiStep:          "Шаг %d из %d. %s",
 	EmojiWhereSubjects: "Кнопка «Предметы» в нижней клавиатуре.",
@@ -390,15 +258,13 @@ var RU = Strings{
 	EmojiUnknownSlot:   "Нет такого места. Напишите /emoji_setup, чтобы пройти все по порядку, или /emoji_setup <место>, где место — одно из:\n%s",
 	EmojiSaveFailed:    "Не удалось сохранить: %s",
 	RanksTitle:         "Ранги:",
-	AcceptedFrom:       [3]string{"принятой правки", "принятых правок", "принятых правок"},
+	AcceptedFrom:       [3]string{"принятого сообщения", "принятых сообщений", "принятых сообщений"},
 	RanksLine:          "%s — от %d %s",
 	RanksEdit:          "Значки рангов меняются через /emoji_setup. Названия и пороги пока меняются только в файле data/settings.yml на сервере — бот перечитает его сам.",
 
 	CmdStart:      "Открыть каталог",
 	CmdDownload:   "Скачать все материалы",
 	CmdCancel:     "Отменить текущее действие",
-	CmdAccess:     "Кто может предлагать правки",
-	CmdRevoke:     "Отозвать доступ: /revoke <id или @username>",
 	CmdEmojiSetup: "Настроить кастомные эмодзи",
 	CmdRanks:      "Показать ранги",
 

@@ -16,8 +16,8 @@ into several messages. See [docs/content-guide.md](docs/content-guide.md)
 
 - [x] Obsidian vault loader, Markdown → Telegram rich message converter with SVG drawings and long-note splitting, `lint`
 - [x] Navigation: subjects → grades → topics → notes, deep links, note download, `/download` of the whole vault
-- [x] Suggestions from Telegram as pull requests and issues (GitHub or Forgejo), git host webhooks, content sync
-- [x] Edit access granted by admins, bottom keyboard, pinned notes, account page, ranks
+- [x] Error reports from Telegram as issues (GitHub or Forgejo), git host webhooks, content sync
+- [x] Bottom keyboard, pinned notes, account page, ranks
 - [x] Multi-arch Docker image on ghcr.io
 - [ ] Telegram webhook mode
 
@@ -105,12 +105,14 @@ terakoya lint [-strict] <vault>     validate a vault
 In Telegram, `/start` sends a greeting that sets the keyboard at the
 bottom of the chat, and the subject list. The keyboard stays: «Предметы»
 opens the subject list, «Закреплённые» the user's pinned notes, and
-«Аккаунт» a page with their rank, how many accepted suggestions the next
-rank needs, accepted and open suggestions (and «Уровень прав: admin» for
-admins). From there, «Список правок» lists their suggestions under
-«На рассмотрении», «Приняты» and «Отклонены», separated by dividers, with
-the reviewer's comment on rejected ones; titles of notes in the vault
-open them. Both pages are rich messages, split like long notes. A tap on
+«Аккаунт» a page with their rank, how many accepted reports the next
+rank needs («ещё 2 принятых сообщения»), «Принято сообщений: N» and
+«На рассмотрении: N» (and «Уровень прав: admin» for admins). From there,
+«Мои сообщения» lists their reports under «На рассмотрении», «Приняты»
+and «Отклонены», separated by dividers, with the reviewer's comment on
+rejected ones; titles of notes in the vault open them. Edits and topics
+suggested through earlier versions of the bot stay in the list, but only
+reports count toward the rank. Both pages are rich messages, split like long notes. A tap on
 the keyboard shows the new menu first; the tap itself and the previous
 menu are deleted afterwards, in the background, so the chat does not fill
 up. Tapping the button of the menu that is already the last message only
@@ -122,8 +124,7 @@ vault disappear from the list. `/download` sends the whole vault as a zip
 
 The interface has no emoji of its own.
 
-Admins also have `/access`, which lists who has edit access,
-`/revoke <id or @username>`, `/emoji_setup` and `/ranks` (see
+Admins also have `/emoji_setup` and `/ranks` (see
 [the settings file](#settings-file-ranks-and-custom-emoji)). For everyone
 else these commands do nothing. The command menu shows `/start`,
 `/download` and `/cancel` to everyone, and the admin commands only in the
@@ -173,24 +174,23 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
-| `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They grant edit access (see below). Without admins, nobody can edit; error reports still work. |
+| `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They get `/emoji_setup` and `/ranks`. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `TERAKOYA_RESVG` | `resvg` | `resvg` | The resvg binary that rasterizes SVG drawings. |
 | `TERAKOYA_FONTS_DIR` | `fonts_dir` | `/usr/share/fonts/dejavu` or `/usr/share/fonts/truetype/dejavu` | DejaVu fonts for the drawings' labels; system fonts are not used, so drawings look the same everywhere. |
-| `TERAKOYA_GIT_HOST` | `git_host` | — | `github` or `forgejo`. Enables suggestions, git webhooks and sync; requires `TERAKOYA_REPO_URL`. |
+| `TERAKOYA_GIT_HOST` | `git_host` | — | `github` or `forgejo`. Enables error reports, git webhooks and sync; requires `TERAKOYA_REPO_URL`. |
 | `TERAKOYA_GIT_API_URL` | `git_api_url` | `https://api.github.com` for GitHub | Base URL of the host. Required for Forgejo, e.g. `https://git.hyperchat.ru`. |
 | `TERAKOYA_GIT_REPO` | `git_repo` | — | Content repository as `owner/name`. |
 | `TERAKOYA_GIT_TOKEN` | `git_token` | — | Access token, used for the API and for git over HTTPS. See below for scopes. |
 | `TERAKOYA_GIT_WEBHOOK_SECRET` | `git_webhook_secret` | — | Secret shared with the webhook; deliveries with a wrong signature are rejected. |
-| `TERAKOYA_GIT_AUTHOR_NAME` | `git_author_name` | `terakoya` | Committer name of suggestion commits. The author is the Telegram user. |
+| `TERAKOYA_GIT_AUTHOR_NAME` | `git_author_name` | `terakoya` | Committer name of the commits that carry report pictures on GitHub. The author is the Telegram user. |
 | `TERAKOYA_GIT_AUTHOR_EMAIL` | `git_author_email` | `terakoya@localhost` | Committer email. |
 | `TERAKOYA_ACCEPTED_LABEL` | `accepted_label` | `accepted` | Label that marks an error report as accepted (see below). Created on start if missing. |
 | `TERAKOYA_HTTP_ADDR` | `http_addr` | `:8080` | Address of the HTTP server for git webhooks (`POST /webhooks/git`, `GET /healthz`). |
-| `TERAKOYA_SYNC_INTERVAL` | `sync_interval` | `5m` | How often to pull the content repository and check open suggestions, in case a webhook was missed. `0` disables. |
-| `TERAKOYA_SUGGEST_COOLDOWN` | `suggest_cooldown` | `1m` | Minimum time between two suggestions of one user. |
-| `TERAKOYA_SUGGEST_MAX_OPEN` | `suggest_max_open` | `5` | Maximum unresolved suggestions per user. |
-| `TERAKOYA_SUGGEST_MAX_BYTES` | `suggest_max_bytes` | `262144` | Maximum size of a suggested text. |
-| `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a suggestion. |
+| `TERAKOYA_SYNC_INTERVAL` | `sync_interval` | `5m` | How often to pull the content repository and check open reports, in case a webhook was missed. `0` disables. |
+| `TERAKOYA_SUGGEST_COOLDOWN` | `suggest_cooldown` | `1m` | Minimum time between two reports of one user. |
+| `TERAKOYA_SUGGEST_MAX_OPEN` | `suggest_max_open` | `5` | Maximum unresolved reports per user. |
+| `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a report. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
 ### Settings file: ranks, custom emoji, topic list
@@ -199,7 +199,7 @@ What admins change while the bot runs lives in `settings.yml` in the data
 directory (`./data/settings.yml` with Docker Compose, so it survives
 redeploys). The bot creates it on first start with the default ranks
 (Novice 0 · Pupil 1 · Student 3 · Scholar 7 · Mentor 15 · Teacher 30 ·
-Master 60 · Sage 100 accepted suggestions), no custom emoji and the list
+Master 60 · Sage 100 accepted reports), no custom emoji and the list
 style for topic lists, and
 rereads it within seconds when it is edited by hand. A file that does not
 validate (the first rank must start at 0, thresholds must strictly
@@ -273,63 +273,37 @@ example, a private channel where the bot is an admin) and sends notes
 with `file_id`s only. Use the cache chat if you see repeated uploads in the
 logs.
 
-## Suggestions
+## Error reports
 
-With `TERAKOYA_GIT_HOST` set, users can suggest changes without knowing
+With `TERAKOYA_GIT_HOST` set, users can report errors without knowing
 anything about Markdown, LaTeX, files or git. The bot never shows them
 file names, frontmatter or syntax; everything is buttons and plain text.
+Reports are open to everyone, within the cooldown and the cap on open
+reports (`TERAKOYA_SUGGEST_COOLDOWN`, `TERAKOYA_SUGGEST_MAX_OPEN`).
+
+- Under every note, **«Сообщить об ошибке»** asks right away what is
+  wrong. The user describes it in their own words, in one message or
+  several, optionally with photos or screenshots, and taps «Отправить».
+- Under a grade's topic list, **«Сообщить об ошибке»** is for something
+  missing in the grade or one of its topics («нет темы про подобные
+  треугольники»). It works the same way.
+
+Each report becomes an **issue** for a maintainer to fix by hand: the
+user's text, who sent it (name, @username, Telegram ID), a link to the
+note, or for a grade to its folder, at the commit the user saw and on the
+default branch, and the pictures. On Forgejo pictures are issue
+attachments; GitHub has no API for those, so they are pushed to a
+`report/<tg_id>-<slug>-<short_id>` branch (into the topic's or grade's
+`_assets/` folder) and linked from the issue. Issues about a note are
+titled «Error report: <note>», those about a grade «Missing material:
+Геометрия · 7 класс».
 
 Every step has «Отмена», and `/cancel` does the same. It says nothing:
-every message of the dialog goes, the bot's questions and plain-text
-copies as well as the user's texts and photos (deleted in the
-background), and the user is back where the dialog started: the note, or
-the topic's main page for a new theorem or task, sent again in place of
-the old copy, or the topic list for a new topic. If that note has left
-the vault meanwhile, they get its topic list, or failing that the subject
-list. The question asking a user without access to send a request is a
-dialog step too.
-
-Anyone can report an error, but editing text and adding topics or notes
-need **edit access**. A user without it who taps «Исправить текст»,
-«Добавить тему» or «Добавить теорему, задачу…» is offered to send a
-request. Every admin (`TERAKOYA_ADMIN_IDS`) gets it
-with the user's name, @username, ID and accepted edits and error reports,
-and «Разрешить» / «Отклонить». The first admin to decide wins; every
-admin's copy then shows who decided. The user is told either way. One
-request can be pending per user; after a denial, or after `/revoke`, the
-user can ask again in 7 days. A revoke also ends an edit the user has open.
-Admins always have access. An admin must have opened the bot once to get
-requests.
-
-Under a note, «Предложить правку» offers two options, and a third under a
-topic's main page:
-
-- **«Исправить текст»**: the bot sends the note as plain readable text:
-  no Markdown markers, formulas as Unicode (`∠A + ∠B = 180°`), pictures as
-  «[картинка]», one line per line as in Obsidian, without the back-link
-  block at the end (which is kept). Long notes are offered section by
-  section. The user
-  copies the text, fixes it and sends it back; pictures can be added along
-  the way, with a caption saying where they go. After «Отправить», the bot
-  merges the text into the Markdown source paragraph by paragraph:
-  untouched paragraphs, table rows and list items keep their exact source,
-  edited ones come in as the user's text with formulas, links and bold text
-  put back wherever their plain form survived. Paragraphs that were moved
-  keep their source. When the text cannot be matched reliably (for
-  example, it was pasted twice and both copies were edited), it replaces
-  the whole section and the pull request says so. If the text is much
-  shorter than the section, the user is asked to confirm first.
-- **«Сообщить об ошибке»**: the user describes the problem in their own
-  words, optionally with photos. This opens an **issue** for a maintainer
-  to fix by hand.
-- **«Добавить теорему, задачу…»**: the user picks the kind (theorem, axiom,
-  definition, task, corollary, or another kind folder the topic has), then
-  writes the title, the text and adds pictures. The note goes to
-  `<kind folder>/<title>.md` with a back-link to the topic, and the same
-  pull request links it from the main page: right after the last link to a
-  note of that kind, or under a new `## Теоремы` (etc.) section. For a
-  corollary the user picks its theorem; the note goes to that theorem's
-  `следствия/` folder and the link is nested under the theorem's.
+every message of the dialog goes, the bot's questions as well as the
+user's texts and photos (deleted in the background), and the user is back
+where the dialog started: the note, sent again in place of the old copy,
+or the topic list. If that note has left the vault meanwhile, they get
+its topic list, or failing that the subject list.
 
 A grade's topic list is, by default (`topic_list_style: list`), a rich
 message: the heading «Геометрия · 10 класс» (with the subject's custom
@@ -337,56 +311,47 @@ emoji, if set) and one line per topic, «§5 Параллельность пря
 плоскости», the number taken from the folder prefix without leading zeros
 (topics without a number have just the title). Each line is an in-text
 button that opens the topic in place of the list. Under it are only
-«Добавить тему» (when suggestions are on) and «Назад». With
+«Сообщить об ошибке» (when reports are on) and «Назад». With
 `topic_list_style: buttons` the topics are inline buttons instead, with
 the same «§5 » labels.
 
-In a grade's topic list, «Добавить тему» asks for the title, then the text,
-then pictures. It creates `<number> <title>/<title>.md`, numbered after
-the last topic of the grade and padded like the others. File names are the
-title as typed, minus characters Windows or macOS do not allow; a title
-whose file name already exists in the vault is refused, so links by name
-keep working.
-
-Pull requests are created as follows: the bot remembers the content commit
-the user was looking at, commits the change with git plumbing on a new
-branch `suggest/<tg_id>-<slug>-<short_id>` whose parent is that commit, and
-opens a pull request. If `main` changed the same lines in the meantime, the
-pull request shows a conflict instead of silently overwriting them.
-Pictures go to the topic's `_assets/` folder, not yet referenced from the
-note. The pull request lists what to check: the paragraphs that came in
-as plain text (before and after), merge notes, the pictures with their
-captions and previews, the text exactly as sent, and lint findings, which
-users never see.
-
 Outcomes:
 
-- A merged pull request, or an issue closed with the `accepted` label
-  (`TERAKOYA_ACCEPTED_LABEL`), counts toward the user's rank, and they get
-  a thank-you message with a button to open the topic.
-- A pull request closed without merging, or an issue closed without the
-  label, sends the user the last review comment. For issues, the bot waits
-  two minutes after the close, so closing first and labeling right after
-  is fine. Adding the label to an issue that was already reported as not
-  accepted still counts it, once.
+- An issue closed with the `accepted` label (`TERAKOYA_ACCEPTED_LABEL`)
+  counts toward the user's rank, and they get a thank-you message with
+  «Принято сообщений: N», a rank-up line when they reach a new rank, and,
+  for a note, a button to open it.
+- An issue closed without the label sends the user the last review
+  comment. The bot waits two minutes after the close, so closing first and
+  labeling right after is fine. Adding the label to an issue that was
+  already reported as not accepted still counts it, once.
 - Every `TERAKOYA_SYNC_INTERVAL`, the bot also asks the host about each open
-  suggestion, so outcomes are noticed even when a webhook delivery is lost.
+  report, so outcomes are noticed even when a webhook delivery is lost.
+
+The bot no longer edits notes or opens pull requests; edit those in the
+vault yourself. Pull requests it opened in earlier versions are still
+followed: their authors are told when they are merged or closed, without
+counting toward the rank. On notes and topic lists those versions sent,
+«Предложить правку» and «Добавить тему» now start a report; their other
+buttons still on users' screens, such as «Исправить текст», lose their
+keyboard when tapped.
 
 The checkout in `TERAKOYA_REPO_DIR` belongs to the bot: syncing resets it
 to the remote branch. The bot refuses to use a checkout whose `origin` is
-not `TERAKOYA_REPO_URL`. Use an HTTPS `TERAKOYA_REPO_URL`: links in pull
-requests and issues are built from it.
+not `TERAKOYA_REPO_URL`. Use an HTTPS `TERAKOYA_REPO_URL`: links in
+issues are built from it.
 
 ### GitHub
 
 - Token: a fine-grained personal access token for the content repository
-  with **Contents**, **Pull requests** and **Issues: read and write**.
+  with **Contents** and **Issues: read and write** (contents for the
+  pictures' `report/…` branches), and **Pull requests: read** for pull
+  requests opened by earlier versions.
 - Webhook (repository → Settings → Webhooks): payload URL
   `https://<your host>/webhooks/git`, content type `application/json`,
-  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes**,
-  **Pull requests** and **Issues**.
-- GitHub has no API for issue attachments, so pictures of error reports
-  are pushed to a `report/…` branch and linked from the issue.
+  secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes** and
+  **Issues** (and **Pull requests** while pull requests from earlier
+  versions are open).
 
 ### Forgejo
 
@@ -396,12 +361,13 @@ requests and issues are built from it.
 - Webhook (repository → Settings → Webhooks → Forgejo): target URL
   `https://<your host>/webhooks/git`, content type `application/json`,
   secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, custom events **Push**,
-  **Pull request**, **Issues** and **Issue label**.
+  **Issues** and **Issue label** (and **Pull request** while pull requests
+  from earlier versions are open).
 
 The webhook server listens on `TERAKOYA_HTTP_ADDR`; put it behind a
 reverse proxy with TLS. Without working webhooks, everything still
 happens, only up to `TERAKOYA_SYNC_INTERVAL` later: the content syncs and
-open suggestions are checked on that schedule. A label added to an
+open reports are checked on that schedule. A label added to an
 already closed issue is only noticed through the webhook.
 
 ## Development

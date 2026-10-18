@@ -131,24 +131,30 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 	var rankUp emojiText
 	var kb *models.InlineKeyboardMarkup
 	if accepted {
-		// Show the new content right away, before the push webhook or the
-		// next sync.
+		// An edit from an earlier version: show the new content right
+		// away, before the push webhook or the next sync.
 		if sg.Kind != store.KindReport {
 			b.Sync(ctx)
-		}
-		u, err := b.store.User(ctx, sg.TgID)
-		if err != nil {
-			b.log.Error("load user", "err", err)
-			return
 		}
 		text = fmt.Sprintf(map[string]string{
 			store.KindEdit: b.t.AcceptedEdit, store.KindNew: b.t.AcceptedNew, store.KindReport: b.t.AcceptedReport,
 		}[sg.Kind], sg.Title)
-		text += " " + fmt.Sprintf(b.t.AcceptedCount, u.MergedCount)
-		if l := b.ladder(); l.For(u.MergedCount) != l.For(u.MergedCount-1) {
-			rank := l.For(u.MergedCount)
-			rankUp = emojiText{"\n\n" + b.t.RankUpPrefix, emojiAt{id: b.emoji.Rank(rank.Title), alt: "🏅", after: " "},
-				fmt.Sprintf(b.t.RankUp, rank.Title)}
+		if isGradeReport(sg) {
+			text = fmt.Sprintf(b.t.AcceptedGradeReport, sg.Title)
+		}
+		// Only reports count toward the rank.
+		if sg.Kind == store.KindReport {
+			u, err := b.store.User(ctx, sg.TgID)
+			if err != nil {
+				b.log.Error("load user", "err", err)
+				return
+			}
+			text += " " + fmt.Sprintf(b.t.AcceptedCount, u.Accepted)
+			if l := b.ladder(); l.For(u.Accepted) != l.For(u.Accepted-1) {
+				rank := l.For(u.Accepted)
+				rankUp = emojiText{"\n\n" + b.t.RankUpPrefix, emojiAt{id: b.emoji.Rank(rank.Title), alt: "🏅", after: " "},
+					fmt.Sprintf(b.t.RankUp, rank.Title)}
+			}
 		}
 		if a := b.catalog().NoteByPath(sg.ArticlePath); a != nil {
 			kb = keyboard(row(button(b.t.OpenTopic, cbOpen+a.ID)))
@@ -157,6 +163,9 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		text = fmt.Sprintf(map[string]string{
 			store.KindEdit: b.t.RejectedEdit, store.KindNew: b.t.RejectedNew, store.KindReport: b.t.RejectedReport,
 		}[sg.Kind], sg.Title)
+		if isGradeReport(sg) {
+			text = fmt.Sprintf(b.t.RejectedGradeReport, sg.Title)
+		}
 		comment, err := b.host.LastReviewComment(ctx, sg.PRNumber)
 		if err != nil {
 			b.log.Warn("read review comments", "number", sg.PRNumber, "err", err)

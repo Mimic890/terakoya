@@ -44,8 +44,10 @@ type Config struct {
 
 	SuggestCooldown time.Duration `yaml:"suggest_cooldown" env:"TERAKOYA_SUGGEST_COOLDOWN"`
 	SuggestMaxOpen  int64         `yaml:"suggest_max_open" env:"TERAKOYA_SUGGEST_MAX_OPEN"`
-	SuggestMaxBytes int64         `yaml:"suggest_max_bytes" env:"TERAKOYA_SUGGEST_MAX_BYTES"`
 	ImageMaxBytes   int64         `yaml:"image_max_bytes" env:"TERAKOYA_IMAGE_MAX_BYTES"`
+	// LegacyMaxBytes limited suggested texts, which are gone; it is read
+	// only so that older config files still load.
+	LegacyMaxBytes int64 `yaml:"suggest_max_bytes" env:"TERAKOYA_SUGGEST_MAX_BYTES"`
 
 	// Resvg is the resvg binary used to rasterize SVG drawings; FontsDir
 	// holds the DejaVu fonts it uses (found automatically when empty).
@@ -56,8 +58,8 @@ type Config struct {
 	CacheChatID int64  `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
 	LogLevel    string `yaml:"log_level" env:"TERAKOYA_LOG_LEVEL"`
 
-	// AdminIDs lists the Telegram user IDs, comma-separated, of the admins
-	// who grant edit access.
+	// AdminIDs lists the Telegram user IDs, comma-separated, of the admins,
+	// who set up custom emoji and see the ranks.
 	AdminIDs string `yaml:"admin_ids" env:"TERAKOYA_ADMIN_IDS"`
 
 	// LegacyRanks is the old TERAKOYA_RANKS; ranks are now in the
@@ -81,7 +83,6 @@ func Default() Config {
 		SyncInterval:    5 * time.Minute,
 		SuggestCooldown: time.Minute,
 		SuggestMaxOpen:  5,
-		SuggestMaxBytes: 256 << 10,
 		ImageMaxBytes:   5 << 20,
 		LogLevel:        "info",
 		Resvg:           "resvg",

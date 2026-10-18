@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/Mimic890/terakoya/internal/i18n"
 )
 
 // richs returns the Markdown of the rich messages sent.
@@ -174,54 +172,6 @@ func TestSVGConvertedOnce(t *testing.T) {
 		if c.method == "sendRichMessage" && !strings.Contains(c.params["rich_message"], "photo") {
 			t.Errorf("image missing: %v", c.params["rich_message"])
 		}
-	}
-}
-
-func TestNewNoteAndCorollary(t *testing.T) {
-	h := newHarness(t, nil)
-	h.bot.cfg.SuggestCooldown = 0
-	h.tap("e:" + h.id(vmain))
-	h.tap(cbAddNote)
-	wantPrompt(t, h.tg.take(), i18n.RU.ChooseKind, "Теорема", "Аксиома", "Определение", "Задача", "Следствие", "Отмена")
-	h.tap(cbKind + "3") // задачи
-	wantPrompt(t, h.tg.take(), "Новая запись: Задача, тема «Параллельность прямой и плоскости».\n\nНапишите её название.", "Отмена")
-	h.say("Ещё одна задача")
-	h.say("Условие задачи.")
-	h.photo("ris", "к условию")
-	h.tap(cbSend)
-	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != "Спасибо! Мы проверим «Ещё одна задача» и добавим в тему. Я напишу, когда это случится." {
-		t.Errorf("outcome = %q", s)
-	}
-	pr := h.host.prs[0]
-	files := git(t, h.remote, "diff", "--name-only", pr.Head+"^", pr.Head)
-	for _, want := range []string{vtopic + "/задачи/Ещё одна задача.md", vmain, vtopic + "/_assets/eshche-odna-zadacha-"} {
-		if !strings.Contains(files, want) {
-			t.Errorf("files miss %q:\n%s", want, files)
-		}
-	}
-	if !strings.Contains(h.file(pr.Head, vmain), "- [Ещё одна задача](Ещё%20одна%20задача.md)") ||
-		pr.Title != "Suggest new задача: Ещё одна задача" || !strings.Contains(pr.Body, "Also changed: `"+vmain+"`") {
-		t.Errorf("PR %s\n%s", pr.Title, pr.Body)
-	}
-
-	// A corollary: pick the theorem it belongs to.
-	h.tap("e:" + h.id(vmain))
-	h.tap(cbAddNote)
-	h.tap(cbKind + "4") // следствия
-	calls := h.tg.take()
-	wantPrompt(t, calls, i18n.RU.ChooseParent, "Теорема: Признак параллельности прямой и плоскости", "Задача: Сечение призмы через ребро и точку")
-	h.tap(cbParent + h.id(vtopic+"/теоремы/Признак параллельности прямой и плоскости (5.1).md"))
-	h.say("Новое следствие")
-	h.say("Текст.")
-	h.tap(cbSend)
-	h.tg.take()
-	pr = h.host.prs[1]
-	page := h.file(pr.Head, vmain)
-	if !strings.Contains(page, "\\Rightarrow a \\parallel \\alpha$\n\t- [Новое следствие](Новое%20следствие.md)\n- [Прямая") {
-		t.Errorf("main page:\n%s", page)
-	}
-	if got := h.file(pr.Head, vtopic+"/теоремы/следствия/Новое следствие.md"); !strings.HasSuffix(got, "↩ [Параллельность прямой и плоскости](Параллельность%20прямой%20и%20плоскости.md)") {
-		t.Errorf("corollary:\n%s", got)
 	}
 }
 

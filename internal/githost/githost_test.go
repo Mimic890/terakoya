@@ -40,10 +40,10 @@ func server(t *testing.T, rec *recorded) *httptest.Server {
 
 func TestHosts(t *testing.T) {
 	cases := []struct {
-		kind, auth, prPath string
+		kind, auth, issuePath string
 	}{
-		{"github", "Bearer tok", "/repos/o/r/pulls"},
-		{"forgejo", "token tok", "/api/v1/repos/o/r/pulls"},
+		{"github", "Bearer tok", "/repos/o/r/issues"},
+		{"forgejo", "token tok", "/api/v1/repos/o/r/issues"},
 	}
 	for _, c := range cases {
 		t.Run(c.kind, func(t *testing.T) {
@@ -53,17 +53,17 @@ func TestHosts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pr, err := h.OpenPR(context.Background(), NewPR{Title: "T", Body: "B", Head: "suggest/x", Base: "main"})
+			issue, err := h.OpenIssue(context.Background(), "T", "B")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if pr.Number != 7 || pr.URL == "" {
-				t.Errorf("pr = %+v", pr)
+			if issue.Number != 7 || issue.URL == "" {
+				t.Errorf("issue = %+v", issue)
 			}
-			if rec.auth != c.auth || rec.path != c.prPath {
+			if rec.auth != c.auth || rec.path != c.issuePath {
 				t.Errorf("auth %q path %q", rec.auth, rec.path)
 			}
-			if rec.body["head"] != "suggest/x" || rec.body["base"] != "main" || rec.body["title"] != "T" {
+			if rec.body["title"] != "T" || rec.body["body"] != "B" {
 				t.Errorf("body = %v", rec.body)
 			}
 			got, err := h.LastReviewComment(context.Background(), 7)

@@ -104,10 +104,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 
 // Run polls Telegram for updates and syncs content until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
-	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil, "admins", len(b.cfg.Admins))
-	if b.host != nil && len(b.cfg.Admins) == 0 {
-		b.log.Warn("TERAKOYA_ADMIN_IDS is empty: nobody can be granted edit access; error reports still work")
-	}
+	b.log.Info("bot started", "username", b.cfg.BotUsername, "reports", b.host != nil, "admins", len(b.cfg.Admins))
 	go b.syncLoop(ctx)
 	go b.settings.Watch(ctx, settingsCheck)
 	b.setCommands(ctx)
@@ -186,7 +183,7 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	}
 	switch cmd {
 	case "/cancel":
-		b.cancelSuggestion(ctx, m.Chat.ID, m.From.ID)
+		b.cancelDialog(ctx, m.Chat.ID, m.From.ID)
 		return
 	case "/start":
 		// Navigating away abandons a pending suggestion.

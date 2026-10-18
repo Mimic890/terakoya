@@ -137,12 +137,13 @@ func (f *fakeTelegram) take() []call {
 // fakeHost stands in for GitHub or Forgejo.
 type fakeHost struct {
 	mu          sync.Mutex
-	prs         []githost.NewPR
 	issues      []string // titles
 	bodies      map[int]string
 	attachments []string
 	states      map[int]githost.State
 	number      int
+	// noAttach makes the host one without issue attachments, like GitHub.
+	noAttach bool
 }
 
 func (h *fakeHost) nextNumber() int {
@@ -153,12 +154,6 @@ func (h *fakeHost) nextNumber() int {
 	return h.number
 }
 
-func (h *fakeHost) OpenPR(_ context.Context, pr githost.NewPR) (githost.PR, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.prs = append(h.prs, pr)
-	return githost.PR{Number: h.nextNumber(), URL: "https://host/pr"}, nil
-}
 func (h *fakeHost) OpenIssue(_ context.Context, title, body string) (githost.PR, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -179,6 +174,9 @@ func (h *fakeHost) EditIssue(_ context.Context, number int, body string) error {
 func (h *fakeHost) Attach(_ context.Context, number int, name string, data []byte) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.noAttach {
+		return "", githost.ErrUnsupported
+	}
 	h.attachments = append(h.attachments, name+"="+string(data))
 	return fmt.Sprintf("https://host/attachments/%d/%s", number, name), nil
 }
@@ -289,10 +287,8 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 	h := &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100,
 		user: anya}
 	h.setRanks("kōhai:0,senpai:1")
-	// Аня may edit; access itself is tested with other users.
+	// Аня has used the bot before.
 	st.TouchUser(ctx, anya.ID, anya.Username, anya.FirstName)
-	st.RequestAccess(ctx, anya.ID, "", "")
-	st.DecideAccess(ctx, anya.ID, true, ivan.ID)
 	return h
 }
 
@@ -312,8 +308,9 @@ func (h *harness) setRanks(spec string) {
 }
 
 var (
-	anya = models.User{ID: 42, Username: "anya", FirstName: "Аня"}
-	ivan = models.User{ID: 7, Username: "ivan", FirstName: "Иван"} // the admin
+	anya  = models.User{ID: 42, Username: "anya", FirstName: "Аня"}
+	ivan  = models.User{ID: 7, Username: "ivan", FirstName: "Иван"} // the admin
+	boris = models.User{ID: 43, Username: "boris", FirstName: "Борис"}
 )
 
 // as makes the following taps and messages come from u.
@@ -445,162 +442,26 @@ const (
 	vmain     = vtopic + "/Параллельность прямой и плоскости.md"
 )
 
-func TestFixText(t *testing.T) {
-	h := newHarness(t, nil)
-	base := h.bot.repo.HeadSHA(h.ctx)
-	orig := h.file("main", triangles)
-
-	h.tap("e:" + h.id(triangles))
-	wantPrompt(t, h.tg.take(), i18n.RU.SuggestMenuMain, "Исправить текст", "Сообщить об ошибке", "Добавить теорему, задачу…", "Отмена")
-
-	h.tap(cbFix)
-	calls := h.tg.take()
-	sent := texts(calls, "sendMessage")
-	if len(sent) != 2 || !strings.HasPrefix(sent[0], "Треугольники\n\nТреугольник — фигура") || strings.Contains(sent[0], "**") || strings.Contains(sent[0], "##") || strings.Contains(sent[0], "\\") || strings.Contains(sent[0], "[[") {
-		t.Fatalf("plain text = %q", sent)
-	}
-	wantPrompt(t, calls, i18n.RU.EditInstructions, "Отмена")
-	if len(texts(calls, "editMessageReplyMarkup")) != 1 {
-		t.Error("the menu kept its buttons")
-	}
-
-	// Main moves on while the user is editing.
-	os.WriteFile(filepath.Join(h.upstream, triangles), []byte(strings.Replace(orig, "Задача", "Упражнение", 1)), 0o644)
-	git(t, h.upstream, "commit", "--quiet", "-am", "upstream edit")
-	git(t, h.upstream, "push", "--quiet", "origin", "HEAD:main")
-
-	edited := strings.Replace(sent[0], "равна 180°:", "всегда равна 180°:", 1)
-	h.say(edited)
-	wantPrompt(t, h.tg.take(), i18n.RU.EditReceived, "Отправить", "Отмена")
-	h.photo("pic1", "после таблицы")
-	wantPrompt(t, h.tg.take(), fmt.Sprintf(i18n.RU.ImageAdded, 1), "Отправить")
-
-	h.tap(cbSend)
-	calls = h.tg.take()
-	if s := texts(calls, "sendMessage"); len(s) != 1 || s[0] != i18n.RU.Submitting {
-		t.Errorf("messages = %q", s)
-	}
-	if s := texts(calls, "editMessageText"); len(s) != 1 || s[0] != i18n.RU.SubmittedEdit {
-		t.Errorf("outcome = %q", s)
-	}
-	if len(h.host.prs) != 1 {
-		t.Fatalf("PRs = %+v", h.host.prs)
-	}
-	pr := h.host.prs[0]
-	if !strings.HasPrefix(pr.Head, "suggest/42-treugolniki-") || pr.Title != "Suggest edit: Треугольники" {
-		t.Errorf("pr = %+v", pr)
-	}
-	// The branch starts from the commit the user saw, and only the edited
-	// words differ from it: the formula keeps its LaTeX.
-	if parent := git(t, h.remote, "rev-parse", pr.Head+"^"); parent != base {
-		t.Errorf("branch parent = %s, want %s", parent, base)
-	}
-	if got := h.file(pr.Head, triangles); got != strings.Replace(orig, "равна $180^\\circ$:", "всегда равна $180^\\circ$:", 1) {
-		t.Errorf("committed file:\n%s", got)
-	}
-	short := strings.TrimPrefix(pr.Head, "suggest/42-treugolniki-")
-	img := "Геометрия/7 класс/01 Треугольники/_assets/treugolniki-" + short + "-1.jpg"
-	if got := h.file(pr.Head, img); got != "IMG:pic1" {
-		t.Errorf("picture = %q", got)
-	}
-	for _, want := range []string{"`42`", "@anya", base, "### To check", "> Сумма углов любого треугольника равна 180°:",
-		"`" + img + "` — после таблицы", "https://host/raw/" + pr.Head + "/" + img, "### Text as sent"} {
-		if !strings.Contains(pr.Body, want) {
-			t.Errorf("PR body misses %q:\n%s", want, pr.Body)
+// toasts returns the texts of the callback answers.
+func toasts(calls []call) []string {
+	var out []string
+	for _, c := range calls {
+		if c.method == "answerCallbackQuery" {
+			out = append(out, c.params["text"])
 		}
 	}
-	if _, err := h.store.Session(h.ctx, 42); err == nil {
-		t.Error("session not cleared")
-	}
-
-	// Rate limit.
-	h.tap("e:" + h.id(triangles))
-	if c := h.tg.take(); len(c) != 1 || c[0].params["text"] != i18n.RU.TooOften {
-		t.Errorf("rate limit = %+v", c)
-	}
-
-	// Merged: rank goes up, the user is told and can open the topic.
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 7, HeadBranch: pr.Head})
-	c := last(t, h.tg.take())
-	if !strings.Contains(c.params["text"], "Ваша правка в «Треугольники» принята") || !strings.Contains(c.params["text"], "senpai") ||
-		!strings.Contains(c.params["reply_markup"], `"o:`+h.id(triangles)+`"`) {
-		t.Errorf("merge notification = %+v", c.params)
-	}
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 7, HeadBranch: pr.Head})
-	if calls := h.tg.take(); len(calls) != 0 {
-		t.Errorf("repeated delivery sent %+v", calls)
-	}
-	// The notification button opens the article and keeps the notification.
-	h.tapOn(555, "o:"+h.id(triangles))
-	calls = h.tg.take()
-	if len(texts(calls, "sendRichMessage")) != 1 || len(texts(calls, "deleteMessage")) != 0 {
-		t.Errorf("open = %+v", calls)
-	}
+	return out
 }
 
-func TestFixTextUnchangedShrunkAndGlued(t *testing.T) {
-	h := newHarness(t, nil)
-	h.tap("e:" + h.id(triangles))
-	h.tg.take()
-	h.tap(cbFix)
-	plainText := texts(h.tg.take(), "sendMessage")[0]
-
-	h.say(plainText + "\n")
-	wantPrompt(t, h.tg.take(), i18n.RU.EditUnchanged, "Отмена")
-
-	h.say("Тут всё неправильно.")
-	wantPrompt(t, h.tg.take(), i18n.RU.EditShrunk, "Отправить как есть", "Отмена")
-
-	// Telegram splits a long paste: the parts arrive within a second and
-	// are joined back.
-	cut := strings.Index(plainText, "\n\nВиды")
-	first, second := plainText[:cut], strings.Replace(plainText[cut:], "Задача", "Загадка", 1)
-	h.send(&models.Message{Text: first, Date: 5000})
-	h.send(&models.Message{Text: second, Date: 5001})
-	wantPrompt(t, h.tg.take(), i18n.RU.EditReceived, "Отправить")
-	h.tap(cbSend)
-	h.tg.take()
-	if len(h.host.prs) != 1 {
-		t.Fatalf("PRs = %+v", h.host.prs)
+// to returns the calls of a method made to a chat.
+func to(calls []call, method string, chatID int64) []call {
+	var out []call
+	for _, c := range calls {
+		if c.method == method && c.params["chat_id"] == fmt.Sprint(chatID) {
+			out = append(out, c)
+		}
 	}
-	got := h.file(h.host.prs[0].Head, triangles)
-	if !strings.Contains(got, "Загадка «на смекалку»: тетрадь стоит \\$2") || !strings.Contains(got, "$$\\angle A") ||
-		!strings.Contains(got, "## Виды треугольников") {
-		t.Errorf("glued edit:\n%s", got)
-	}
-}
-
-func TestFixTextLongArticle(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("# Длинная тема\n\nВступление.\n\n## Первый раздел\n\n")
-	for i := 0; i < 12; i++ {
-		fmt.Fprintf(&b, "Абзац %d: %s\n\n", i, strings.Repeat("много слов про $x^2$ и треугольники ", 10))
-	}
-	b.WriteString("## Второй раздел\n\nКороткий **раздел**.\n")
-	long := "Геометрия/7 класс/05 Длинная/Длинная.md"
-	h := newHarness(t, map[string]string{long: b.String()})
-
-	h.tap("e:" + h.id(long))
-	h.tap(cbFix)
-	wantPrompt(t, h.tg.take(), i18n.RU.ChooseSection, "Начало", "Первый раздел (1)", "Первый раздел (2)", "Второй раздел")
-
-	_, secs := h.bot.sections(h.bot.mustDialog(t))
-	h.tap(fmt.Sprintf("%s%d", cbSection, len(secs)-1))
-	sent := texts(h.tg.take(), "sendMessage")
-	if len(sent) != 2 || sent[0] != "Второй раздел\n\nКороткий раздел." {
-		t.Fatalf("section text = %q", sent)
-	}
-	h.say("Второй раздел\n\nКороткий, но важный раздел.")
-	h.tap(cbSend)
-	h.tg.take()
-	pr := h.host.prs[0]
-	got := h.file(pr.Head, long)
-	if got+"\n" != strings.Replace(b.String(), "Короткий **раздел**.", "Короткий, но важный **раздел**.", 1) {
-		t.Errorf("committed:\n%s", got)
-	}
-	if !strings.Contains(pr.Body, "Section: Второй раздел") {
-		t.Errorf("PR body:\n%s", pr.Body)
-	}
+	return out
 }
 
 func TestReport(t *testing.T) {
@@ -608,9 +469,13 @@ func TestReport(t *testing.T) {
 	h.bot.rejectGrace = 0
 	base := h.bot.repo.HeadSHA(h.ctx)
 
-	h.tap("e:" + h.id(triangles))
-	h.tap(cbReport)
-	wantPrompt(t, h.tg.take(), i18n.RU.ReportPrompt, "Отмена")
+	// The button under a note asks right away; no choice comes first.
+	h.tapOn(500, cbReport+h.id(triangles))
+	calls := h.tg.take()
+	wantPrompt(t, calls, i18n.RU.ReportPrompt, "Отмена")
+	if len(texts(calls, "sendMessage")) != 1 {
+		t.Errorf("messages = %q", texts(calls, "sendMessage"))
+	}
 	h.say("в теореме опечатка, должно быть 180°")
 	wantPrompt(t, h.tg.take(), i18n.RU.ReportReceived, "Отправить", "Отмена")
 	h.photo("shot", "вот тут")
@@ -619,8 +484,8 @@ func TestReport(t *testing.T) {
 	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != i18n.RU.SubmittedReport {
 		t.Errorf("outcome = %q", s)
 	}
-	if len(h.host.issues) != 1 || h.host.issues[0] != "Error report: Треугольники" || len(h.host.prs) != 0 {
-		t.Fatalf("issues %q PRs %d", h.host.issues, len(h.host.prs))
+	if len(h.host.issues) != 1 || h.host.issues[0] != "Error report: Треугольники" {
+		t.Fatalf("issues %q", h.host.issues)
 	}
 	body := h.host.bodies[7]
 	for _, want := range []string{"> в теореме опечатка, должно быть 180°", "https://host/src/" + base + "/" + triangles,
@@ -634,6 +499,15 @@ func TestReport(t *testing.T) {
 	}
 	if branches := git(t, h.remote, "branch", "--list"); strings.Contains(branches, "report/") {
 		t.Errorf("branch pushed for a host with attachments: %s", branches)
+	}
+	if _, err := h.store.Session(h.ctx, 42); err == nil {
+		t.Error("session not cleared")
+	}
+
+	// Rate limit.
+	h.tap(cbReport + h.id(triangles))
+	if c := h.tg.take(); len(c) != 1 || c[0].params["text"] != i18n.RU.TooOften {
+		t.Errorf("rate limit = %+v", c)
 	}
 
 	// Closed without the label: the user hears about it only after the
@@ -649,94 +523,140 @@ func TestReport(t *testing.T) {
 		t.Fatalf("rejection = %q", got)
 	}
 
-	// The label added afterwards turns it into an accepted report, once.
+	// The label added afterwards turns it into an accepted report, once,
+	// and the rank goes up.
 	labeled := githost.Event{Kind: githost.IssueChanged, PRNumber: 7, State: githost.State{Closed: true, Labels: []string{"Accepted"}}}
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	h.bot.HandleGitEvent(h.ctx, labeled)
-	got = texts(h.tg.take(), "sendMessage")
-	if len(got) != 1 || !strings.Contains(got[0], "Ошибку в «Треугольники» исправили") || !strings.Contains(got[0], "senpai") {
-		t.Errorf("late accept = %q", got)
+	c := to(h.tg.take(), "sendMessage", 42)
+	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ошибку в «Треугольники» исправили. Спасибо, что сообщили! Принято сообщений: 1.\n\nТеперь вы senpai!") ||
+		!strings.Contains(c[0].params["reply_markup"], `"o:`+h.id(triangles)+`"`) {
+		t.Errorf("late accept = %+v", c)
 	}
-	if u, _ := h.store.User(h.ctx, 42); u.MergedCount != 1 {
-		t.Errorf("merged count = %d", u.MergedCount)
+	if u, _ := h.store.User(h.ctx, 42); u.Accepted != 1 {
+		t.Errorf("accepted = %d", u.Accepted)
+	}
+	// The notification button opens the note and keeps the notification.
+	h.tapOn(555, "o:"+h.id(triangles))
+	calls = h.tg.take()
+	if len(texts(calls, "sendRichMessage")) != 1 || len(texts(calls, "deleteMessage")) != 0 {
+		t.Errorf("open = %+v", calls)
 	}
 }
 
-func TestNewTopic(t *testing.T) {
+func TestGradeReport(t *testing.T) {
 	h := newHarness(t, nil)
+	base := h.bot.repo.HeadSHA(h.ctx)
 	g := h.bot.catalog().NoteByPath(triangles).Grade()
-	h.tap("n:" + g.ID)
-	wantPrompt(t, h.tg.take(), "Новая тема: Геометрия · 7 класс. Как она называется?", "Отмена")
 
-	h.photo("early", "")
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.NewTitleFirst {
-		t.Errorf("photo before title = %q", s)
-	}
-	// A note with this file name exists, in any topic.
-	h.say("треугольники")
-	wantPrompt(t, h.tg.take(), "«Треугольники» уже есть. Пришлите другое название или откройте то, что есть.",
-		"Открыть «Треугольники»", "Отмена")
-	h.say("Новая: тема?")
-	wantPrompt(t, h.tg.take(), i18n.RU.NewTextPrompt)
-	h.tap(cbCancel)
-	h.tap("n:" + g.ID)
-	h.tg.take()
-	h.say(strings.Repeat("очень ", 20) + "длинно")
-	wantPrompt(t, h.tg.take(), i18n.RU.NewTitleTooLong)
-
-	h.say("  Ромб ")
-	wantPrompt(t, h.tg.take(), i18n.RU.NewTextPrompt, "Отмена")
-	h.send(&models.Message{Text: "Ромб — параллелограмм, у которого все стороны равны.", Date: 7000})
-	wantPrompt(t, h.tg.take(), i18n.RU.NewImagesPrompt, "Готово", "Отмена")
-	h.send(&models.Message{Text: "Диагонали ромба перпендикулярны: AC перпендикулярно BD.", Date: 7100})
-	wantPrompt(t, h.tg.take(), i18n.RU.NewMoreText, "Готово")
-	h.photo("romb", "после первого абзаца")
-	wantPrompt(t, h.tg.take(), fmt.Sprintf(i18n.RU.NewImageAdded, 1), "Готово")
+	h.tapOn(700, cbReportGrade+g.ID)
+	wantPrompt(t, h.tg.take(), fmt.Sprintf(i18n.RU.GradeReportPrompt, "Геометрия", "7 класс"), "Отмена")
+	h.say("нет темы про ромб")
 	h.tap(cbSend)
-	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != fmt.Sprintf(i18n.RU.SubmittedNew, "Ромб") {
+	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != i18n.RU.SubmittedReport {
 		t.Errorf("outcome = %q", s)
 	}
-
-	pr := h.host.prs[0]
-	want := "# Ромб\n\nРомб — параллелограмм, у которого все стороны равны.\n\n" +
-		"Диагонали ромба перпендикулярны: AC перпендикулярно BD."
-	if got := h.file(pr.Head, "Геометрия/7 класс/02 Ромб/Ромб.md"); got != want {
-		t.Errorf("new file:\n%s", got)
+	if len(h.host.issues) != 1 || h.host.issues[0] != "Missing material: Геометрия · 7 класс" {
+		t.Fatalf("issues %q", h.host.issues)
 	}
-	files := git(t, h.remote, "diff", "--name-only", pr.Head+"^", pr.Head)
-	if !strings.Contains(files, "Геометрия/7 класс/02 Ромб/_assets/romb-") || pr.Title != "Suggest new topic: Ромб" ||
-		!strings.Contains(pr.Body, "после первого абзаца") {
-		t.Errorf("files %q PR %+v", files, pr)
+	body := h.host.bodies[7]
+	for _, want := range []string{"Missing material reported in Telegram by @anya.", "> нет темы про ромб",
+		"- Grade: [`Геометрия/7 класс`](https://host/src/" + base + "/Геометрия/7 класс)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("issue body misses %q:\n%s", want, body)
+		}
+	}
+	sg, err := h.store.SuggestionByNumber(h.ctx, 7)
+	if err != nil || sg.Kind != store.KindReport || sg.ArticlePath != "Геометрия/7 класс" || sg.Title != "Геометрия · 7 класс" {
+		t.Fatalf("stored = %+v, %v", sg, err)
+	}
+	if got := h.bot.historyMarkdown(h.ctx, 42); !strings.Contains(got, "- Геометрия · 7 класс — не хватает материала, ") {
+		t.Errorf("history:\n%s", got)
 	}
 
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRClosed, PRNumber: 7, HeadBranch: pr.Head})
-	got := texts(h.tg.take(), "sendMessage")
-	if len(got) != 1 || !strings.Contains(got[0], "Тему «Ромб» не добавили") || !strings.Contains(got[0], "Слишком коротко.") {
-		t.Errorf("close notification = %q", got)
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7,
+		State: githost.State{Closed: true, Labels: []string{"accepted"}}})
+	c := to(h.tg.take(), "sendMessage", 42)
+	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ваше сообщение про «Геометрия · 7 класс» учли. Спасибо! Принято сообщений: 1.") ||
+		strings.Contains(c[0].params["reply_markup"], `"o:`) {
+		t.Errorf("accepted = %+v", c)
+	}
+}
+
+func TestReportPicturesOnBranch(t *testing.T) {
+	h := newHarness(t, nil)
+	h.host.noAttach = true
+	base := h.bot.repo.HeadSHA(h.ctx)
+	g := h.bot.catalog().NoteByPath(triangles).Grade()
+
+	h.tap(cbReport + h.id(triangles))
+	h.photo("pic1", "после таблицы")
+	h.tap(cbSend)
+	h.tg.take()
+	sg, _ := h.store.SuggestionByNumber(h.ctx, 7)
+	if !strings.HasPrefix(sg.Branch, "report/42-treugolniki-") {
+		t.Fatalf("branch = %q", sg.Branch)
+	}
+	if parent := git(t, h.remote, "rev-parse", sg.Branch+"^"); parent != base {
+		t.Errorf("branch parent = %s, want %s", parent, base)
+	}
+	img := path.Dir(triangles) + "/_assets/treugolniki-" + strings.TrimPrefix(sg.Branch, "report/42-treugolniki-") + "-1.jpg"
+	if got := h.file(sg.Branch, img); got != "IMG:pic1" {
+		t.Errorf("picture = %q", got)
+	}
+	if body := h.host.bodies[7]; !strings.Contains(body, "`"+img+"` — после таблицы") || !strings.Contains(body, "https://host/raw/"+sg.Branch+"/"+img) {
+		t.Errorf("issue body:\n%s", body)
+	}
+
+	// A grade's pictures go to the grade's assets.
+	h.bot.cfg.SuggestCooldown = 0
+	h.tap(cbReportGrade + g.ID)
+	h.photo("pic2", "")
+	h.tap(cbSend)
+	h.tg.take()
+	sg, _ = h.store.SuggestionByNumber(h.ctx, 8)
+	files := git(t, h.remote, "diff", "--name-only", sg.Branch+"^", sg.Branch)
+	if !strings.HasPrefix(files, "Геометрия/7 класс/_assets/") || !strings.HasSuffix(files, "-1.jpg") {
+		t.Errorf("grade picture = %q on %q", files, sg.Branch)
+	}
+}
+
+func TestReportsOpenToEveryone(t *testing.T) {
+	h := newHarness(t, nil)
+	h.as(boris)
+	h.tap(cbReport + h.id(triangles))
+	wantPrompt(t, h.tg.take(), i18n.RU.ReportPrompt, "Отмена")
+	h.say("опечатка")
+	h.tap(cbSend)
+	if len(h.host.issues) != 1 {
+		t.Fatalf("issues = %q", h.host.issues)
+	}
+
+	// The cap on open reports.
+	h.bot.cfg.SuggestCooldown, h.bot.cfg.SuggestMaxOpen = 0, 1
+	h.tg.take()
+	h.tap(cbReport + h.id(triangles))
+	if s := toasts(h.tg.take()); len(s) != 1 || s[0] != fmt.Sprintf(i18n.RU.TooManyOpen, 1) {
+		t.Errorf("cap = %q", s)
 	}
 }
 
 func TestDialogEdges(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:" + h.id(triangles))
-	menu := h.bot.mustDialog(t).p.PromptID
+	h.tap(cbReport + h.id(triangles))
+	first := h.bot.mustDialog(t).p.PromptID
 	h.tg.take()
 
-	h.say("просто текст")
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UseButtons {
-		t.Errorf("text in the menu = %q", s)
-	}
 	h.send(&models.Message{Sticker: &models.Sticker{FileID: "s"}})
 	h.send(&models.Message{Document: &models.Document{FileID: "d", FileName: "notes.pdf"}})
 	if s := texts(h.tg.take(), "sendMessage"); len(s) != 2 || s[0] != i18n.RU.OnlyTextAndImages || s[1] != i18n.RU.OnlyTextAndImages {
 		t.Errorf("sticker and pdf = %q", s)
 	}
-
-	h.tap(cbReport)
+	h.say("опечатка")
 	h.tg.take()
-	// A button of the replaced menu does nothing but lose its keyboard.
-	h.tapOn(menu, cbFix)
-	if c := h.tg.take(); len(texts(c, "sendMessage")) != 0 || len(texts(c, "editMessageReplyMarkup")) != 1 {
+	// A button of the replaced prompt does nothing but lose its keyboard.
+	h.tapOn(first, cbSend)
+	if c := h.tg.take(); len(texts(c, "sendMessage")) != 0 || len(texts(c, "editMessageReplyMarkup")) != 1 || len(h.host.issues) != 0 {
 		t.Errorf("stale button = %+v", c)
 	}
 
@@ -755,12 +675,12 @@ func TestDialogEdges(t *testing.T) {
 	}
 
 	// An expired dialog says so.
-	h.tap("n:" + h.bot.catalog().NoteByPath(triangles).Grade().ID)
+	h.tap(cbReportGrade + h.bot.catalog().NoteByPath(triangles).Grade().ID)
 	h.tg.take()
 	d := h.bot.mustDialog(t)
 	d.ses.ExpiresAt = time.Now().Add(-time.Minute)
 	h.store.PutSession(h.ctx, d.ses)
-	h.say("Ромб")
+	h.say("нет темы")
 	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.Expired {
 		t.Errorf("expired = %q", s)
 	}
@@ -770,47 +690,64 @@ func TestDialogEdges(t *testing.T) {
 	}
 }
 
+// Buttons and dialogs of earlier versions, still on users' screens.
+func TestEarlierVersions(t *testing.T) {
+	h := newHarness(t, nil)
+
+	// «Исправить текст» of an old menu loses its keyboard.
+	h.tapWith(900, "ef", `{"inline_keyboard":[[{"text":"Исправить текст","callback_data":"ef"}]]}`)
+	if c := h.tg.take(); len(c) != 2 || c[0].method != "answerCallbackQuery" || c[1].method != "editMessageReplyMarkup" {
+		t.Errorf("old button = %+v", c)
+	}
+
+	// A text sent into an old edit dialog ends it and is taken as usual.
+	h.store.PutSession(h.ctx, store.Session{TgID: 42, State: "suggest_edit", ArticlePath: triangles,
+		Payload: `{"note_id":"x","raw":"…"}`, ExpiresAt: time.Now().Add(time.Hour)})
+	h.say("исправленный текст")
+	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UnknownCommand {
+		t.Errorf("old dialog = %q", s)
+	}
+	if d, _ := h.bot.loadDialog(h.ctx, 42, 42); d != nil {
+		t.Error("old dialog survived")
+	}
+
+	// An edit's pull request merged after the update: the user hears about
+	// it, and it stays out of the rank.
+	h.store.TouchUser(h.ctx, 42, "anya", "Аня")
+	edit := &store.Suggestion{ShortID: "e1", TgID: 42, Kind: store.KindEdit, ArticlePath: triangles, Title: "Треугольники",
+		Branch: "suggest/42-treugolniki-e1", PRNumber: 30}
+	h.store.CreateSuggestion(h.ctx, edit)
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 30, HeadBranch: edit.Branch})
+	c := to(h.tg.take(), "sendMessage", 42)
+	if len(c) != 1 || c[0].params["text"] != "Ваша правка в «Треугольники» принята. Спасибо!" {
+		t.Errorf("merge notification = %+v", c)
+	}
+	if u, _ := h.store.User(h.ctx, 42); u.Accepted != 0 {
+		t.Errorf("accepted = %d", u.Accepted)
+	}
+	if got := h.bot.historyMarkdown(h.ctx, 42); !strings.Contains(got, "— правка, ") {
+		t.Errorf("history:\n%s", got)
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	h := newHarness(t, nil)
-	h.tap("e:" + h.id(triangles))
-	h.tg.take()
-	h.tap(cbFix)
-	plainText := texts(h.tg.take(), "sendMessage")[0]
-	h.say(strings.Replace(plainText, "Задача", "Загадка", 1))
+	h.tap(cbReport + h.id(triangles))
+	h.say("опечатка")
 	h.tap(cbSend)
 	h.tg.take()
 
-	// No webhook: the periodic check finds the merge.
+	// No webhook: the periodic check finds the accepted report.
 	h.bot.reconcile(h.ctx)
 	if c := h.tg.take(); len(c) != 0 {
-		t.Errorf("open PR reported: %+v", c)
+		t.Errorf("open issue reported: %+v", c)
 	}
-	h.host.setState(7, githost.State{Closed: true, Merged: true})
+	h.host.setState(7, githost.State{Closed: true, Labels: []string{"accepted"}})
 	h.bot.reconcile(h.ctx)
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || !strings.Contains(s[0], "принята") {
+	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || !strings.Contains(s[0], "исправили") {
 		t.Errorf("reconcile = %q", s)
 	}
 	if open, _ := h.store.OpenSuggestions(h.ctx); len(open) != 0 {
 		t.Errorf("still open: %+v", open)
-	}
-}
-
-func TestGlueMidSentence(t *testing.T) {
-	h := newHarness(t, nil)
-	h.tap("e:" + h.id(triangles))
-	h.tg.take()
-	h.tap(cbFix)
-	plainText := texts(h.tg.take(), "sendMessage")[0]
-	edited := strings.Replace(plainText, "Задача", "Загадка", 1)
-	// Cut inside "попарно соединяющих"; Telegram trims the space.
-	cut := strings.Index(edited, " соединяющих")
-	h.send(&models.Message{Text: edited[:cut], Date: 5000})
-	h.send(&models.Message{Text: edited[cut+1:], Date: 5001})
-	h.tap(cbSend)
-	h.tg.take()
-	got := h.file(h.host.prs[0].Head, triangles)
-	orig := h.file("main", triangles)
-	if got != strings.Replace(orig, "Задача", "Загадка", 1) {
-		t.Errorf("glued mid-sentence:\n%s", got)
 	}
 }

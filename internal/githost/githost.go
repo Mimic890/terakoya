@@ -1,5 +1,5 @@
 // Package githost talks to the service hosting the content repository:
-// opening pull requests, reading reviews and verifying webhooks.
+// opening issues for reports, reading their state and verifying webhooks.
 package githost
 
 import (
@@ -18,8 +18,6 @@ import (
 
 // Host is a git hosting service.
 type Host interface {
-	// OpenPR opens a pull request from head into base.
-	OpenPR(ctx context.Context, pr NewPR) (PR, error)
 	// OpenIssue opens an issue.
 	OpenIssue(ctx context.Context, title, body string) (PR, error)
 	// EditIssue replaces the body of an issue.
@@ -44,11 +42,6 @@ type Host interface {
 
 // ErrUnsupported is returned for operations a host cannot do.
 var ErrUnsupported = errors.New("not supported by this host")
-
-// NewPR describes a pull request to open.
-type NewPR struct {
-	Title, Body, Head, Base string
-}
 
 // PR is an opened pull request or issue.
 type PR struct {
@@ -250,18 +243,6 @@ func (c *client) lastComment(ctx context.Context, number int) (string, error) {
 		}
 	}
 	return strings.TrimSpace(best.Body), nil
-}
-
-func (c *client) openPR(ctx context.Context, pr NewPR) (PR, error) {
-	var out struct {
-		Number  int    `json:"number"`
-		HTMLURL string `json:"html_url"`
-	}
-	in := map[string]string{"title": pr.Title, "body": pr.Body, "head": pr.Head, "base": pr.Base}
-	if err := c.do(ctx, http.MethodPost, c.repoPath("/pulls"), in, &out); err != nil {
-		return PR{}, err
-	}
-	return PR{Number: out.Number, URL: out.HTMLURL}, nil
 }
 
 type multipartBody struct {

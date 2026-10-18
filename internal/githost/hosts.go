@@ -13,12 +13,9 @@ import (
 )
 
 // GitHub uses the REST API with a fine-grained personal access token that
-// has read and write access to contents and pull requests.
+// has read and write access to contents and issues, and read access to
+// pull requests.
 type GitHub struct{ c *client }
-
-func (g *GitHub) OpenPR(ctx context.Context, pr NewPR) (PR, error) {
-	return g.c.openPR(ctx, pr)
-}
 
 func (g *GitHub) OpenIssue(ctx context.Context, title, body string) (PR, error) {
 	return g.c.openIssue(ctx, title, body)
@@ -60,10 +57,6 @@ func (g *GitHub) ParseWebhook(h http.Header, body []byte) (Event, error) {
 // Forgejo uses the Gitea-compatible API with an access token that has
 // repository read and write scope.
 type Forgejo struct{ c *client }
-
-func (f *Forgejo) OpenPR(ctx context.Context, pr NewPR) (PR, error) {
-	return f.c.openPR(ctx, pr)
-}
 
 func (f *Forgejo) OpenIssue(ctx context.Context, title, body string) (PR, error) {
 	return f.c.openIssue(ctx, title, body)

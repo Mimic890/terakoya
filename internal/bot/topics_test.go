@@ -46,7 +46,7 @@ func TestTopicListRich(t *testing.T) {
 		t.Errorf("list =\n%s\nwant\n%s", md[0], want)
 	}
 	kb := lastRich(t, calls).params["reply_markup"]
-	if got := strings.Join(callbacksOf(t, kb), " "); got != cbAddTopic+g.ID+" "+cbSubject+g.Subject.ID {
+	if got := strings.Join(callbacksOf(t, kb), " "); got != cbReportGrade+g.ID+" "+cbSubject+g.Subject.ID {
 		t.Errorf("buttons = %s", got)
 	}
 	// The subject list it came from is gone.
@@ -104,12 +104,12 @@ func TestTopicListEmojiAndButtons(t *testing.T) {
 		}
 	}
 
-	// Without suggestions there is no «Добавить тему», in either style.
+	// Without reports there is no «Сообщить об ошибке», in either style.
 	if got := labels(gradeKeyboard(i18n.RU, g, false)); len(got) != 1 || got[0] != i18n.RU.Back {
-		t.Errorf("without suggestions = %v", got)
+		t.Errorf("without reports = %v", got)
 	}
-	if _, kb := gradeView(i18n.RU, g, false); strings.Contains(strings.Join(callbacks(kb), " "), cbAddTopic) {
-		t.Error("«Добавить тему» without suggestions")
+	if _, kb := gradeView(i18n.RU, g, false); strings.Contains(strings.Join(callbacks(kb), " "), cbReportGrade) {
+		t.Error("«Сообщить об ошибке» without reports")
 	}
 }
 

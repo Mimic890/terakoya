@@ -395,8 +395,6 @@ func (b *Bot) setCommands(ctx context.Context) {
 		b.log.Warn("set commands", "err", err)
 	}
 	admin := append(append([]models.BotCommand{}, common...),
-		models.BotCommand{Command: "access", Description: b.t.CmdAccess},
-		models.BotCommand{Command: "revoke", Description: b.t.CmdRevoke},
 		models.BotCommand{Command: "emoji_setup", Description: b.t.CmdEmojiSetup},
 		models.BotCommand{Command: "ranks", Description: b.t.CmdRanks},
 	)
@@ -408,4 +406,23 @@ func (b *Bot) setCommands(ctx context.Context) {
 			b.log.Warn("set admin commands", "admin", id, "err", err)
 		}
 	}
+}
+
+// onAdminCommand handles /emoji_setup and /ranks. It reports false for
+// other commands; users who are not admins get no answer at all.
+func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
+	switch cmd {
+	case "/emoji_setup", "/ranks":
+	default:
+		return false
+	}
+	if !b.cfg.IsAdmin(m.From.ID) {
+		return true
+	}
+	if cmd == "/emoji_setup" {
+		b.startEmojiSetup(ctx, m, arg)
+	} else {
+		b.sendRanks(ctx, m.Chat.ID)
+	}
+	return true
 }
