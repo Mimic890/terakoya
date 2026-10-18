@@ -20,10 +20,27 @@ import (
 // FileName is the settings file in the data directory.
 const FileName = "settings.yml"
 
+// Topic list styles: a rich message with a link per topic, or a button
+// per topic.
+const (
+	TopicListList    = "list"
+	TopicListButtons = "buttons"
+)
+
 // Settings is the content of settings.yml.
 type Settings struct {
-	Ranks []Rank `yaml:"ranks"`
-	Emoji Emoji  `yaml:"emoji"`
+	// TopicListStyle is how a grade's topics are listed; empty means list.
+	TopicListStyle string `yaml:"topic_list_style"`
+	Ranks          []Rank `yaml:"ranks"`
+	Emoji          Emoji  `yaml:"emoji"`
+}
+
+// TopicList returns the topic list style in use.
+func (s Settings) TopicList() string {
+	if s.TopicListStyle == "" {
+		return TopicListList
+	}
+	return s.TopicListStyle
 }
 
 // Rank is one step of the ladder.
@@ -52,7 +69,7 @@ func Default(subjects []string) Settings {
 
 // FromLadder returns settings with ladder l and no custom emoji.
 func FromLadder(l ranks.Ladder, subjects []string) Settings {
-	s := Settings{Emoji: Emoji{Subjects: map[string]string{}}}
+	s := Settings{TopicListStyle: TopicListList, Emoji: Emoji{Subjects: map[string]string{}}}
 	for _, r := range l {
 		s.Ranks = append(s.Ranks, Rank{Title: r.Title, From: r.From, Emoji: r.Emoji})
 	}
@@ -82,8 +99,14 @@ func (s Settings) Clone() Settings {
 	return out
 }
 
-// Validate checks the ladder and that every emoji ID is a number.
+// Validate checks the topic list style, the ladder and that every emoji
+// ID is a number.
 func (s Settings) Validate() error {
+	switch s.TopicListStyle {
+	case "", TopicListList, TopicListButtons:
+	default:
+		return fmt.Errorf("topic_list_style: %q, want list or buttons", s.TopicListStyle)
+	}
 	if err := s.Ladder().Validate(); err != nil {
 		return fmt.Errorf("ranks: %w", err)
 	}
@@ -143,6 +166,7 @@ const header = `# terakoya settings. Admin commands in the bot (/emoji_setup) re
 # file; it can also be edited by hand: the bot rereads it within seconds
 # and keeps the previous settings if the new ones are invalid (see its log).
 #
+# topic_list_style: list (a message with a link per topic) or buttons.
 # ranks: title, the number of accepted suggestions it starts at (the first
 # starts at 0, then strictly increasing), and an optional custom emoji ID.
 # emoji: custom emoji IDs; empty means the plain emoji, or none. subjects

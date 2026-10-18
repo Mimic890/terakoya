@@ -10,6 +10,8 @@ import (
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/render"
+	"github.com/Mimic890/terakoya/internal/settings"
+	"github.com/Mimic890/terakoya/internal/suggest"
 )
 
 // Callback data prefixes. Subjects, grades and notes are named by their
@@ -57,8 +59,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		text, kb := gradeView(b.t, g)
-		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+		b.showGrade(ctx, msg.Chat.ID, msg, g)
 
 	case strings.HasPrefix(data, cbArticle):
 		n := note(cbArticle)
@@ -94,8 +95,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			}
 		case n != nil:
 			b.retire(ctx, msg)
-			text, kb := gradeView(b.t, n.Grade())
-			b.showMenu(ctx, msg.Chat.ID, text, kb)
+			b.showGrade(ctx, msg.Chat.ID, nil, n.Grade())
 		default:
 			b.retire(ctx, msg)
 			text, kb := b.homeView(ctx, &q.From)
@@ -234,20 +234,73 @@ func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyb
 	return fmt.Sprintf(t.ChooseGrade, s.Name), keyboard(rows...)
 }
 
-// gradeView is the topic list of a grade.
-func gradeView(t i18n.Strings, g *content.Grade) (string, *models.InlineKeyboardMarkup) {
+// showGrade shows a grade's topic list in the style settings.yml sets:
+// a rich message with a link per topic, or a button per topic. In the
+// button style, msg is the menu to edit; nil replaces the current menu.
+// A topic opens in place of the list either way.
+func (b *Bot) showGrade(ctx context.Context, chatID int64, msg *models.Message, g *content.Grade) {
+	addTopic := b.host != nil
+	if b.settings.Get().TopicList() == settings.TopicListButtons {
+		text, kb := gradeView(b.t, g, addTopic)
+		if msg != nil {
+			b.editMenu(ctx, chatID, msg.ID, text, kb)
+		} else {
+			b.showMenu(ctx, chatID, text, kb)
+		}
+		return
+	}
+	header := fmt.Sprintf(b.t.TopicsHeader, g.Subject.Name, g.Title())
+	b.showRich(ctx, chatID, header, b.topicListMarkdown(g), gradeKeyboard(b.t, g, addTopic))
+}
+
+// topicLabel names a topic in the list: «§5 Параллельность…» from the
+// folder number without its leading zeros, or the title alone.
+func topicLabel(tp *content.Topic) string {
+	if !tp.HasNumber {
+		return tp.Title()
+	}
+	return fmt.Sprintf("§%d %s", tp.Number, tp.Title())
+}
+
+// topicListMarkdown is the list style: the heading with the subject's
+// custom emoji, if any, and a line per topic that opens it.
+func (b *Bot) topicListMarkdown(g *content.Grade) string {
+	var sb strings.Builder
+	sb.WriteString("# " + richEmojiRef(b.emoji.Subject(g.Subject.Name), placeholder) +
+		escapeMarkdown(fmt.Sprintf(b.t.TopicsHeader, g.Subject.Name, g.Title())) + "\n\n")
+	if len(g.Topics) == 0 {
+		sb.WriteString(b.t.NoTopics + "\n")
+	}
+	// Each line is a link to the topic's main page, which the renderer
+	// turns into an in-text button; lines stay lines, as in Obsidian.
+	for _, tp := range g.Topics {
+		label := strings.NewReplacer("[", "", "]", "").Replace(topicLabel(tp))
+		sb.WriteString("[" + label + "](" + suggest.LinkTarget(tp.Main.Path) + ")\n")
+	}
+	return sb.String()
+}
+
+// gradeKeyboard goes under the topic list: «Добавить тему» when
+// suggestions are on, and «Назад».
+func gradeKeyboard(t i18n.Strings, g *content.Grade, addTopic bool) *models.InlineKeyboardMarkup {
+	var rows [][]models.InlineKeyboardButton
+	if addTopic {
+		rows = append(rows, row(button(t.AddTopic, cbAddTopic+g.ID)))
+	}
+	return keyboard(append(rows, row(button(t.Back, cbSubject+g.Subject.ID)))...)
+}
+
+// gradeView is the button style of the topic list.
+func gradeView(t i18n.Strings, g *content.Grade, addTopic bool) (string, *models.InlineKeyboardMarkup) {
 	text := fmt.Sprintf(t.TopicsHeader, g.Subject.Name, g.Title()) + "\n\n" + t.ChooseTopic
 	if len(g.Topics) == 0 {
 		text += "\n\n" + t.NoTopics
 	}
 	var rows [][]models.InlineKeyboardButton
 	for _, tp := range g.Topics {
-		rows = append(rows, row(button(tp.Title(), cbArticle+tp.Main.ID)))
+		rows = append(rows, row(button(topicLabel(tp), cbArticle+tp.Main.ID)))
 	}
-	rows = append(rows,
-		row(button(t.AddTopic, cbAddTopic+g.ID)),
-		row(button(t.Back, cbSubject+g.Subject.ID)),
-	)
+	rows = append(rows, gradeKeyboard(t, g, addTopic).InlineKeyboard...)
 	return text, keyboard(rows...)
 }
 
