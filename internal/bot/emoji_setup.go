@@ -128,6 +128,9 @@ type emojiWizard struct {
 	Pending  string `json:"pending,omitempty"`
 	Alt      string `json:"alt,omitempty"`
 	PromptID int    `json:"prompt_id,omitempty"`
+	// Msgs are all messages of the wizard, which «Отмена» deletes; the
+	// key is the one suggestion dialogs use, so /cancel finds them too.
+	Msgs []int `json:"msgs,omitempty"`
 }
 
 type wizard struct {
@@ -228,6 +231,7 @@ func (b *Bot) emojiStep(ctx context.Context, wz *wizard) {
 	wz.ses.State = stateEmojiWait
 	if msg := b.sendEmojiText(ctx, wz.chatID, text, kb); msg != nil {
 		wz.w.PromptID = msg.ID
+		wz.w.Msgs = append(wz.w.Msgs, msg.ID)
 	}
 	b.saveWizard(ctx, wz)
 }
@@ -256,9 +260,13 @@ func (b *Bot) onEmojiWizardMessage(ctx context.Context, m *models.Message) bool 
 	if wz == nil {
 		return false
 	}
+	wz.w.Msgs = append(wz.w.Msgs, m.ID)
 	id, alt := firstCustomEmoji(m)
 	if id == "" {
-		b.send(ctx, m.Chat.ID, b.t.EmojiNeedCustom, nil)
+		if msg := b.send(ctx, m.Chat.ID, b.t.EmojiNeedCustom, nil); msg != nil {
+			wz.w.Msgs = append(wz.w.Msgs, msg.ID)
+		}
+		b.saveWizard(ctx, wz)
 		return true
 	}
 	b.dropWizardButtons(ctx, wz)
@@ -267,6 +275,7 @@ func (b *Bot) onEmojiWizardMessage(ctx context.Context, m *models.Message) bool 
 	kb := keyboard(row(button(b.t.Yes, cbEmojiYes), button(b.t.EmojiOther, cbEmojiAnother), button(b.t.Cancel, cbEmojiCancel)))
 	if msg := b.sendEmojiText(ctx, m.Chat.ID, emojiText{emojiAt{id: id, alt: alt, after: " "}, b.t.EmojiSaveQuestion}, kb); msg != nil {
 		wz.w.PromptID = msg.ID
+		wz.w.Msgs = append(wz.w.Msgs, msg.ID)
 	}
 	b.saveWizard(ctx, wz)
 	return true
@@ -306,11 +315,11 @@ func (b *Bot) onEmojiWizardCallback(ctx context.Context, q *models.CallbackQuery
 	key := wz.w.Slots[wz.w.I]
 	switch {
 	case q.Data == cbEmojiCancel:
-		b.dropWizardButtons(ctx, wz)
+		// Nothing is saved, and the wizard's messages go.
 		if err := b.store.DeleteSession(ctx, q.From.ID); err != nil {
 			b.log.Error("delete session", "err", err)
 		}
-		b.send(ctx, msg.Chat.ID, b.t.EmojiCancelled, nil)
+		b.dropMessages(ctx, msg.Chat.ID, wz.w.Msgs)
 		return
 	case q.Data == cbEmojiSkip && wz.ses.State == stateEmojiWait:
 		wz.w.I++

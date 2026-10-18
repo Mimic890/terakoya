@@ -57,11 +57,12 @@ func TestAccessRequestAllowed(t *testing.T) {
 	calls := h.tg.take()
 	edits := to(calls, "editMessageText", boris.ID)
 	if len(edits) != 1 || edits[0].params["text"] != i18n.RU.AccessNeeded || edits[0].params["message_id"] != fmt.Sprint(menu) ||
-		!strings.Contains(edits[0].params["reply_markup"], `"ar:`+note+`"`) || !strings.Contains(edits[0].params["reply_markup"], `"c"`) {
+		!strings.Contains(edits[0].params["reply_markup"], `"ar:`+note+`"`) || !strings.Contains(edits[0].params["reply_markup"], `"x"`) {
 		t.Fatalf("question = %+v", calls)
 	}
-	if d, _ := h.bot.loadDialog(h.ctx, boris.ID, boris.ID); d != nil {
-		t.Error("the dialog went on")
+	// The question is the dialog's last step, so «Отмена» can clean up.
+	if d, _ := h.bot.loadDialog(h.ctx, boris.ID, boris.ID); d == nil || d.ses.State != stateAccess {
+		t.Errorf("dialog = %+v", d)
 	}
 
 	// «Отправить запрос» goes to every admin.

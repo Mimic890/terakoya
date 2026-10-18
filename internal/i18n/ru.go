@@ -71,8 +71,6 @@ type Strings struct {
 	TooManyImages      string // %d: limit
 	TextTooLong        string
 	Expired            string
-	Cancelled          string
-	NothingToCancel    string
 	TooOften           string
 	TooManyOpen        string // %d: open suggestions
 	Submitting         string
@@ -186,7 +184,6 @@ type Strings struct {
 	EmojiSaveQuestion  string
 	Yes                string
 	EmojiOther         string
-	EmojiCancelled     string
 	EmojiSaved         string
 	EmojiNone          string
 	EmojiUnknownSlot   string // %s: the slots
@@ -284,8 +281,6 @@ var RU = Strings{
 	TooManyImages:     "Больше %d картинок прислать нельзя.",
 	TextTooLong:       "Слишком длинный текст — пришлите его частями поменьше.",
 	Expired:           "Время вышло — начните заново кнопкой «Предложить правку».",
-	Cancelled:         "Хорошо, отменил.",
-	NothingToCancel:   "Нечего отменять.",
 	TooOften:          "Подождите минутку перед следующим предложением.",
 	TooManyOpen:       "Ваших предложений на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",
 	Submitting:        "Отправляю…",
@@ -390,7 +385,6 @@ var RU = Strings{
 	EmojiSaveQuestion:  "Сохранить?",
 	Yes:                "Да",
 	EmojiOther:         "Другой",
-	EmojiCancelled:     "Отменено, ничего не изменилось.",
 	EmojiSaved:         "Готово, сохранено:",
 	EmojiNone:          "—",
 	EmojiUnknownSlot:   "Нет такого места. Напишите /emoji_setup, чтобы пройти все по порядку, или /emoji_setup <место>, где место — одно из:\n%s",

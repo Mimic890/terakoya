@@ -141,9 +141,14 @@ func TestEmojiSetupOneSlotAndCancel(t *testing.T) {
 	h.say("/emoji_setup")
 	h.custom("5001", "😀")
 	h.wizardTap(cbEmojiYes)
+	h.tg.take()
+	msgs := h.bot.loadWizard(h.ctx, ivan.ID, ivan.ID).w.Msgs
 	h.wizardTap(cbEmojiCancel)
-	if got := texts(h.tg.take(), "sendMessage"); got[len(got)-1] != i18n.RU.EmojiCancelled {
-		t.Errorf("cancel = %q", got)
+	calls := h.tg.take()
+	// Every message of the wizard goes, the admin's emoji included, and
+	// nothing is said.
+	if got := ids(calls, "deleteMessage"); len(msgs) != 4 || !sameIDs(got, msgs) || len(texts(calls, "sendMessage")) != 0 {
+		t.Errorf("cancel: deleted %v, want %v; calls %+v", got, msgs, calls)
 	}
 	if after, _ := os.ReadFile(h.bot.settings.Path()); string(after) != string(before) {
 		t.Error("cancel changed the settings")

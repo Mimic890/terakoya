@@ -39,6 +39,7 @@ const (
 	stateNewTitle      = "suggest_new_title"
 	stateNewText       = "suggest_new_text"
 	stateNewImages     = "suggest_new_images" // text received, «Готово»
+	stateAccess        = "suggest_access"     // «нужно разрешение», for a user without edit access
 )
 
 // Callback data of the dialogs.
@@ -89,6 +90,11 @@ type sessionPayload struct {
 	Title    string            `json:"title,omitempty"`
 	Images   []pendingImage    `json:"images,omitempty"`
 	PromptID int               `json:"prompt_id,omitempty"`
+	// Msgs are all messages of the dialog, the bot's and the user's, which
+	// «Отмена» deletes. OriginMsg is the note or list the dialog started
+	// from, which is replaced when the user goes back to it.
+	Msgs      []int `json:"msgs,omitempty"`
+	OriginMsg int   `json:"origin_msg,omitempty"`
 }
 
 type pendingImage struct {
@@ -102,6 +108,14 @@ type dialog struct {
 	ses    store.Session
 	p      sessionPayload
 	chatID int64
+	ended  bool // the session was deleted
+}
+
+// track adds a message to the dialog.
+func (d *dialog) track(msg *models.Message) {
+	if msg != nil {
+		d.p.Msgs = append(d.p.Msgs, msg.ID)
+	}
 }
 
 // userLocks serializes the handling of one user's updates, so pictures sent
@@ -164,7 +178,7 @@ func (b *Bot) startSuggestion(ctx context.Context, q *models.CallbackQuery, chat
 	b.answer(ctx, q, "", false)
 	d := &dialog{chatID: chatID,
 		ses: store.Session{TgID: q.From.ID, State: stateMenu, BaseSHA: base, ArticlePath: n.Path},
-		p:   sessionPayload{NoteID: n.ID, ShortID: suggest.ShortID(), Raw: string(n.Raw)}}
+		p:   sessionPayload{NoteID: n.ID, ShortID: suggest.ShortID(), Raw: string(n.Raw), OriginMsg: q.Message.Message.ID}}
 	rows := [][]models.InlineKeyboardButton{row(button(b.t.FixText, cbFix)), row(button(b.t.ReportError, cbReport))}
 	text := b.t.SuggestMenu
 	if n.IsMain() {
@@ -184,13 +198,14 @@ func (b *Bot) startNewTopic(ctx context.Context, q *models.CallbackQuery, chatID
 	}
 	if !b.mayEdit(ctx, q.From.ID) {
 		// The topic list stays; the question comes as a new message.
-		b.askAccess(ctx, q, chatID, 0, "")
+		b.askAccess(ctx, q, &dialog{chatID: chatID, ses: store.Session{TgID: q.From.ID},
+			p: sessionPayload{GradeID: g.ID, OriginMsg: q.Message.Message.ID}})
 		return
 	}
 	b.answer(ctx, q, "", false)
 	d := &dialog{chatID: chatID,
 		ses: store.Session{TgID: q.From.ID, State: stateNewTitle, BaseSHA: base},
-		p:   sessionPayload{GradeID: g.ID, ShortID: suggest.ShortID()}}
+		p:   sessionPayload{GradeID: g.ID, ShortID: suggest.ShortID(), OriginMsg: q.Message.Message.ID}}
 	b.prompt(ctx, d, fmt.Sprintf(b.t.NewTitlePrompt, g.Subject.Name, g.Title()), keyboard(cancelRow(b.t.Cancel)))
 }
 
@@ -216,13 +231,15 @@ func (b *Bot) prompt(ctx context.Context, d *dialog, text string, kb *models.Inl
 	b.dropButtons(ctx, d)
 	if msg := b.send(ctx, d.chatID, text, kb); msg != nil {
 		d.p.PromptID = msg.ID
+		d.track(msg)
 	}
 	b.save(ctx, d)
 }
 
 // note answers without buttons; the current question stays live.
 func (b *Bot) note(ctx context.Context, d *dialog, text string) {
-	b.send(ctx, d.chatID, text, nil)
+	d.track(b.send(ctx, d.chatID, text, nil))
+	b.save(ctx, d)
 }
 
 func (b *Bot) dropButtons(ctx context.Context, d *dialog) {
@@ -286,7 +303,7 @@ func (b *Bot) onDialogCallback(ctx context.Context, q *models.CallbackQuery, msg
 	}
 	data := q.Data
 	if (data == cbFix || data == cbAddNote) && d.ses.State == stateMenu && !b.mayEdit(ctx, q.From.ID) {
-		b.askAccess(ctx, q, d.chatID, msg.ID, d.p.NoteID)
+		b.askAccess(ctx, q, d)
 		return
 	}
 	b.answer(ctx, q, "", false)
@@ -499,7 +516,7 @@ func (b *Bot) sendSection(ctx context.Context, d *dialog, n int) {
 		instructions = b.t.EditEmptySection
 	}
 	for _, part := range splitMessage(text, 4000) {
-		b.send(ctx, d.chatID, part, nil)
+		d.track(b.send(ctx, d.chatID, part, nil))
 	}
 	b.prompt(ctx, d, instructions, keyboard(cancelRow(b.t.Cancel)))
 }
@@ -535,6 +552,14 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 	if d == nil {
 		return false
 	}
+	// The user's replies belong to the dialog too; whatever happens below,
+	// the dialog is saved with them unless it ended.
+	d.track(m)
+	defer func() {
+		if !d.ended {
+			b.save(ctx, d)
+		}
+	}()
 
 	if b.accessGone(ctx, d) {
 		return true
@@ -551,7 +576,7 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 	}
 
 	switch d.ses.State {
-	case stateMenu, stateSection:
+	case stateMenu, stateSection, stateAccess:
 		b.note(ctx, d, b.t.UseButtons)
 
 	case stateEditText, stateEditConfirm:
@@ -616,6 +641,7 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 
 	default:
 		b.store.DeleteSession(ctx, m.From.ID)
+		d.ended = true
 		return false
 	}
 	return true
@@ -737,25 +763,90 @@ func (b *Bot) onNewTitle(ctx context.Context, d *dialog, title string) {
 	b.prompt(ctx, d, b.t.NewTextPrompt, keyboard(cancelRow(b.t.Cancel)))
 }
 
-// cancel ends the dialog with a message.
+// cancel ends the dialog with a message, when the bot has to stop it.
 func (b *Bot) cancel(ctx context.Context, d *dialog, text string) {
 	b.dropButtons(ctx, d)
-	if err := b.store.DeleteSession(ctx, d.ses.TgID); err != nil {
-		b.log.Error("delete session", "err", err)
-	}
+	b.endDialog(ctx, d)
 	b.send(ctx, d.chatID, text, nil)
 }
 
-// cancelSuggestion handles «Отмена» and /cancel.
-func (b *Bot) cancelSuggestion(ctx context.Context, chatID, userID int64) {
+func (b *Bot) endDialog(ctx context.Context, d *dialog) {
+	if err := b.store.DeleteSession(ctx, d.ses.TgID); err != nil {
+		b.log.Error("delete session", "err", err)
+	}
+	d.ended = true
+}
+
+// cancelSuggestion handles «Отмена» and /cancel in any dialog, /emoji_setup
+// included: every message of the dialog goes, and the user is back where
+// it started. Without a dialog, there is nothing to do.
+// It reports whether there was a dialog.
+func (b *Bot) cancelSuggestion(ctx context.Context, chatID, userID int64) bool {
 	unlock := b.userLocks.lock(userID)
 	defer unlock()
 	d, _ := b.loadDialog(ctx, userID, chatID)
 	if d == nil {
-		b.send(ctx, chatID, b.t.NothingToCancel, nil)
+		return false
+	}
+	b.endDialog(ctx, d)
+	b.dropMessages(ctx, chatID, d.p.Msgs)
+	b.goBack(ctx, d)
+	return true
+}
+
+// dropMessages deletes messages in the background, all at once. They are
+// forgotten right away, so a menu above them counts as the last message
+// again.
+func (b *Bot) dropMessages(ctx context.Context, chatID int64, ids []int) {
+	for _, id := range ids {
+		b.msgs.gone(ctx, chatID, id)
+		b.later(ctx, func(ctx context.Context) {
+			if _, err := b.api.DeleteMessage(ctx, &tg.DeleteMessageParams{ChatID: chatID, MessageID: id}); err != nil {
+				b.log.Debug("delete dialog message", "msg", id, "err", err)
+			}
+		})
+	}
+}
+
+// goBack returns the user to where a cancelled dialog started: its note,
+// re-sent in place of the old one, or the grade's topic list for a new
+// topic. A note that left the vault falls back to its topic list, then to
+// the subject list. A dialog without an origin (/emoji_setup) only goes.
+func (b *Bot) goBack(ctx context.Context, d *dialog) {
+	cat := b.catalog()
+	var g *content.Grade
+	switch {
+	case d.p.NoteID != "" || d.ses.ArticlePath != "":
+		if n := b.dialogNote(d); n != nil {
+			if b.sendArticle(ctx, d.chatID, n, false) && d.p.OriginMsg != 0 {
+				b.retireLater(ctx, d.chatID, d.p.OriginMsg)
+			}
+			return
+		}
+		g = gradeOfPath(cat, d.ses.ArticlePath)
+	case d.p.GradeID != "":
+		g = cat.Grade(d.p.GradeID)
+	default:
 		return
 	}
-	b.cancel(ctx, d, b.t.Cancelled)
+	if g != nil {
+		b.showGrade(ctx, d.chatID, nil, g)
+		return
+	}
+	text, kb := homeView(b.t, cat, b.emoji.Subject)
+	b.replaceMenu(ctx, d.chatID, text, kb)
+}
+
+// gradeOfPath finds the grade a vault path lies in, if it still exists.
+func gradeOfPath(cat *content.Catalog, p string) *content.Grade {
+	for _, s := range cat.Subjects {
+		for _, g := range s.Grades {
+			if strings.HasPrefix(p, g.Path()+"/") {
+				return g
+			}
+		}
+	}
+	return nil
 }
 
 // submitting checks the rate limits again and shows «Отправляю…». It
@@ -786,9 +877,7 @@ func (b *Bot) finish(ctx context.Context, d *dialog, msgID int, err error, done 
 		b.deleteMessage(ctx, d.chatID, msgID)
 		return
 	}
-	if err := b.store.DeleteSession(ctx, d.ses.TgID); err != nil {
-		b.log.Error("delete session", "err", err)
-	}
+	b.endDialog(ctx, d)
 	if _, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: d.chatID, MessageID: msgID, Text: text}); err != nil {
 		b.log.Debug("edit message", "err", err)
 		b.send(ctx, d.chatID, text, nil)

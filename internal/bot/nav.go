@@ -177,8 +177,11 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 
 	case data == cbCancel:
 		b.answer(ctx, q, "", false)
-		b.retire(ctx, msg)
-		b.cancelSuggestion(ctx, msg.Chat.ID, q.From.ID)
+		// A dialog's «Отмена» takes all its messages with it; a stale one
+		// just goes.
+		if !b.cancelSuggestion(ctx, msg.Chat.ID, q.From.ID) {
+			b.retire(ctx, msg)
+		}
 
 	case data == cbFix, data == cbReport, data == cbSend, data == cbAddNote,
 		strings.HasPrefix(data, cbSection), strings.HasPrefix(data, cbKind), strings.HasPrefix(data, cbParent):

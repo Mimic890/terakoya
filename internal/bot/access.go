@@ -44,7 +44,7 @@ func (b *Bot) mayEdit(ctx context.Context, tgID int64) bool {
 // ends if access is revoked meanwhile.
 func gatedState(state string) bool {
 	switch state {
-	case stateMenu, stateReport, stateReportConfirm:
+	case stateMenu, stateReport, stateReportConfirm, stateAccess:
 		return false
 	}
 	return true
@@ -74,10 +74,11 @@ func (b *Bot) accessBlock(ctx context.Context, tgID int64) (toast string, until 
 	return "", time.Time{}
 }
 
-// askAccess answers a tap on an edit button by a user without access. The
-// question replaces the dialog message msgID, or is sent anew when msgID is
-// 0; noteID is the note to come back to.
-func (b *Bot) askAccess(ctx context.Context, q *models.CallbackQuery, chatID int64, msgID int, noteID string) {
+// askAccess answers a tap on an edit button by a user without access.
+// The question becomes the dialog's prompt: it replaces the dialog's menu,
+// or comes as a new message for a dialog not started yet (d without a
+// prompt). «Отмена» then works as in any dialog.
+func (b *Bot) askAccess(ctx context.Context, q *models.CallbackQuery, d *dialog) {
 	toast, until := b.accessBlock(ctx, q.From.ID)
 	if toast != "" {
 		b.answer(ctx, q, toast, true)
@@ -85,31 +86,44 @@ func (b *Bot) askAccess(ctx context.Context, q *models.CallbackQuery, chatID int
 	}
 	b.answer(ctx, q, "", false)
 	text := b.t.AccessNeeded
-	kb := keyboard(row(button(b.t.SendRequest, cbRequest+noteID), button(b.t.Cancel, cbClose)))
-	if !until.IsZero() {
+	kb := keyboard(row(button(b.t.SendRequest, cbRequest+d.p.NoteID), button(b.t.Cancel, cbCancel)))
+	denied := !until.IsZero()
+	if denied {
 		text = fmt.Sprintf(b.t.AccessDeniedUntil, b.date(until))
 		kb = keyboard(row(button(b.t.Understood, cbClose)))
 	}
-	if msgID == 0 {
-		b.send(ctx, chatID, text, kb)
+	var msg *models.Message
+	if d.p.PromptID != 0 {
+		var err error
+		msg, err = b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
+			ChatID: d.chatID, MessageID: d.p.PromptID, Text: text, ReplyMarkup: kb,
+		})
+		if err != nil {
+			b.log.Debug("edit message", "err", err)
+			msg = nil
+		}
+	}
+	if msg == nil {
+		msg = b.send(ctx, d.chatID, text, kb)
+		d.track(msg)
+	}
+	if denied || msg == nil {
+		b.endDialog(ctx, d)
 		return
 	}
-	// The dialog's menu becomes the question; the dialog is over.
-	if err := b.store.DeleteSession(ctx, q.From.ID); err != nil {
-		b.log.Error("delete session", "err", err)
-	}
-	if _, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
-		ChatID: chatID, MessageID: msgID, Text: text, ReplyMarkup: kb,
-	}); err != nil {
-		b.log.Debug("edit message", "err", err)
-		b.send(ctx, chatID, text, kb)
-	}
+	d.ses.State = stateAccess
+	d.p.PromptID = msg.ID
+	b.save(ctx, d)
 }
 
 // requestAccess sends the user's request to every admin.
 func (b *Bot) requestAccess(ctx context.Context, q *models.CallbackQuery, msg *models.Message, noteID string) {
 	unlock := b.userLocks.lock(q.From.ID)
 	defer unlock()
+	// The question was the last step of its dialog.
+	if d, _ := b.loadDialog(ctx, q.From.ID, msg.Chat.ID); d != nil && d.ses.State == stateAccess {
+		b.endDialog(ctx, d)
+	}
 	if b.mayEdit(ctx, q.From.ID) {
 		b.answer(ctx, q, b.t.AccessHave, true)
 		return
