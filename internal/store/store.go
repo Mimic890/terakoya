@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -40,6 +41,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	return s, nil
 }
+
+// SetClock replaces the clock used for timestamps; for tests.
+func (s *Store) SetClock(now func() time.Time) { s.now = now }
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
@@ -133,6 +137,29 @@ var migrations = []string{
 	DELETE FROM media_cache;
 	DELETE FROM archives;
 	DELETE FROM sessions;`,
+	// Edit access granted by admins, the admin copies of each request, and
+	// pinned notes.
+	`CREATE TABLE access (
+		tg_id        INTEGER PRIMARY KEY REFERENCES users(tg_id),
+		status       TEXT NOT NULL CHECK (status IN ('pending', 'granted', 'denied')),
+		note_id      TEXT NOT NULL DEFAULT '',
+		request_text TEXT NOT NULL DEFAULT '',
+		requested_at INTEGER NOT NULL,
+		decided_at   INTEGER,
+		decided_by   INTEGER
+	);
+	CREATE TABLE access_messages (
+		tg_id    INTEGER NOT NULL,
+		admin_id INTEGER NOT NULL,
+		msg_id   INTEGER NOT NULL,
+		PRIMARY KEY (tg_id, admin_id)
+	) WITHOUT ROWID;
+	CREATE TABLE pins (
+		tg_id     INTEGER NOT NULL,
+		note_id   TEXT NOT NULL,
+		pinned_at INTEGER NOT NULL,
+		PRIMARY KEY (tg_id, note_id)
+	) WITHOUT ROWID;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -188,6 +215,19 @@ func (s *Store) User(ctx context.Context, tgID int64) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx,
 		`SELECT tg_id, username, first_name, merged_count FROM users WHERE tg_id = ?`, tgID,
+	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.MergedCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return u, err
+}
+
+// UserByUsername finds a user by @username, ignoring case and the "@".
+func (s *Store) UserByUsername(ctx context.Context, username string) (User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx,
+		`SELECT tg_id, username, first_name, merged_count FROM users WHERE username = ? COLLATE NOCASE AND username != ''`,
+		strings.TrimPrefix(username, "@"),
 	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.MergedCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound

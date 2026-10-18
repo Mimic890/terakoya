@@ -33,6 +33,7 @@ type fakeTelegram struct {
 	mu    sync.Mutex
 	calls []call
 	next  int
+	last  map[string]int // the last message ID returned, by method
 }
 
 type call struct {
@@ -68,6 +69,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.calls = append(f.calls, call{method, params})
 	f.next++
 	id := 1000 + f.next
+	if f.last == nil {
+		f.last = map[string]int{}
+	}
+	f.last[method] = id
 	f.mu.Unlock()
 
 	var result any = true
@@ -85,6 +90,12 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"file_path": "photos/" + params["file_id"]}
 	}
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+}
+
+func (f *fakeTelegram) lastID(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.last[method]
 }
 
 func (f *fakeTelegram) take() []call {
@@ -188,6 +199,7 @@ type harness struct {
 	remote   string
 	upstream string
 	msgID    int
+	user     models.User
 }
 
 // newHarness serves examples/vault plus the triangles topic of testdata
@@ -234,6 +246,7 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 	cfg.BotToken, cfg.BotUsername = "123:abc", "terakoya_bot"
 	cfg.RepoDir, cfg.RepoURL, cfg.GitHost = checkout, remote, "forgejo"
 	cfg.Ladder, _ = ranks.Parse("kōhai:0,senpai:1")
+	cfg.Admins = []int64{ivan.ID}
 
 	fake := &fakeTelegram{}
 	srv := httptest.NewServer(fake)
@@ -245,33 +258,55 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 		t.Fatal(err)
 	}
 	b.media.Raster = fakeRaster{}
-	return &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100}
+	// Аня may edit; access itself is tested with other users.
+	st.TouchUser(ctx, anya.ID, anya.Username, anya.FirstName)
+	st.RequestAccess(ctx, anya.ID, "", "")
+	st.DecideAccess(ctx, anya.ID, true, ivan.ID)
+	return &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100,
+		user: anya}
 }
 
-var anya = models.User{ID: 42, Username: "anya", FirstName: "Аня"}
+var (
+	anya = models.User{ID: 42, Username: "anya", FirstName: "Аня"}
+	ivan = models.User{ID: 7, Username: "ivan", FirstName: "Иван"} // the admin
+)
+
+// as makes the following taps and messages come from u.
+func (h *harness) as(u models.User) { h.user = u }
 
 // tap presses a button. Dialog buttons are pressed on the current prompt.
 func (h *harness) tap(data string) {
 	id := 100
-	if d, _ := h.bot.loadDialog(h.ctx, anya.ID, 42); d != nil && d.p.PromptID != 0 {
+	if d, _ := h.bot.loadDialog(h.ctx, h.user.ID, h.user.ID); d != nil && d.p.PromptID != 0 {
 		id = d.p.PromptID
 	}
 	h.tapOn(id, data)
 }
 
-func (h *harness) tapOn(msgID int, data string) {
+func (h *harness) tapOn(msgID int, data string) { h.tapWith(msgID, data, "") }
+
+// tapWith presses a button of a message whose keyboard, as JSON, Telegram
+// sends along.
+func (h *harness) tapWith(msgID int, data, markup string) {
+	msg := &models.Message{ID: msgID, Chat: models.Chat{ID: h.user.ID, Type: "private"}}
+	if markup != "" {
+		msg.ReplyMarkup = &models.InlineKeyboardMarkup{}
+		if err := json.Unmarshal([]byte(markup), msg.ReplyMarkup); err != nil {
+			h.t.Fatal(err)
+		}
+	}
 	h.bot.handle(h.ctx, nil, &models.Update{CallbackQuery: &models.CallbackQuery{
-		ID: "q", From: anya, Data: data,
-		Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: msgID, Chat: models.Chat{ID: 42, Type: "private"}}},
+		ID: "q", From: h.user, Data: data,
+		Message: models.MaybeInaccessibleMessage{Message: msg},
 	}})
 }
 
 // send delivers a message from the user; the clock advances 10 seconds per
 // message unless the date is given.
 func (h *harness) send(m *models.Message) {
-	u := anya
+	u := h.user
 	h.msgID++
-	m.ID, m.From, m.Chat = h.msgID, &u, models.Chat{ID: 42, Type: "private"}
+	m.ID, m.From, m.Chat = h.msgID, &u, models.Chat{ID: u.ID, Type: "private"}
 	if m.Date == 0 {
 		m.Date = h.msgID * 10
 	}

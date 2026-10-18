@@ -1,6 +1,7 @@
 /terakoya
 /data/
 /content/
+/vault/
 .env
 *.db
 *.db-shm

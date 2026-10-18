@@ -17,7 +17,9 @@ into several messages. See [docs/content-guide.md](docs/content-guide.md)
 - [x] Obsidian vault loader, Markdown → Telegram rich message converter with SVG drawings and long-note splitting, `lint`
 - [x] Navigation: subjects → grades → topics → notes, deep links, note download, `/download` of the whole vault
 - [x] Suggestions from Telegram as pull requests and issues (GitHub or Forgejo), git host webhooks, content sync
-- [ ] Rank polish, Telegram webhook mode
+- [x] Edit access granted by admins, bottom keyboard, pinned notes, account page, ranks
+- [x] Multi-arch Docker image on ghcr.io
+- [ ] Telegram webhook mode
 
 ## Running
 
@@ -25,19 +27,60 @@ You need a bot token from [@BotFather](https://t.me/BotFather). The bot
 uses `sendRichMessage`, so it needs Bot API 10.2 or later (the official
 `api.telegram.org` server has it).
 
-### Docker Compose
+### Docker
 
-```sh
-cp .env.example .env        # set TERAKOYA_BOT_TOKEN and TERAKOYA_REPO_URL
-mkdir -p data content
-docker compose up -d --build
+The image is published to `ghcr.io/mimic890/terakoya` for amd64 and
+arm64: `latest` follows `main`, `1.2.3` and `1.2` are releases, and every
+build is also tagged `sha-<commit>`. It includes resvg and the DejaVu
+fonts. Save this as `docker-compose.yml`:
+
+```yaml
+services:
+  terakoya:
+    image: ghcr.io/mimic890/terakoya:latest
+    restart: unless-stopped
+    # Run as the owner of ./data and ./vault.
+    user: "1000:1000"
+    env_file: .env
+    ports:
+      # Git host webhooks (POST /webhooks/git); put a TLS reverse proxy in
+      # front, or use "127.0.0.1:8080:8080" when it runs on the same host.
+      - "8080:8080"
+    volumes:
+      - ./data:/srv/data
+      - ./vault:/srv/vault
 ```
 
-`./data` holds the SQLite database and `./content` the checkout of the
-content repository. Both are bind mounts. If `./content` is empty and
-`TERAKOYA_REPO_URL` is set, the bot clones the repository on start.
-The container runs as `$UID:$GID` (default `1000:1000`), which should own
-both directories.
+Then:
+
+```sh
+cp .env.example .env        # set TERAKOYA_BOT_TOKEN, TERAKOYA_REPO_URL, TERAKOYA_ADMIN_IDS
+mkdir -p data vault
+docker compose up -d
+docker compose logs -f
+```
+
+`./data` holds the SQLite database and `./vault` the checkout of the
+content repository. If `./vault` is empty and `TERAKOYA_REPO_URL` is set,
+the bot clones the repository on start. Do not set `TERAKOYA_REPO_DIR` or
+`TERAKOYA_DATA_DIR` in `.env`: the image points them at the mounts.
+
+To update:
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+The image is public. If you publish your own build as a private image,
+log in once on the server with a personal access token (classic) that has
+the `read:packages` scope:
+
+```sh
+docker login ghcr.io -u <github user>
+```
+
+To build the image from a checkout instead, use the `docker-compose.yml`
+in this repository: `docker compose up -d --build`.
 
 ### From source
 
@@ -59,8 +102,19 @@ terakoya [serve] [-config file]     run the bot (default)
 terakoya lint [-strict] <vault>     validate a vault
 ```
 
-In Telegram, `/start` opens the catalog and `/download` sends the whole
-vault as a zip (without hidden files such as `.obsidian`).
+In Telegram, `/start` sends a greeting that sets the keyboard at the
+bottom of the chat, and the subject list. The keyboard stays: «📚 Предметы»
+opens the subject list, «📌 Закреплённые» the user's pinned notes, and
+«👤 Аккаунт» their rank, accepted suggestions, progress to the next rank,
+open suggestions and edit access. Taps on it are deleted from the chat,
+and the previous menu is replaced rather than left behind. Every note has
+«📌 Закрепить» / «📌 Открепить» (at most 30 pins); a note opened from the
+pinned list goes back to it with «Назад». Pins of notes removed from the
+vault disappear from the list. `/download` sends the whole vault as a zip
+(without hidden files such as `.obsidian`).
+
+Admins also have `/access`, which lists who has edit access, and
+`/revoke <id or @username>`. For everyone else these commands do nothing.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
@@ -83,11 +137,10 @@ jobs:
           ghcr.io/mimic890/terakoya:latest lint .
 ```
 
-Replace the image with wherever you publish it; a Forgejo Actions runner
-with Docker uses the same step. Locally:
+A Forgejo Actions runner with Docker uses the same step. Locally:
 
 ```sh
-docker run --rm -v "$PWD:/work:ro" -w /work terakoya:dev lint .
+docker run --rm -v "$PWD:/work:ro" -w /work ghcr.io/mimic890/terakoya lint .
 ```
 
 ## Configuration
@@ -101,12 +154,13 @@ file; empty variables are ignored. See
 |----------|----------|---------|-------------|
 | `TERAKOYA_BOT_TOKEN` | `bot_token` | — | Telegram bot token. Required. |
 | `TERAKOYA_BOT_USERNAME` | `bot_username` | from `getMe` | Bot username, used in deep links. |
-| `TERAKOYA_REPO_DIR` | `repo_dir` | `./content` (`/srv/content` in Docker) | Local checkout of the content repository. |
+| `TERAKOYA_REPO_DIR` | `repo_dir` | `./content` (`/srv/vault` in Docker) | Local checkout of the content repository. |
 | `TERAKOYA_REPO_URL` | `repo_url` | — | Content repository to clone when `repo_dir` is empty. Without it, `repo_dir` is used as is. |
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
-| `TERAKOYA_RANKS` | `ranks` | `kōhai:0,senpai:3,sensei:10` | Rank titles and the number of merged suggestions each starts at. The first must start at 0. |
+| `TERAKOYA_RANKS` | `ranks` | `Novice:0,Pupil:1,Student:3,Scholar:7,Mentor:15,Teacher:30,Master:60,Sage:100` | Rank titles and the number of merged suggestions each starts at. The first must start at 0. |
+| `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They grant edit access (see below). Without admins, nobody can edit; error reports still work. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `TERAKOYA_RESVG` | `resvg` | `resvg` | The resvg binary that rasterizes SVG drawings. |
 | `TERAKOYA_FONTS_DIR` | `fonts_dir` | `/usr/share/fonts/dejavu` or `/usr/share/fonts/truetype/dejavu` | DejaVu fonts for the drawings' labels; system fonts are not used, so drawings look the same everywhere. |
@@ -149,6 +203,18 @@ logs.
 With `TERAKOYA_GIT_HOST` set, users can suggest changes without knowing
 anything about Markdown, LaTeX, files or git. The bot never shows them
 file names, frontmatter or syntax; everything is buttons and plain text.
+
+Anyone can report an error, but editing text and adding topics or notes
+need **edit access**. A user without it who taps «Исправить текст»,
+«Добавить тему» or «Добавить теорему, задачу…» is offered to send a
+request (also from «Аккаунт»). Every admin (`TERAKOYA_ADMIN_IDS`) gets it
+with the user's name, @username, ID and accepted edits and error reports,
+and «Разрешить» / «Отклонить». The first admin to decide wins; every
+admin's copy then shows who decided. The user is told either way. One
+request can be pending per user; after a denial, or after `/revoke`, the
+user can ask again in 7 days. A revoke also ends an edit the user has open.
+Admins always have access. An admin must have opened the bot once to get
+requests.
 
 Under a note, «Предложить правку» offers two options, and a third under a
 topic's main page:
@@ -250,6 +316,11 @@ go test ./...
 go test ./internal/render -update   # rewrite converter golden files
 go run ./cmd/terakoya lint examples/vault
 ```
+
+Every push to `main` and every `v*` tag runs
+[.github/workflows/image.yml](.github/workflows/image.yml): the tests,
+then the image is built natively on amd64 and arm64 runners, lints
+`examples/vault` and is pushed to ghcr.io.
 
 Converter tests compare the output for `internal/render/testdata/vault`
 and `examples/vault` with the files in `internal/render/testdata/golden`.

@@ -4,7 +4,6 @@ package i18n
 // Strings is the set of UI texts for one language.
 type Strings struct {
 	Greeting       string // %s: user's first name
-	RankLine       string // %s: rank title, %d: approved edits
 	ChooseSubject  string
 	NoSubjects     string
 	ChooseGrade    string // %s: subject label
@@ -89,12 +88,73 @@ type Strings struct {
 	RejectedNew        string // %s: topic title
 	RejectedReport     string // %s: topic title
 	ReviewComment      string // %s: comment
+
+	// The keyboard at the bottom of the chat.
+	KeySubjects string
+	KeyPinned   string
+	KeyAccount  string
+	Close       string
+
+	// Pins.
+	Pin         string
+	Unpin       string
+	PinDone     string
+	UnpinDone   string
+	PinLimit    string // %d: limit
+	PinnedTitle string
+	PinnedEmpty string
+
+	// Account.
+	AccountTitle       string // %s: first name
+	AccountRank        string // %s: rank
+	AccountAccepted    string // %d: accepted suggestions
+	AccountNext        string // %s: next rank, %d: suggestions left, %s: progress bar
+	AccountTop         string
+	AccountOpen        string // %d: open suggestions
+	AccountAccess      string // %s: one of the Access* states
+	AccessStateOn      string
+	AccessStateNone    string
+	AccessStatePending string
+	AccessStateDenied  string // %s: date
+	AccessStateAdmin   string
+	RequestAccess      string
+
+	// Edit access.
+	AccessNeeded      string
+	SendRequest       string
+	AccessRequested   string
+	AccessPending     string
+	AccessDeniedUntil string // %s: date
+	Understood        string
+	AccessNoAdmins    string
+	AccessHave        string
+	AdminRequest      string // %s: who, %d: accepted edits, %d: accepted reports
+	Allow             string
+	Deny              string
+	AdminAllowed      string // %s: admin
+	AdminDenied       string // %s: admin
+	AdminDecided      string // %s: admin
+	AccessGranted     string
+	AccessDenied      string
+	AccessRevoked     string
+	AccessGone        string
+	AccessList        string // %d: count, %s: «человека» or «человек»
+	AccessListEmpty   string
+	AccessListLine    string // %s: user, %s: date, %s: admin
+	AccessAdmins      string // %s: admins
+	RevokeUsage       string
+	RevokeDone        string // %s: user
+	RevokeUnknown     string
+	RevokeNoAccess    string
+	RevokeAdmin       string
+
+	// Months in the genitive case, for dates such as «25 октября».
+	Months [12]string
 }
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting:       "Привет, %s! Это Теракоя — школьный справочник, который пишут сами ученики.",
-	RankLine:       "Ваш ранг: %s · принятых правок: %d",
+	Greeting:       "Привет, %s! Это Теракоя — школьный справочник, который пишут сами пользователи.",
 	ChooseSubject:  "Выберите предмет:",
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
@@ -184,4 +244,62 @@ var RU = Strings{
 	RejectedNew:       "Тему «%s» не добавили.",
 	RejectedReport:    "Сообщение об ошибке в «%s» закрыли без исправлений.",
 	ReviewComment:     "Комментарий: «%s»",
+
+	KeySubjects: "📚 Предметы",
+	KeyPinned:   "📌 Закреплённые",
+	KeyAccount:  "👤 Аккаунт",
+	Close:       "Закрыть",
+
+	Pin:         "📌 Закрепить",
+	Unpin:       "📌 Открепить",
+	PinDone:     "Закреплено",
+	UnpinDone:   "Откреплено",
+	PinLimit:    "Можно закрепить не больше %d. Открепите что-нибудь в «📌 Закреплённые».",
+	PinnedTitle: "📌 Закреплённые",
+	PinnedEmpty: "Здесь будут темы, которые вы закрепите кнопкой 📌.",
+
+	AccountTitle:       "👤 %s",
+	AccountRank:        "Ранг: %s",
+	AccountAccepted:    "Принято правок: %d",
+	AccountNext:        "До ранга %s: ещё %d %s",
+	AccountTop:         "Это высший ранг",
+	AccountOpen:        "Предложения на рассмотрении: %d",
+	AccountAccess:      "Правка: %s",
+	AccessStateOn:      "разрешена",
+	AccessStateNone:    "нет доступа",
+	AccessStatePending: "запрос на рассмотрении",
+	AccessStateDenied:  "отклонено, повторить можно с %s",
+	AccessStateAdmin:   "администратор",
+	RequestAccess:      "Запросить доступ",
+
+	AccessNeeded:      "Чтобы предлагать правки, нужно разрешение. Отправить запрос?",
+	SendRequest:       "Отправить запрос",
+	AccessRequested:   "Запрос отправлен. Я напишу, когда его рассмотрят.",
+	AccessPending:     "Запрос уже отправлен, ждём ответа.",
+	AccessDeniedUntil: "Запрос отклонён. Повторить можно с %s.",
+	Understood:        "Понятно",
+	AccessNoAdmins:    "Сейчас правки не принимаются.",
+	AccessHave:        "У вас уже есть доступ.",
+	AdminRequest:      "Запрос на право предлагать правки\n%s\nПринято правок: %d · сообщений об ошибках: %d",
+	Allow:             "Разрешить",
+	Deny:              "Отклонить",
+	AdminAllowed:      "✅ Разрешено — %s",
+	AdminDenied:       "❌ Отклонено — %s",
+	AdminDecided:      "Уже решено: %s",
+	AccessGranted:     "Теперь вы можете предлагать правки 🎉",
+	AccessDenied:      "Запрос отклонён. Повторить можно через 7 дней.",
+	AccessRevoked:     "Право предлагать правки отозвано.",
+	AccessGone:        "Доступ отозван.",
+	AccessList:        "Доступ есть у %d %s:",
+	AccessListEmpty:   "Доступа пока нет ни у кого.",
+	AccessListLine:    "• %s — с %s, разрешил(а) %s",
+	AccessAdmins:      "Администраторы: %s",
+	RevokeUsage:       "Напишите так: /revoke 123456 или /revoke @username",
+	RevokeDone:        "Доступ отозван: %s.",
+	RevokeUnknown:     "Не нашёл такого пользователя.",
+	RevokeNoAccess:    "У этого пользователя нет доступа.",
+	RevokeAdmin:       "Это администратор: доступ администраторов задаётся в настройках бота.",
+
+	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
+		"июля", "августа", "сентября", "октября", "ноября", "декабря"},
 }

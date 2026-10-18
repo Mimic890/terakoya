@@ -9,7 +9,6 @@ import (
 
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
-	"github.com/Mimic890/terakoya/internal/ranks"
 	"github.com/Mimic890/terakoya/internal/render"
 )
 
@@ -68,7 +67,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		if b.sendArticle(ctx, msg.Chat.ID, n) {
+		if b.sendArticle(ctx, msg.Chat.ID, n, false) {
 			// The note replaces the message it was opened from: the topic
 			// list, or every part of the note that linked to it.
 			b.retire(ctx, msg)
@@ -82,7 +81,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		b.sendArticle(ctx, msg.Chat.ID, n)
+		b.sendArticle(ctx, msg.Chat.ID, n, false)
 
 	case strings.HasPrefix(data, cbBack):
 		b.answer(ctx, q, "", false)
@@ -90,7 +89,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		switch {
 		case n != nil && !n.IsMain() && n.Topic.Main != nil:
 			// From a theorem or a task to its topic's main page.
-			if b.sendArticle(ctx, msg.Chat.ID, n.Topic.Main) {
+			if b.sendArticle(ctx, msg.Chat.ID, n.Topic.Main, false) {
 				b.retire(ctx, msg)
 			}
 		case n != nil:
@@ -128,6 +127,46 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		}
 		b.startNewTopic(ctx, q, msg.Chat.ID, g)
 
+	case strings.HasPrefix(data, cbPin):
+		n := note(cbPin)
+		if n == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			return
+		}
+		b.togglePin(ctx, q, msg, n)
+
+	case strings.HasPrefix(data, cbFromPins):
+		n := note(cbFromPins)
+		if n == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			text, kb := b.pinsView(ctx, q.From.ID)
+			b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+			return
+		}
+		b.answer(ctx, q, "", false)
+		if b.sendArticle(ctx, msg.Chat.ID, n, true) {
+			b.retire(ctx, msg)
+		}
+
+	case strings.HasPrefix(data, cbBackPins):
+		b.answer(ctx, q, "", false)
+		b.retire(ctx, msg)
+		text, kb := b.pinsView(ctx, q.From.ID)
+		b.showMenu(ctx, msg.Chat.ID, text, kb)
+
+	case data == cbClose:
+		b.answer(ctx, q, "", false)
+		b.retire(ctx, msg)
+
+	case strings.HasPrefix(data, cbRequest):
+		b.requestAccess(ctx, q, msg, strings.TrimPrefix(data, cbRequest), false)
+
+	case data == cbRequestAcc:
+		b.requestAccess(ctx, q, msg, "", true)
+
+	case strings.HasPrefix(data, cbAllow), strings.HasPrefix(data, cbDeny):
+		b.decideAccess(ctx, q, msg, data)
+
 	case data == cbCancel:
 		b.answer(ctx, q, "", false)
 		b.retire(ctx, msg)
@@ -149,31 +188,23 @@ func (b *Bot) notFound(ctx context.Context, q *models.CallbackQuery, msg *models
 }
 
 func (b *Bot) homeView(ctx context.Context, from *models.User) (string, *models.InlineKeyboardMarkup) {
-	merged := 0
-	if u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName); err != nil {
+	if _, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName); err != nil {
 		b.log.Error("touch user", "err", err)
-	} else {
-		merged = u.MergedCount
 	}
-	return homeView(b.t, b.catalog(), b.cfg.Ladder, from.FirstName, merged)
+	return homeView(b.t, b.catalog())
 }
 
-func homeView(t i18n.Strings, cat *content.Catalog, ladder ranks.Ladder, name string, merged int) (string, *models.InlineKeyboardMarkup) {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, t.Greeting, name)
-	sb.WriteString("\n\n")
-	fmt.Fprintf(&sb, t.RankLine, ladder.For(merged).Title, merged)
-	sb.WriteString("\n\n")
+// homeView is the subject list. The greeting and the rank are elsewhere:
+// in the /start message and under «Аккаунт».
+func homeView(t i18n.Strings, cat *content.Catalog) (string, *models.InlineKeyboardMarkup) {
 	if len(cat.Subjects) == 0 {
-		sb.WriteString(t.NoSubjects)
-		return sb.String(), keyboard()
+		return t.NoSubjects, keyboard()
 	}
-	sb.WriteString(t.ChooseSubject)
 	var rows [][]models.InlineKeyboardButton
 	for _, s := range cat.Subjects {
 		rows = append(rows, row(button(s.Name, cbSubject+s.ID)))
 	}
-	return sb.String(), keyboard(rows...)
+	return t.ChooseSubject, keyboard(rows...)
 }
 
 func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyboardMarkup) {
@@ -210,12 +241,32 @@ func gradeView(t i18n.Strings, g *content.Grade) (string, *models.InlineKeyboard
 }
 
 // articleKeyboard goes under the last part of every note. The notes of a
-// topic are reached through the links on its main page.
-func articleKeyboard(t i18n.Strings, n *content.Note) *models.InlineKeyboardMarkup {
+// topic are reached through the links on its main page. A note opened
+// from the pinned list goes back to the list.
+func articleKeyboard(t i18n.Strings, n *content.Note, pinned, fromPins bool) *models.InlineKeyboardMarkup {
+	back := cbBack
+	if fromPins {
+		back = cbBackPins
+	}
+	pin := t.Pin
+	if pinned {
+		pin = t.Unpin
+	}
 	return keyboard(
-		row(button(t.Back, cbBack+n.ID)),
+		row(button(t.Back, back+n.ID)),
 		row(button(t.SuggestEdit, cbSuggest+n.ID), button(t.DownloadMD, cbDownload+n.ID)),
+		row(button(pin, cbPin+n.ID)),
 	)
+}
+
+func callbacks(kb *models.InlineKeyboardMarkup) []string {
+	var out []string
+	for _, r := range kb.InlineKeyboard {
+		for _, b := range r {
+			out = append(out, b.CallbackData)
+		}
+	}
+	return out
 }
 
 func button(text, data string) models.InlineKeyboardButton {

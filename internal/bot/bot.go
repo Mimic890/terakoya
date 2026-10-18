@@ -76,7 +76,10 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 
 // Run polls Telegram for updates and syncs content until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
-	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil)
+	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil, "admins", len(b.cfg.Admins))
+	if b.host != nil && len(b.cfg.Admins) == 0 {
+		b.log.Warn("TERAKOYA_ADMIN_IDS is empty: nobody can be granted edit access; error reports still work")
+	}
 	go b.syncLoop(ctx)
 	b.api.Start(ctx)
 }
@@ -133,7 +136,15 @@ func (b *Bot) logGroupMessage(m *models.Message) {
 
 func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	b.msgs.seen(ctx, m.Chat.ID, m.ID)
+	// The bottom keyboard works in the middle of a dialog too; the dialog
+	// stays where it was.
+	if b.onKeyButton(ctx, m) {
+		return
+	}
 	cmd, arg := splitCommand(m.Text)
+	if b.onAdminCommand(ctx, m, cmd, arg) {
+		return
+	}
 	switch cmd {
 	case "/cancel":
 		b.cancelSuggestion(ctx, m.Chat.ID, m.From.ID)
@@ -152,9 +163,10 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	case "/download":
 		b.sendArchive(ctx, m.Chat.ID)
 	case "/start":
+		b.greet(ctx, m.Chat.ID, m.From)
 		if arg != "" {
 			if n := b.catalog().Note(arg); n != nil {
-				b.sendArticle(ctx, m.Chat.ID, n)
+				b.sendArticle(ctx, m.Chat.ID, n, false)
 				return
 			}
 			b.send(ctx, m.Chat.ID, b.t.NotFound, nil)
