@@ -35,7 +35,7 @@ func (b *Bot) settingsView(ctx context.Context, from *models.User) (string, *mod
 	if u.HideTop {
 		shown, toggle = b.t.SettingsNo, b.t.TopShow
 	}
-	text := b.t.SettingsTitle + "\n\n" + fmt.Sprintf(b.t.SettingsNick, u.DisplayName()) + "\n" +
+	text := b.t.SettingsTitle + "\n\n" + fmt.Sprintf(b.t.SettingsNick, u.AddressName()) + "\n" +
 		fmt.Sprintf(b.t.SettingsTop, strings.ToLower(shown))
 	return text, keyboard(
 		row(button(b.t.NickFromTelegram, cbNickTG), button(b.t.NickOwn, cbNickOwn)),

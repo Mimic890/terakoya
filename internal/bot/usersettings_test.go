@@ -8,6 +8,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/Mimic890/terakoya/internal/i18n"
+	"github.com/Mimic890/terakoya/internal/nick"
 )
 
 // openSettings taps «Настройки» and returns the menu's message ID.
@@ -31,7 +32,7 @@ func TestSettingsMenuAndTopToggle(t *testing.T) {
 	h := newHarness(t, nil)
 	h.accept(anya, 1)
 	menu, c := h.openSettings()
-	if c.params["text"] != "Настройки\n\nНик: @anya\nПоказывать меня в топе: да" {
+	if c.params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: да" {
 		t.Errorf("menu = %q", c.params["text"])
 	}
 	for _, b := range []string{`"st:t"`, `"st:n"`, `"Скрыть меня из топа","callback_data":"st:h"`, `"Закрыть","callback_data":"c"`} {
@@ -47,7 +48,7 @@ func TestSettingsMenuAndTopToggle(t *testing.T) {
 
 	h.tapOn(menu, cbToggleTop)
 	e := to(h.tg.take(), "editMessageText", anya.ID)
-	if len(e) != 1 || e[0].params["text"] != "Настройки\n\nНик: @anya\nПоказывать меня в топе: нет" ||
+	if len(e) != 1 || e[0].params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: нет" ||
 		!strings.Contains(e[0].params["reply_markup"], `"Показывать меня в топе","callback_data":"st:h"`) {
 		t.Fatalf("hidden = %+v", e)
 	}
@@ -70,7 +71,7 @@ func TestNickname(t *testing.T) {
 	h := newHarness(t, nil)
 	h.store.TouchUser(h.ctx, ivan.ID, ivan.Username, ivan.FirstName)
 	h.store.TouchUser(h.ctx, boris.ID, boris.Username, boris.FirstName)
-	h.store.SetNickname(h.ctx, boris.ID, "Звезда", "звезда")
+	h.store.SetNickname(h.ctx, boris.ID, "Звезда", nick.Key("Звезда"))
 	menu, _ := h.openSettings()
 
 	h.tapOn(menu, cbNickOwn)
@@ -85,6 +86,8 @@ func TestNickname(t *testing.T) {
 		{"ivan_fan", i18n.RU.NickReserved},
 		{"fuckboy", i18n.RU.NickBanned},
 		{"ЗВЕЗДА", i18n.RU.NickTaken},
+		{"3вeздa", i18n.RU.NickTaken}, // digit 3, Latin e and a
+		{"Зве_зда", i18n.RU.NickTaken},
 	} {
 		h.say(c.name)
 		wantPrompt(t, h.tg.take(), c.reason+" "+i18n.RU.NickAgain, "Отмена")
@@ -134,7 +137,7 @@ func TestNickname(t *testing.T) {
 
 	// «Имя из Telegram» goes back to it.
 	h.tapOn(menu, cbNickTG)
-	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.Contains(e[0].params["text"], "Ник: @anya\n") {
+	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.Contains(e[0].params["text"], "Ник: Аня\n") {
 		t.Errorf("telegram name = %+v", e)
 	}
 
@@ -153,7 +156,7 @@ func TestNickname(t *testing.T) {
 
 func TestNickReset(t *testing.T) {
 	h := newHarness(t, nil)
-	h.store.SetNickname(h.ctx, anya.ID, "Ёжик", "ёжик")
+	h.store.SetNickname(h.ctx, anya.ID, "Ёжик", nick.Key("Ёжик"))
 	h.as(ivan)
 
 	h.say("/nick_reset @Anya")
@@ -180,7 +183,7 @@ func TestNickReset(t *testing.T) {
 
 	// Others get nothing.
 	h.store.TouchUser(h.ctx, ivan.ID, ivan.Username, ivan.FirstName)
-	h.store.SetNickname(h.ctx, ivan.ID, "Учитель", "учитель")
+	h.store.SetNickname(h.ctx, ivan.ID, "Учитель", nick.Key("Учитель"))
 	h.as(anya)
 	h.say("/nick_reset " + fmt.Sprint(ivan.ID))
 	if c := h.tg.take(); len(c) != 1 || c[0].method != "deleteMessage" {
@@ -191,22 +194,58 @@ func TestNickReset(t *testing.T) {
 	}
 }
 
-func TestDisplayNameEverywhere(t *testing.T) {
+func TestNamesAddressAndList(t *testing.T) {
 	h := newHarness(t, nil)
-	h.store.SetNickname(h.ctx, anya.ID, "Ёжик", "ёжик")
+	h.accept(anya, 1)
+
+	// Addressed by the first name, never the @username…
+	h.say("/start")
+	if c := firstCall(t, h.tg.take(), "sendMessage"); !strings.HasPrefix(c.params["text"], "Привет, Аня!\n") {
+		t.Errorf("greeting = %q", c.params["text"])
+	}
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.HasPrefix(got, "# Аня\n") {
+		t.Errorf("account = %q", got)
+	}
+	// …but told apart by it in listings.
+	if got := h.bot.topMarkdown(h.ctx, &boris); !strings.Contains(got, "1\\. @anya") {
+		t.Errorf("top = %q", got)
+	}
+
+	// With a nickname, the nickname everywhere.
+	h.store.SetNickname(h.ctx, anya.ID, "Ёжик", nick.Key("Ёжик"))
 	h.say("/start")
 	if c := firstCall(t, h.tg.take(), "sendMessage"); !strings.HasPrefix(c.params["text"], "Привет, Ёжик!\n") {
 		t.Errorf("greeting = %q", c.params["text"])
 	}
-	// Without a nickname and a username, the first name.
-	olga := models.User{ID: 44, FirstName: "Ольга"}
-	h.as(olga)
-	h.say("/start")
-	if c := firstCall(t, h.tg.take(), "sendMessage"); !strings.HasPrefix(c.params["text"], "Привет, Ольга!\n") {
-		t.Errorf("greeting = %q", c.params["text"])
+	if got := h.bot.addressName(h.ctx, &anya); got != "Ёжик" {
+		t.Errorf("address name = %q", got)
 	}
-	// A long «Аккаунт» would continue under the same name.
-	if got := h.bot.displayName(h.ctx, &anya); got != "Ёжик" {
-		t.Errorf("display name = %q", got)
+	if got := h.bot.topMarkdown(h.ctx, &boris); !strings.Contains(got, "1\\. Ёжик") {
+		t.Errorf("top = %q", got)
+	}
+}
+
+func TestNicknameLookAlikes(t *testing.T) {
+	h := newHarness(t, nil)
+	h.store.TouchUser(h.ctx, boris.ID, boris.Username, boris.FirstName)
+	h.store.SetNickname(h.ctx, boris.ID, "Маша", nick.Key("Маша"))
+	for name, taken := range map[string]bool{
+		"Mаша":  true, // Latin M
+		"MАША":  true, // Latin M, Cyrillic rest
+		"мaшa":  true, // Latin a
+		"Ма_ша": true,
+		"Ма-ша": true,
+		"Ма ша": true,
+		"Masha": false, // other letters
+		"Маша2": false,
+	} {
+		got := h.bot.nickProblem(h.ctx, anya.ID, name) == i18n.RU.NickTaken
+		if got != taken {
+			t.Errorf("%q taken = %v, want %v", name, got, taken)
+		}
+	}
+	// The store refuses it too, whatever slipped past the check.
+	if err := h.store.SetNickname(h.ctx, anya.ID, "Mаша", nick.Key("Mаша")); err == nil {
+		t.Error("store took a look-alike")
 	}
 }

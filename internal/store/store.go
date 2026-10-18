@@ -229,8 +229,23 @@ type User struct {
 	Accepted int
 }
 
-// DisplayName is how the bot names the user to others: the nickname,
-// else @username, else the first name.
+// AddressName is how the bot addresses the user: the nickname, else the
+// first name (the @username only if Telegram gave no first name).
+func (u User) AddressName() string {
+	switch {
+	case u.Nickname != "":
+		return u.Nickname
+	case u.FirstName != "":
+		return u.FirstName
+	case u.Username != "":
+		return "@" + u.Username
+	}
+	return ""
+}
+
+// DisplayName names the user where people must be told apart, such as
+// the top and admin views: the nickname, else @username, else the first
+// name.
 func (u User) DisplayName() string {
 	switch {
 	case u.Nickname != "":

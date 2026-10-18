@@ -41,7 +41,16 @@ func TestCheck(t *testing.T) {
 }
 
 func TestKey(t *testing.T) {
-	if Key("Ёжик") != Key("ежик") || Key("Anya") != Key("ANYA") || Key("Аня") == Key("Anya") {
-		t.Error("keys")
+	same := [][2]string{{"Ёжик", "ежик"}, {"Anya", "ANYA"}, {"Маша", "Mаша"}, {"Маша", "мaшa"}, {"Ма_ша", "Маша"},
+		{"Ма ша", "Ма-ша"}, {"Bob0", "BOBO"}, {"Звезда", "3вeздa"}}
+	for _, p := range same {
+		if Key(p[0]) != Key(p[1]) {
+			t.Errorf("%q and %q differ: %q, %q", p[0], p[1], Key(p[0]), Key(p[1]))
+		}
+	}
+	for _, p := range [][2]string{{"Аня", "Anya"}, {"Маша", "Masha"}, {"Маша", "Маша2"}} {
+		if Key(p[0]) == Key(p[1]) {
+			t.Errorf("%q and %q share %q", p[0], p[1], Key(p[0]))
+		}
 	}
 }

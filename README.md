@@ -164,11 +164,15 @@ read like `title`). Without `show_count` the count goes.
 hides is left out of the top for everyone else, and still sees their own
 place.
 
-Everywhere the bot names a user (the /start greeting «Привет, …!», the
-«Аккаунт» heading, the top, report issues) it uses the nickname, else
+Where the bot addresses the user (the /start greeting «Привет, …!», the
+«Аккаунт» heading, «Ник: …» in «Настройки») it uses the nickname, else
+the Telegram first name, never the @username. Where people must be told
+apart (the top, admin replies, report issues) it uses the nickname, else
 the @username, else the first name. A nickname is 3 to 20 characters: Latin or Cyrillic
 letters, digits, `_`, `-` and single spaces, not at either end. It must
-be unique ignoring case, and is refused if it contains a rude word from
+be unique ignoring case, look-alike letters and separators (with «Маша»
+taken, «Mаша» with a Latin M, «Ма_ша» or «Ма ша» are too), and is
+refused if it contains a rude word from
 a short built-in list, «admin», «админ», «terakoya», the bot's username,
 or an admin's Telegram name or username, look-alike Latin and Cyrillic
 letters included (an admin may use their own name). A refused nickname

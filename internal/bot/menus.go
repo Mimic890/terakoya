@@ -45,23 +45,23 @@ func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
 	}
 }
 
-// displayName is how the bot names a user, to themselves as to others:
-// the nickname, else @username, else the first name. The user is
-// recorded on the way, so their latest Telegram name counts.
-func (b *Bot) displayName(ctx context.Context, from *models.User) string {
+// addressName is how the bot addresses a user: the nickname, else the
+// Telegram first name, never the @username. The user is recorded on the
+// way, so their latest Telegram name counts.
+func (b *Bot) addressName(ctx context.Context, from *models.User) string {
 	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
 	if err != nil {
 		b.log.Error("touch user", "err", err)
-		return store.User{Username: from.Username, FirstName: from.FirstName}.DisplayName()
+		return store.User{Username: from.Username, FirstName: from.FirstName}.AddressName()
 	}
-	return u.DisplayName()
+	return u.AddressName()
 }
 
 // greet sends the greeting, which carries the bottom keyboard: a message
 // cannot have both that keyboard and inline buttons.
 func (b *Bot) greet(ctx context.Context, chatID int64, from *models.User) {
 	b.sendEmojiText(ctx, chatID, emojiText{
-		fmt.Sprintf(b.t.Greeting, b.displayName(ctx, from)), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
+		fmt.Sprintf(b.t.Greeting, b.addressName(ctx, from)), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
 	}, b.replyKeyboard())
 }
 
@@ -232,7 +232,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	}
 	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
-		"# " + escapeMarkdown(u.DisplayName()),
+		"# " + escapeMarkdown(u.AddressName()),
 		"",
 		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
 	}
@@ -378,7 +378,7 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 }
 
 func (b *Bot) showAccount(ctx context.Context, chatID int64, from *models.User) {
-	b.showRich(ctx, chatID, b.displayName(ctx, from), b.accountMarkdown(ctx, from), b.accountKeyboard())
+	b.showRich(ctx, chatID, b.addressName(ctx, from), b.accountMarkdown(ctx, from), b.accountKeyboard())
 }
 
 func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) {

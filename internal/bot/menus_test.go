@@ -49,7 +49,7 @@ func TestStartSetsKeyboard(t *testing.T) {
 		}
 		sent++
 		if sent == 1 {
-			if c.params["text"] != "Привет, @anya!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
+			if c.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
 				t.Errorf("greeting = %q", c.params["text"])
 			}
 			kb := c.params["reply_markup"]
@@ -191,7 +191,7 @@ func TestPins(t *testing.T) {
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
 	h.setRanks("Novice:0,Pupil:1,Student:3,Scholar:15")
-	want := "# @anya\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение  \nСледующий ранг: **Pupil**\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
+	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение  \nСледующий ранг: **Pupil**\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
 	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
@@ -235,7 +235,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 	h.say(i18n.RU.KeyAccount)
 	calls := h.tg.take()
 	acc := lastRich(t, calls)
-	if !strings.HasPrefix(acc.params["rich_message"], `{"markdown":"# @anya`) ||
+	if !strings.HasPrefix(acc.params["rich_message"], `{"markdown":"# Аня`) ||
 		!strings.Contains(acc.params["reply_markup"], `"Мои сообщения","callback_data":"hl"`) ||
 		!strings.Contains(acc.params["reply_markup"], `"Закрыть","callback_data":"c"`) {
 		t.Fatalf("account = %+v", acc.params)

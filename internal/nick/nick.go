@@ -74,11 +74,11 @@ func allowed(r rune) bool {
 	return unicode.Is(unicode.Cyrillic, r) && unicode.IsLetter(r)
 }
 
-// Key is the form two nicknames share when they differ only in case;
-// nicknames must be unique by it.
-func Key(nick string) string {
-	return strings.ReplaceAll(strings.ToLower(nick), "ё", "е")
-}
+// Key is the form two nicknames share when they differ only in case,
+// look-alike letters (Cyrillic and Latin, 0 and o) or separators; it is
+// the same folding the admin and bot check uses. Nicknames must be unique
+// by it, so «Mаша» with a Latin M cannot pose as «Маша».
+func Key(nick string) string { return skeleton(nick) }
 
 // lookalike maps Cyrillic letters and digits that look like Latin
 // letters to them, so that «аdmin» with a Cyrillic а is still admin.
