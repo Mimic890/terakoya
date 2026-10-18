@@ -249,7 +249,8 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 }
 
 func (b *Bot) accountKeyboard() *models.InlineKeyboardMarkup {
-	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Top, cbTop)), row(button(b.t.Close, cbClose)))
+	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Top, cbTop), button(b.t.RanksButton, cbRanks)),
+		row(button(b.t.Close, cbClose)))
 }
 
 // historyMarkdown lists the user's reports, and the edits and topics they

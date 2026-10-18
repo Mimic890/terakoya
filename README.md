@@ -117,7 +117,7 @@ next rank needs («ещё 1 принятая правка», «ещё 2 прин
 rejected ones; titles of notes in the vault open them. Edits and topics
 suggested through earlier versions of the bot stay in the list, but only
 reports count toward the rank. «Топ» there, or `/top`, shows the
-[leaderboard](#top). These pages are rich messages, split like long notes. A tap on
+[leaderboard](#top), and «Ранги», or `/ranks`, [the ladder](#ranks). These pages are rich messages, split like long notes. A tap on
 the keyboard shows the new menu first; the tap itself and the previous
 menu are deleted afterwards, in the background, so the chat does not fill
 up. Tapping the button of the menu that is already the last message only
@@ -129,13 +129,23 @@ vault disappear from the list. `/download` sends the whole vault as a zip
 
 The interface has no emoji of its own.
 
-Admins also have `/emoji_setup` and `/ranks` (see
+Admins also have `/emoji_setup` (see
 [the settings file](#settings-file-ranks-custom-emoji-topic-list-top)),
 [`/broadcast`](#broadcasts) and `/nick_reset <id or @username>`. For
 everyone else these commands do nothing. The command menu shows
-`/start`, `/download`, `/top` and `/cancel` to everyone, and the admin
+`/start`, `/download`, `/top`, `/ranks` and `/cancel` to everyone, and the admin
 commands only in the admins' chats (set on start; an admin who has never
 opened the bot gets them after the next restart).
+
+### Ranks
+
+«Ранги» lists the ladder in order, each rank with its custom emoji and
+threshold («Student — от 3 принятых правок»); the user's own rank is bold
+and marked «· ваш ранг». Ranks the user has reached and the next one are
+shown in full; with `ranks.hide_future: true` (the default) later ones
+read «??? — от 7 принятых правок», without name or emoji. Admins see
+every rank, and how to change them. It has «Назад» (to «Аккаунт») and
+«Закрыть».
 
 ### Top
 
@@ -250,7 +260,7 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
-| `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They get `/emoji_setup` and `/ranks`. |
+| `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They get `/emoji_setup`, `/broadcast` and `/nick_reset`. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `TERAKOYA_RESVG` | `resvg` | `resvg` | The resvg binary that rasterizes SVG drawings. |
 | `TERAKOYA_FONTS_DIR` | `fonts_dir` | `/usr/share/fonts/dejavu` or `/usr/share/fonts/truetype/dejavu` | DejaVu fonts for the drawings' labels; system fonts are not used, so drawings look the same everywhere. |
@@ -287,12 +297,14 @@ file from before a section existed gets its defaults.
 ```yaml
 topic_list_style: list   # or buttons
 ranks:
-  - title: Novice
-    from: 0
-    emoji: ""        # custom emoji ID shown with the rank
-  - title: Pupil
-    from: 1
-    emoji: "5368324170671202286"
+  hide_future: true  # /ranks shows later ranks as «???» with their threshold
+  ladder:
+    - title: Novice
+      from: 0
+      emoji: ""      # custom emoji ID shown with the rank
+    - title: Pupil
+      from: 1
+      emoji: "5368324170671202286"
 top:
   size: 20            # number of places
   medals: 3           # first N places (0–5) show a custom emoji instead of the number
@@ -334,8 +346,10 @@ written to `settings.yml` at the end, with a summary; «Отмена» (or
 `/cancel`) changes nothing and deletes the wizard's messages. `/emoji_setup <slot>` changes one place; the slots are
 `keyboard_subjects`, `keyboard_pinned`, `keyboard_account`,
 `keyboard_settings`, `pin`, `greeting`, `subject:<name>`, `rank:<title>`
-and `top:1` … `top:5`, any of the five (an unknown slot lists them). **`/ranks`** shows the ladder; titles and thresholds are changed in
-the file for now.
+and `top:1` … `top:5`, any of the five (an unknown slot lists them). Rank titles and thresholds are changed in the file for now.
+Files from before `hide_future` existed, with `ranks:` as a plain list,
+still load (with `hide_future: true`) and get the new layout the next
+time the bot writes the file.
 
 Outside `/emoji_setup`, an admin who sends the bot custom emoji gets each
 one's ID back.

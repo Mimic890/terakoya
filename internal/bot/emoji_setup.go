@@ -405,17 +405,6 @@ func (b *Bot) finishEmojiSetup(ctx context.Context, wz *wizard) {
 	b.sendEmojiText(ctx, wz.chatID, text, nil)
 }
 
-// sendRanks answers /ranks.
-func (b *Bot) sendRanks(ctx context.Context, chatID int64) {
-	text := emojiText{b.t.RanksTitle}
-	for _, r := range b.ladder() {
-		text = append(text, "\n", emojiAt{id: b.emoji.Rank(r.Title), alt: placeholder, after: " "},
-			fmt.Sprintf(b.t.RanksLine, r.Title, r.From, plural(r.From, b.t.AcceptedFrom)))
-	}
-	text = append(text, "\n\n"+b.t.RanksEdit)
-	b.sendEmojiText(ctx, chatID, text, nil)
-}
-
 // setCommands fills the command menu: the usual commands for everyone,
 // and the admin ones only in the admins' chats.
 func (b *Bot) setCommands(ctx context.Context) {
@@ -423,6 +412,7 @@ func (b *Bot) setCommands(ctx context.Context) {
 		{Command: "start", Description: b.t.CmdStart},
 		{Command: "download", Description: b.t.CmdDownload},
 		{Command: "top", Description: b.t.CmdTop},
+		{Command: "ranks", Description: b.t.CmdRanks},
 		{Command: "cancel", Description: b.t.CmdCancel},
 	}
 	if _, err := b.api.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: common}); err != nil {
@@ -430,7 +420,6 @@ func (b *Bot) setCommands(ctx context.Context) {
 	}
 	admin := append(append([]models.BotCommand{}, common...),
 		models.BotCommand{Command: "emoji_setup", Description: b.t.CmdEmojiSetup},
-		models.BotCommand{Command: "ranks", Description: b.t.CmdRanks},
 		models.BotCommand{Command: "broadcast", Description: b.t.CmdBroadcast},
 		models.BotCommand{Command: "nick_reset", Description: b.t.CmdNickReset},
 	)
@@ -444,13 +433,13 @@ func (b *Bot) setCommands(ctx context.Context) {
 	}
 }
 
-// onAdminCommand handles /emoji_setup, /ranks, /broadcast and
-// /nick_reset. It reports
+// onAdminCommand handles /emoji_setup, /broadcast and /nick_reset. It
+// reports
 // false for other commands; users who are not admins get no answer at
 // all.
 func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
 	switch cmd {
-	case "/emoji_setup", "/ranks", "/broadcast", "/nick_reset":
+	case "/emoji_setup", "/broadcast", "/nick_reset":
 	default:
 		return false
 	}
@@ -460,8 +449,6 @@ func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg st
 	switch cmd {
 	case "/emoji_setup":
 		b.startEmojiSetup(ctx, m, arg)
-	case "/ranks":
-		b.sendRanks(ctx, m.Chat.ID)
 	case "/broadcast":
 		b.startBroadcast(ctx, m)
 	case "/nick_reset":
