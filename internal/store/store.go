@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -168,6 +169,25 @@ var migrations = []string{
 	`DROP TABLE access;
 	DROP TABLE access_messages;
 	ALTER TABLE users DROP COLUMN merged_count;`,
+	// Nicknames (nickname_key is the folded form that must be unique),
+	// leaving the top, users who blocked the bot, and broadcasts.
+	`ALTER TABLE users ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN nickname_key TEXT;
+	CREATE UNIQUE INDEX users_nickname_key ON users(nickname_key);
+	ALTER TABLE users ADD COLUMN hide_top INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE broadcasts (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		admin_id    INTEGER NOT NULL,
+		markdown    TEXT NOT NULL,
+		photo       TEXT NOT NULL DEFAULT '',
+		created_at  INTEGER NOT NULL,
+		finished_at INTEGER,
+		recipients  INTEGER NOT NULL DEFAULT 0,
+		sent        INTEGER NOT NULL DEFAULT 0,
+		blocked     INTEGER NOT NULL DEFAULT 0,
+		failed      INTEGER NOT NULL DEFAULT 0
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -200,19 +220,36 @@ type User struct {
 	TgID      int64
 	Username  string
 	FirstName string
+	// Nickname is the name the user chose, or "".
+	Nickname string
+	// HideTop leaves the user out of the top for everyone else.
+	HideTop bool
 	// Accepted is how many of the user's error reports were accepted,
 	// which sets their rank.
 	Accepted int
 }
 
+// DisplayName is how the bot names the user to others: the nickname,
+// else @username, else the first name.
+func (u User) DisplayName() string {
+	switch {
+	case u.Nickname != "":
+		return u.Nickname
+	case u.Username != "":
+		return "@" + u.Username
+	}
+	return u.FirstName
+}
+
 // TouchUser creates the user or refreshes their name, and returns the row.
+// A user who blocked the bot and uses it again counts as unblocked.
 func (s *Store) TouchUser(ctx context.Context, tgID int64, username, firstName string) (User, error) {
 	now := s.now().Unix()
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO users (tg_id, username, first_name, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (tg_id) DO UPDATE SET username = excluded.username,
-			first_name = excluded.first_name, updated_at = excluded.updated_at`,
+			first_name = excluded.first_name, updated_at = excluded.updated_at, blocked = 0`,
 		tgID, username, firstName, now, now)
 	if err != nil {
 		return User{}, err
@@ -222,12 +259,21 @@ func (s *Store) TouchUser(ctx context.Context, tgID int64, username, firstName s
 
 // User returns a user by Telegram ID.
 func (s *Store) User(ctx context.Context, tgID int64) (User, error) {
+	return s.userWhere(ctx, `tg_id = ?`, tgID)
+}
+
+// UserByUsername finds a user by @username, ignoring case and the "@".
+func (s *Store) UserByUsername(ctx context.Context, username string) (User, error) {
+	return s.userWhere(ctx, `username = ? COLLATE NOCASE AND username != ''`, strings.TrimPrefix(username, "@"))
+}
+
+func (s *Store) userWhere(ctx context.Context, where string, args ...any) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx, `
-		SELECT tg_id, username, first_name,
+		SELECT tg_id, username, first_name, nickname, hide_top,
 			(SELECT COUNT(*) FROM suggestions s WHERE s.tg_id = users.tg_id AND s.kind = 'report' AND s.status = 'merged')
-		FROM users WHERE tg_id = ?`, tgID,
-	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.Accepted)
+		FROM users WHERE `+where, args...,
+	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.Nickname, &u.HideTop, &u.Accepted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
