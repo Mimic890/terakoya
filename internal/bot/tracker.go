@@ -22,7 +22,19 @@ func (t *tracker) seen(ctx context.Context, chatID int64, msgID int) {
 }
 
 func (t *tracker) setMenu(ctx context.Context, chatID int64, msgID int) {
-	t.check(t.store.SetChatMenu(ctx, chatID, msgID))
+	t.check(t.store.SetChatMenu(ctx, chatID, msgID, false))
+}
+
+// setRichMenu marks a rich message as the menu; it is replaced, not
+// edited, when the next menu comes.
+func (t *tracker) setRichMenu(ctx context.Context, chatID int64, msgID int) {
+	t.check(t.store.SetChatMenu(ctx, chatID, msgID, true))
+}
+
+func (t *tracker) isRich(ctx context.Context, chatID int64, msgID int) bool {
+	rich, err := t.store.RichMenu(ctx, chatID, msgID)
+	t.check(err)
+	return rich
 }
 
 func (t *tracker) gone(ctx context.Context, chatID int64, msgID int) {

@@ -160,6 +160,9 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		}
 		if comment != "" {
 			text += "\n\n" + fmt.Sprintf(b.t.ReviewComment, comment)
+			if err := b.store.SetSuggestionComment(ctx, sg.ID, comment); err != nil {
+				b.log.Error("store review comment", "err", err)
+			}
 		}
 	}
 	// Users have a private chat with the bot, whose ID equals their user ID.

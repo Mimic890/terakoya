@@ -24,7 +24,7 @@ func TestChatMenuTracking(t *testing.T) {
 	}
 
 	must(s.ChatMessageSeen(ctx, 1, 10)) // user's /start
-	must(s.SetChatMenu(ctx, 1, 11))     // menu
+	must(s.SetChatMenu(ctx, 1, 11, false)) // menu
 	if got := last(1); got != 11 {
 		t.Fatalf("lastMenu = %d, want 11", got)
 	}
@@ -70,7 +70,7 @@ func TestChatMenuSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetChatMenu(ctx, 1, 20); err != nil {
+	if err := s.SetChatMenu(ctx, 1, 20, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ChatMessageSeen(ctx, 1, 21); err != nil { // article
@@ -85,6 +85,12 @@ func TestChatMenuSurvivesRestart(t *testing.T) {
 	defer s.Close()
 	if err := s.ChatMessageGone(ctx, 1, 21); err != nil {
 		t.Fatal(err)
+	}
+	if rich, err := s.RichMenu(ctx, 1, 20); err != nil || !rich {
+		t.Errorf("rich = %v, %v", rich, err)
+	}
+	if rich, _ := s.RichMenu(ctx, 1, 21); rich {
+		t.Error("an article counts as a rich menu")
 	}
 	if id, err := s.LastChatMenu(ctx, 1); err != nil || id != 20 {
 		t.Fatalf("lastMenu after restart = %d, %v; want 20", id, err)
