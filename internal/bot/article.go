@@ -39,7 +39,7 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fr
 	for i, part := range res.Parts {
 		var kb *models.InlineKeyboardMarkup
 		if i == len(res.Parts)-1 {
-			kb = articleKeyboard(b.t, n, pinned, fromPins)
+			kb = articleKeyboard(b.t, n, pinned, fromPins, b.emoji.Pin())
 		}
 		msg, err := b.sendRich(ctx, chatID, n, part, kb)
 		if err != nil {
@@ -78,6 +78,16 @@ func (b *Bot) sendRich(ctx context.Context, chatID int64, n *content.Note, part 
 			b.msgs.seen(ctx, chatID, msg.ID)
 			b.media.Learn(ctx, prep, md, msg)
 			return msg, nil
+		}
+		if plain, ok := b.plainInline(kb); ok {
+			// Once more without custom emoji icons.
+			p.ReplyMarkup = plain
+			if msg, err2 := b.api.SendRichMessage(ctx, p); err2 == nil {
+				b.emoji.rejected(err)
+				b.msgs.seen(ctx, chatID, msg.ID)
+				b.media.Learn(ctx, prep, md, msg)
+				return msg, nil
+			}
 		}
 		// A cached file_id can become invalid; upload the files again once.
 		if attempt == 0 && prep.HasCached() {

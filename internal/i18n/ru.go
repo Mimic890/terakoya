@@ -4,6 +4,7 @@ package i18n
 // Strings is the set of UI texts for one language.
 type Strings struct {
 	Greeting       string // %s: user's first name
+	GreetingText   string // on the next line, after the greeting and its emoji
 	ChooseSubject  string
 	NoSubjects     string
 	ChooseGrade    string // %s: subject label
@@ -83,7 +84,8 @@ type Strings struct {
 	AcceptedNew        string // %s: topic title
 	AcceptedReport     string // %s: topic title
 	AcceptedCount      string // %d: accepted suggestions
-	RankUp             string // %s: rank
+	RankUp             string // %s: rank (after its emoji, if any)
+	RankUpPrefix       string
 	RejectedEdit       string // %s: topic title
 	RejectedNew        string // %s: topic title
 	RejectedReport     string // %s: topic title
@@ -157,13 +159,60 @@ type Strings struct {
 	RevokeNoAccess    string
 	RevokeAdmin       string
 
+	// /emoji_setup: one step per place a custom emoji can go.
+	EmojiStep          string // %d: step, %d: steps, %s: where
+	EmojiWhereSubjects string
+	EmojiWherePinned   string
+	EmojiWhereAccount  string
+	EmojiWherePin      string
+	EmojiWhereGreeting string
+	EmojiHintGreeting  string
+	EmojiWhereSubject  string // %s: subject
+	EmojiWhereRank     string // %s: rank, %d: accepted suggestions it starts at, %s: AcceptedFrom form
+	EmojiHintRank      string
+	EmojiShortSubjects string
+	EmojiShortPinned   string
+	EmojiShortAccount  string
+	EmojiShortPin      string
+	EmojiShortGreeting string
+	EmojiShortSubject  string // %s: subject
+	EmojiShortRank     string // %s: rank
+	EmojiNow           string // followed by the emoji
+	EmojiNowNone       string
+	EmojiAsk           string
+	EmojiSkip          string
+	EmojiClear         string
+	EmojiNeedCustom    string
+	EmojiSaveQuestion  string
+	Yes                string
+	EmojiOther         string
+	EmojiCancelled     string
+	EmojiSaved         string
+	EmojiNone          string
+	EmojiUnknownSlot   string // %s: the slots
+	EmojiSaveFailed    string // %s: error
+	RanksTitle         string
+	RanksLine          string    // %s: rank, %d: accepted suggestions, %s: AcceptedFrom form
+	AcceptedFrom       [3]string // «от 1 принятой правки», «от 2 принятых правок»…
+	RanksEdit          string
+
+	// The command menu.
+	CmdStart      string
+	CmdDownload   string
+	CmdCancel     string
+	CmdAccess     string
+	CmdRevoke     string
+	CmdEmojiSetup string
+	CmdRanks      string
+
 	// Months in the genitive case, for dates such as «25 октября».
 	Months [12]string
 }
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting:       "Привет, %s!\nЭто terakoya — школьный справочник, который пишут сами пользователи.",
+	Greeting:       "Привет, %s!",
+	GreetingText:   "Это terakoya — школьный справочник, который пишут сами пользователи.",
 	ChooseSubject:  "Выберите предмет:",
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
@@ -248,7 +297,8 @@ var RU = Strings{
 	AcceptedNew:       "Ваша тема «%s» добавлена. Спасибо!",
 	AcceptedReport:    "Ошибку в «%s» исправили. Спасибо, что сообщили!",
 	AcceptedCount:     "Принятых правок: %d.",
-	RankUp:            "Теперь вы %s!",
+	RankUp:            "%s!",
+	RankUpPrefix:      "Теперь вы ",
 	RejectedEdit:      "Правку в «%s» не приняли.",
 	RejectedNew:       "Тему «%s» не добавили.",
 	RejectedReport:    "Сообщение об ошибке в «%s» закрыли без исправлений.",
@@ -268,7 +318,7 @@ var RU = Strings{
 	PinnedTitle: "Закреплённые",
 	PinnedEmpty: "Здесь будут темы, которые вы закрепите кнопкой «Закрепить».",
 
-	AccountRank:     "Ранг: **%s**",
+	AccountRank:     "Ранг: %s",
 	AccountNext:     "До следующего ранга: ещё %d %s",
 	AccountTop:      "Это высший ранг",
 	AccountAccepted: "Принято правок: %d",
@@ -313,6 +363,50 @@ var RU = Strings{
 	RevokeUnknown:     "Не нашёл такого пользователя.",
 	RevokeNoAccess:    "У этого пользователя нет доступа.",
 	RevokeAdmin:       "Это администратор: доступ администраторов задаётся в настройках бота.",
+
+	EmojiStep:          "Шаг %d из %d. %s",
+	EmojiWhereSubjects: "Кнопка «Предметы» в нижней клавиатуре.",
+	EmojiWherePinned:   "Кнопка «Закреплённые» в нижней клавиатуре.",
+	EmojiWhereAccount:  "Кнопка «Аккаунт» в нижней клавиатуре.",
+	EmojiWherePin:      "Кнопка «Закрепить» / «Открепить» под каждой темой.",
+	EmojiWhereGreeting: "Приветствие после /start, сразу после «Привет, <имя>!».",
+	EmojiHintGreeting:  "Что-нибудь приветственное, например машущая рука.",
+	EmojiWhereSubject:  "Кнопка предмета «%s» в списке предметов.",
+	EmojiWhereRank:     "Значок ранга %s (от %d %s): в «Аккаунте» и в поздравлении с новым рангом.",
+	EmojiHintRank:      "Лучше, чтобы значки становились солиднее от ранга к рангу.",
+	EmojiShortSubjects: "Предметы",
+	EmojiShortPinned:   "Закреплённые",
+	EmojiShortAccount:  "Аккаунт",
+	EmojiShortPin:      "Закрепить",
+	EmojiShortGreeting: "Приветствие",
+	EmojiShortSubject:  "Предмет «%s»",
+	EmojiShortRank:     "Ранг %s",
+	EmojiNow:           "Сейчас: ",
+	EmojiNowNone:       "Сейчас: нет",
+	EmojiAsk:           "Пришлите кастомный эмодзи из набора.",
+	EmojiSkip:          "Пропустить",
+	EmojiClear:         "Без эмодзи",
+	EmojiNeedCustom:    "Нужен кастомный эмодзи из набора.",
+	EmojiSaveQuestion:  "Сохранить?",
+	Yes:                "Да",
+	EmojiOther:         "Другой",
+	EmojiCancelled:     "Отменено, ничего не изменилось.",
+	EmojiSaved:         "Готово, сохранено:",
+	EmojiNone:          "—",
+	EmojiUnknownSlot:   "Нет такого места. Напишите /emoji_setup, чтобы пройти все по порядку, или /emoji_setup <место>, где место — одно из:\n%s",
+	EmojiSaveFailed:    "Не удалось сохранить: %s",
+	RanksTitle:         "Ранги:",
+	AcceptedFrom:       [3]string{"принятой правки", "принятых правок", "принятых правок"},
+	RanksLine:          "%s — от %d %s",
+	RanksEdit:          "Значки рангов меняются через /emoji_setup. Названия и пороги пока меняются только в файле data/settings.yml на сервере — бот перечитает его сам.",
+
+	CmdStart:      "Открыть каталог",
+	CmdDownload:   "Скачать все материалы",
+	CmdCancel:     "Отменить текущее действие",
+	CmdAccess:     "Кто может предлагать правки",
+	CmdRevoke:     "Отозвать доступ: /revoke <id или @username>",
+	CmdEmojiSetup: "Настроить кастомные эмодзи",
+	CmdRanks:      "Показать ранги",
 
 	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря"},

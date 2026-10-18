@@ -36,7 +36,7 @@ func TestViews(t *testing.T) {
 	g := s.Grades[0]
 	main := g.Topics[0].Main
 
-	text, kb := homeView(tr, cat)
+	text, kb := homeView(tr, cat, func(string) string { return "" })
 	if text != "Выберите предмет:" {
 		t.Errorf("home text = %q", text)
 	}
@@ -62,10 +62,10 @@ func TestViews(t *testing.T) {
 
 	// Under every note, the main page included: back, suggest, download,
 	// pin; no buttons for the topic's notes.
-	if got := strings.Join(labels(articleKeyboard(tr, main, false, false)), ","); got != "« Назад,Предложить правку,Скачать,Закрепить" {
+	if got := strings.Join(labels(articleKeyboard(tr, main, false, false, "")), ","); got != "« Назад,Предложить правку,Скачать,Закрепить" {
 		t.Errorf("note keyboard = %q", got)
 	}
-	kb = articleKeyboard(tr, main, true, true)
+	kb = articleKeyboard(tr, main, true, true, "")
 	if got := strings.Join(callbacks(kb), " "); got != "bp:"+main.ID+" e:"+main.ID+" d:"+main.ID+" p:"+main.ID || labels(kb)[3] != "Открепить" {
 		t.Errorf("pinned note keyboard = %q %v", got, labels(kb))
 	}
@@ -74,7 +74,7 @@ func TestViews(t *testing.T) {
 func TestCallbackDataFits(t *testing.T) {
 	cat := loadExamples(t)
 	for _, n := range cat.Notes() {
-		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true)), cbParent+n.ID, cbOpen+n.ID, cbFromPins+n.ID,
+		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true, "")), cbParent+n.ID, cbOpen+n.ID, cbFromPins+n.ID,
 			cbAllow+"-9223372036854775808", cbRequest+n.ID) {
 			if len(d) > 64 {
 				t.Errorf("callback %q is %d bytes", d, len(d))

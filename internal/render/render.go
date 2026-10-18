@@ -453,6 +453,10 @@ func (c *converter) inline(s string, lineNo int) string {
 // link renders a link inside a line: a note link becomes a callback button
 // that opens the note in place, a web link stays as it is.
 func (c *converter) link(l content.Link, lineNo int) string {
+	if l.Image && !l.Wiki && strings.HasPrefix(strings.ToLower(l.Target), "tg://emoji?") {
+		// A custom emoji, which Telegram draws inline.
+		return "![" + l.Text + "](" + l.Target + ")"
+	}
 	if l.Image {
 		c.issue(lineNo, content.Error, "image %s must be on its own line", content.FileTarget(l))
 		return escapeText(l.Text)

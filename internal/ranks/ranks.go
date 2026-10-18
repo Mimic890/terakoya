@@ -8,16 +8,18 @@ import (
 	"strings"
 )
 
-// Rank is a title reached at a number of merged suggestions.
+// Rank is a title reached at a number of merged suggestions. Emoji is
+// the custom emoji ID shown with it, if any.
 type Rank struct {
 	Title string
 	From  int
+	Emoji string
 }
 
 // Ladder is a list of ranks sorted by threshold.
 type Ladder []Rank
 
-// Default is used when no ranks are configured.
+// Default is the ladder of a new settings file.
 const Default = "Novice:0,Pupil:1,Student:3,Scholar:7,Mentor:15,Teacher:30,Master:60,Sage:100"
 
 // Parse reads "title:threshold,title:threshold,…". The lowest threshold
@@ -43,15 +45,32 @@ func Parse(s string) (Ladder, error) {
 		return nil, fmt.Errorf("no ranks defined")
 	}
 	sort.SliceStable(l, func(i, j int) bool { return l[i].From < l[j].From })
-	if l[0].From != 0 {
-		return nil, fmt.Errorf("the first rank must start at 0")
+	return l, l.Validate()
+}
+
+// Validate checks that the ladder starts at 0, its thresholds strictly
+// increase, and every title is set and unique.
+func (l Ladder) Validate() error {
+	if len(l) == 0 {
+		return fmt.Errorf("no ranks defined")
 	}
-	for i := 1; i < len(l); i++ {
-		if l[i].From == l[i-1].From {
-			return nil, fmt.Errorf("ranks %q and %q share threshold %d", l[i-1].Title, l[i].Title, l[i].From)
+	if l[0].From != 0 {
+		return fmt.Errorf("the first rank must start at 0")
+	}
+	seen := map[string]bool{}
+	for i, r := range l {
+		if strings.TrimSpace(r.Title) == "" {
+			return fmt.Errorf("rank %d has no title", i+1)
+		}
+		if seen[r.Title] {
+			return fmt.Errorf("rank %q appears twice", r.Title)
+		}
+		seen[r.Title] = true
+		if i > 0 && r.From <= l[i-1].From {
+			return fmt.Errorf("rank %q starts at %d, not after %q at %d", r.Title, r.From, l[i-1].Title, l[i-1].From)
 		}
 	}
-	return l, nil
+	return nil
 }
 
 // Next returns the rank after r, and false at the top.

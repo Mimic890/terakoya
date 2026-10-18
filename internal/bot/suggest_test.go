@@ -25,6 +25,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/ranks"
+	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
@@ -37,6 +38,10 @@ type fakeTelegram struct {
 	// delay, when set, is how long every call takes, like a real round
 	// trip to Telegram.
 	delay time.Duration
+	// reject, when set, makes the calls it returns true for fail.
+	reject func(method string, params map[string]string) bool
+	// emoji are the custom emoji IDs getCustomEmojiStickers knows.
+	emoji []string
 }
 
 type call struct {
@@ -73,6 +78,13 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	f.mu.Lock()
+	if f.reject != nil && f.reject(method, params) {
+		f.calls = append(f.calls, call{method + " (rejected)", params})
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400, "description": "Bad Request: DOCUMENT_INVALID"})
+		return
+	}
 	f.calls = append(f.calls, call{method, params})
 	f.next++
 	id := 1000 + f.next
@@ -92,6 +104,15 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "sendPhoto":
 		result = map[string]any{"message_id": id, "date": 0, "chat": map[string]any{"id": -100, "type": "supergroup"},
 			"photo": []map[string]any{{"file_id": fmt.Sprintf("photo%d", id), "file_unique_id": "u", "width": 800, "height": 600}}}
+	case "getCustomEmojiStickers":
+		var stickers []map[string]any
+		for _, id := range f.emoji {
+			if strings.Contains(params["custom_emoji_ids"], `"`+id+`"`) {
+				stickers = append(stickers, map[string]any{"file_id": "s" + id, "file_unique_id": "u", "type": "custom_emoji",
+					"width": 100, "height": 100, "is_animated": false, "is_video": false, "custom_emoji_id": id})
+			}
+		}
+		result = stickers
 	case "getFile":
 		result = map[string]any{"file_id": params["file_id"], "file_unique_id": "u", "file_size": 7,
 			"file_path": "photos/" + params["file_id"]}
@@ -252,7 +273,7 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 	cfg := config.Default()
 	cfg.BotToken, cfg.BotUsername = "123:abc", "terakoya_bot"
 	cfg.RepoDir, cfg.RepoURL, cfg.GitHost = checkout, remote, "forgejo"
-	cfg.Ladder, _ = ranks.Parse("kōhai:0,senpai:1")
+	cfg.DataDir = root
 	cfg.Admins = []int64{ivan.ID}
 
 	fake := &fakeTelegram{}
@@ -265,12 +286,29 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 		t.Fatal(err)
 	}
 	b.media.Raster = fakeRaster{}
+	h := &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100,
+		user: anya}
+	h.setRanks("kōhai:0,senpai:1")
 	// Аня may edit; access itself is tested with other users.
 	st.TouchUser(ctx, anya.ID, anya.Username, anya.FirstName)
 	st.RequestAccess(ctx, anya.ID, "", "")
 	st.DecideAccess(ctx, anya.ID, true, ivan.ID)
-	return &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100,
-		user: anya}
+	return h
+}
+
+// setRanks replaces the ladder in settings.yml, as "title:from,…".
+func (h *harness) setRanks(spec string) {
+	h.t.Helper()
+	l, err := ranks.Parse(spec)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	err = h.bot.settings.Update(func(s *settings.Settings) {
+		s.Ranks = settings.FromLadder(l, nil).Ranks
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 var (

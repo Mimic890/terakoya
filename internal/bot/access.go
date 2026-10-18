@@ -237,13 +237,23 @@ func (b *Bot) editAdminCopies(ctx context.Context, a store.Access) {
 	}
 }
 
-// onAdminCommand handles /access and /revoke. It reports false for other
+// onAdminCommand handles /access, /revoke, /emoji_setup and /ranks. It reports false for other
 // commands and for users who are not admins, who get no answer at all.
 func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
-	if cmd != "/access" && cmd != "/revoke" {
+	switch cmd {
+	case "/access", "/revoke", "/emoji_setup", "/ranks":
+	default:
 		return false
 	}
 	if !b.cfg.IsAdmin(m.From.ID) {
+		return true
+	}
+	switch cmd {
+	case "/emoji_setup":
+		b.startEmojiSetup(ctx, m, arg)
+		return true
+	case "/ranks":
+		b.sendRanks(ctx, m.Chat.ID)
 		return true
 	}
 	if cmd == "/access" {

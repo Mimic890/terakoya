@@ -128,6 +128,7 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 	b.log.Info("suggestion resolved", "number", sg.PRNumber, "kind", sg.Kind, "status", status, "user", sg.TgID)
 
 	var text string
+	var rankUp emojiText
 	var kb *models.InlineKeyboardMarkup
 	if accepted {
 		// Show the new content right away, before the push webhook or the
@@ -144,8 +145,10 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 			store.KindEdit: b.t.AcceptedEdit, store.KindNew: b.t.AcceptedNew, store.KindReport: b.t.AcceptedReport,
 		}[sg.Kind], sg.Title)
 		text += " " + fmt.Sprintf(b.t.AcceptedCount, u.MergedCount)
-		if rank := b.cfg.Ladder.For(u.MergedCount); rank != b.cfg.Ladder.For(u.MergedCount-1) {
-			text += "\n\n" + fmt.Sprintf(b.t.RankUp, rank.Title)
+		if l := b.ladder(); l.For(u.MergedCount) != l.For(u.MergedCount-1) {
+			rank := l.For(u.MergedCount)
+			rankUp = emojiText{"\n\n" + b.t.RankUpPrefix, emojiAt{id: b.emoji.Rank(rank.Title), alt: "🏅", after: " "},
+				fmt.Sprintf(b.t.RankUp, rank.Title)}
 		}
 		if a := b.catalog().NoteByPath(sg.ArticlePath); a != nil {
 			kb = keyboard(row(button(b.t.OpenTopic, cbOpen+a.ID)))
@@ -166,6 +169,14 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		}
 	}
 	// Users have a private chat with the bot, whose ID equals their user ID.
+	if rankUp != nil {
+		var markup models.ReplyMarkup
+		if kb != nil {
+			markup = kb
+		}
+		b.sendEmojiText(ctx, sg.TgID, append(emojiText{text}, rankUp...), markup)
+		return
+	}
 	b.send(ctx, sg.TgID, text, kb)
 }
 

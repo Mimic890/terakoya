@@ -31,10 +31,13 @@ const (
 )
 
 func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
+	key := func(icon, label string) models.KeyboardButton {
+		return models.KeyboardButton{Text: label, IconCustomEmojiID: icon}
+	}
 	return &models.ReplyKeyboardMarkup{
 		Keyboard: [][]models.KeyboardButton{
-			{{Text: b.t.KeySubjects}, {Text: b.t.KeyPinned}},
-			{{Text: b.t.KeyAccount}},
+			{key(b.emoji.Subjects(), b.t.KeySubjects), key(b.emoji.Pinned(), b.t.KeyPinned)},
+			{key(b.emoji.Account(), b.t.KeyAccount)},
 		},
 		IsPersistent:   true,
 		ResizeKeyboard: true,
@@ -44,14 +47,9 @@ func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
 // greet sends the greeting, which carries the bottom keyboard: a message
 // cannot have both that keyboard and inline buttons.
 func (b *Bot) greet(ctx context.Context, chatID int64, from *models.User) {
-	msg, err := b.api.SendMessage(ctx, &tg.SendMessageParams{
-		ChatID: chatID, Text: fmt.Sprintf(b.t.Greeting, from.FirstName), ReplyMarkup: b.replyKeyboard(),
-	})
-	if err != nil {
-		b.log.Error("send greeting", "err", err)
-		return
-	}
-	b.msgs.seen(ctx, chatID, msg.ID)
+	b.sendEmojiText(ctx, chatID, emojiText{
+		fmt.Sprintf(b.t.Greeting, from.FirstName), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
+	}, b.replyKeyboard())
 }
 
 // keyButton tells which bottom button a message is, or "". Keyboards sent
@@ -179,8 +177,11 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 			fromPins = fromPins || strings.HasPrefix(d, cbBackPins)
 		}
 	}
-	_, err = b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
-		ChatID: msg.Chat.ID, MessageID: msg.ID, ReplyMarkup: articleKeyboard(b.t, n, !pinned, fromPins),
+	err = b.withPlain(articleKeyboard(b.t, n, !pinned, fromPins, b.emoji.Pin()), func(kb *models.InlineKeyboardMarkup) error {
+		_, err := b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
+			ChatID: msg.Chat.ID, MessageID: msg.ID, ReplyMarkup: kb,
+		})
+		return err
 	})
 	if err != nil {
 		b.log.Debug("flip pin button", "err", err)
@@ -199,9 +200,11 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 		b.log.Error("suggest quota", "err", err)
 	}
 	merged := u.MergedCount
-	rank := b.cfg.Ladder.For(merged)
+	ladder := b.ladder()
+	rank := ladder.For(merged)
+	icon := richEmojiRef(b.emoji.Rank(rank.Title), "🏅")
 	next := b.t.AccountTop
-	if r, ok := b.cfg.Ladder.Next(rank); ok {
+	if r, ok := ladder.Next(rank); ok {
 		left := r.From - merged
 		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Edits))
 	}
@@ -209,7 +212,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	lines := []string{
 		"# " + escapeMarkdown(from.FirstName),
 		"",
-		fmt.Sprintf(b.t.AccountRank, escapeMarkdown(rank.Title)) + "  ",
+		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
 		next,
 		"",
 		fmt.Sprintf(b.t.AccountAccepted, merged) + "  ",
@@ -302,10 +305,29 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 	var sent []int
 	for i, part := range res.Parts {
 		p := &tg.SendRichMessageParams{ChatID: chatID, RichMessage: models.InputRichMessage{Markdown: part.Markdown}}
+		var partKB *models.InlineKeyboardMarkup
 		if i == len(res.Parts)-1 {
+			partKB = kb
 			p.ReplyMarkup = kb
 		}
 		msg, err := b.api.SendRichMessage(ctx, p)
+		if err != nil {
+			// Once more without custom emoji, in the text or on buttons.
+			md, inText := plainMarkdown(part.Markdown)
+			plainKB, onButtons := b.plainInline(partKB)
+			if inText || onButtons {
+				p.RichMessage.Markdown = md
+				p.ReplyMarkup = nil
+				if plainKB != nil {
+					p.ReplyMarkup = plainKB
+				}
+				var err2 error
+				if msg, err2 = b.api.SendRichMessage(ctx, p); err2 == nil {
+					b.emoji.rejected(err)
+					err = nil
+				}
+			}
+		}
 		if err != nil {
 			b.log.Error("send rich menu", "title", title, "err", err)
 			b.log.Debug("rejected markdown", "markdown", part.Markdown)

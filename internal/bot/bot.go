@@ -20,9 +20,17 @@ import (
 	"github.com/Mimic890/terakoya/internal/gitrepo"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/media"
+	"github.com/Mimic890/terakoya/internal/ranks"
 	"github.com/Mimic890/terakoya/internal/raster"
+	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/store"
 )
+
+// settingsCheck is how often the settings file is checked for hand edits.
+const settingsCheck = 5 * time.Second
+
+// ladder is the rank ladder in use.
+func (b *Bot) ladder() ranks.Ladder { return b.settings.Get().Ladder() }
 
 // Bot serves the catalog over Telegram.
 type Bot struct {
@@ -35,6 +43,8 @@ type Bot struct {
 	log   *slog.Logger
 	t     i18n.Strings
 
+	emoji       *emojiSet
+	settings    *settings.File
 	msgs        *tracker
 	bg          sync.WaitGroup // work left running after a reply, such as deleting old messages
 	userLocks   userLocks
@@ -67,11 +77,28 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 		}
 		b.cfg.BotUsername = me.Username
 	}
+	b.emoji = newEmojiSet(log)
 	b.media = &media.Resolver{Cache: st, Sender: api, CacheChatID: cfg.CacheChatID,
 		Raster: raster.New(cfg.Resvg, cfg.FontsDir), Log: log}
 	if err := b.Reload(ctx); err != nil {
 		return nil, err
 	}
+	var subjects []string
+	for _, s := range b.catalog().Subjects {
+		subjects = append(subjects, s.Name)
+	}
+	b.settings, err = settings.Open(cfg.SettingsPath(), subjects, cfg.LegacyRanks, log)
+	if err != nil {
+		return nil, fmt.Errorf("settings: %w", err)
+	}
+	b.settings.OnChange = func(s settings.Settings) {
+		b.emoji.set(s)
+		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		b.emoji.check(cctx, api)
+	}
+	b.emoji.set(b.settings.Get())
+	b.emoji.check(ctx, api)
 	return b, nil
 }
 
@@ -82,6 +109,8 @@ func (b *Bot) Run(ctx context.Context) {
 		b.log.Warn("TERAKOYA_ADMIN_IDS is empty: nobody can be granted edit access; error reports still work")
 	}
 	go b.syncLoop(ctx)
+	go b.settings.Watch(ctx, settingsCheck)
+	b.setCommands(ctx)
 	b.api.Start(ctx)
 }
 
@@ -137,6 +166,11 @@ func (b *Bot) logGroupMessage(m *models.Message) {
 
 func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	b.msgs.seen(ctx, m.Chat.ID, m.ID)
+	// An admin in /emoji_setup answers it; otherwise an admin collecting
+	// custom emoji IDs gets them, and nothing else.
+	if b.onEmojiWizardMessage(ctx, m) || b.onEmojiIDs(ctx, m) {
+		return
+	}
 	// The bottom keyboard works in the middle of a dialog too; the dialog
 	// stays where it was.
 	if b.onKeyButton(ctx, m) {
@@ -194,11 +228,16 @@ func splitCommand(text string) (cmd, arg string) {
 }
 
 func (b *Bot) send(ctx context.Context, chatID int64, text string, kb *models.InlineKeyboardMarkup) *models.Message {
-	p := &tg.SendMessageParams{ChatID: chatID, Text: text}
-	if kb != nil {
-		p.ReplyMarkup = kb
-	}
-	msg, err := b.api.SendMessage(ctx, p)
+	var msg *models.Message
+	err := b.withPlain(kb, func(kb *models.InlineKeyboardMarkup) error {
+		p := &tg.SendMessageParams{ChatID: chatID, Text: text}
+		if kb != nil {
+			p.ReplyMarkup = kb
+		}
+		var err error
+		msg, err = b.api.SendMessage(ctx, p)
+		return err
+	})
 	if err != nil {
 		b.log.Error("send message", "chat", chatID, "err", err)
 		return nil
@@ -223,10 +262,16 @@ func (b *Bot) editMenu(ctx context.Context, chatID int64, msgID int, text string
 		b.retireLater(ctx, chatID, msgID)
 		return
 	}
-	_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
-		ChatID: chatID, MessageID: msgID, Text: text, ReplyMarkup: kb,
+	err := b.withPlain(kb, func(kb *models.InlineKeyboardMarkup) error {
+		_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
+			ChatID: chatID, MessageID: msgID, Text: text, ReplyMarkup: kb,
+		})
+		if err != nil && strings.Contains(err.Error(), "message is not modified") {
+			return nil
+		}
+		return err
 	})
-	if err == nil || strings.Contains(err.Error(), "message is not modified") {
+	if err == nil {
 		b.msgs.setMenu(ctx, chatID, msgID)
 		return
 	}

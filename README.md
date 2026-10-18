@@ -122,8 +122,13 @@ vault disappear from the list. `/download` sends the whole vault as a zip
 
 The interface has no emoji of its own.
 
-Admins also have `/access`, which lists who has edit access, and
-`/revoke <id or @username>`. For everyone else these commands do nothing.
+Admins also have `/access`, which lists who has edit access,
+`/revoke <id or @username>`, `/emoji_setup` and `/ranks` (see
+[the settings file](#settings-file-ranks-and-custom-emoji)). For everyone
+else these commands do nothing. The command menu shows `/start`,
+`/download` and `/cancel` to everyone, and the admin commands only in the
+admins' chats (set on start; an admin who has never opened the bot gets
+them after the next restart).
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
@@ -168,7 +173,6 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
-| `TERAKOYA_RANKS` | `ranks` | `Novice:0,Pupil:1,Student:3,Scholar:7,Mentor:15,Teacher:30,Master:60,Sage:100` | Rank titles and the number of merged suggestions each starts at. The first must start at 0. |
 | `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They grant edit access (see below). Without admins, nobody can edit; error reports still work. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `TERAKOYA_RESVG` | `resvg` | `resvg` | The resvg binary that rasterizes SVG drawings. |
@@ -188,6 +192,65 @@ file; empty variables are ignored. See
 | `TERAKOYA_SUGGEST_MAX_BYTES` | `suggest_max_bytes` | `262144` | Maximum size of a suggested text. |
 | `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a suggestion. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
+
+### Settings file: ranks and custom emoji
+
+What admins change while the bot runs lives in `settings.yml` in the data
+directory (`./data/settings.yml` with Docker Compose, so it survives
+redeploys). The bot creates it on first start with the default ranks
+(Novice 0 · Pupil 1 · Student 3 · Scholar 7 · Mentor 15 · Teacher 30 ·
+Master 60 · Sage 100 accepted suggestions) and no custom emoji, and
+rereads it within seconds when it is edited by hand. A file that does not
+validate (the first rank must start at 0, thresholds must strictly
+increase, emoji IDs are numbers) is logged and ignored; the previous
+settings stay in use.
+
+```yaml
+ranks:
+  - title: Novice
+    from: 0
+    emoji: ""        # custom emoji ID shown with the rank
+  - title: Pupil
+    from: 1
+    emoji: "5368324170671202286"
+emoji:
+  keyboard_subjects: ""
+  keyboard_pinned: ""
+  keyboard_account: ""
+  pin: ""
+  greeting: ""
+  subjects:
+    Геометрия: ""    # by the subject's folder name
+```
+
+`TERAKOYA_RANKS` is no longer a setting. If it is still set when the file
+is created, its ranks seed the file once and the bot logs a warning;
+after that it is ignored (with a warning) and can be removed.
+
+Custom emoji need a bot owner with Telegram Premium. They show as icons on
+buttons, in the greeting and rank-up messages, and before the rank in
+«Аккаунт»; where none is set, there is no emoji at all. The bot checks
+the IDs with Telegram when the settings load and does not use unknown
+ones. If Telegram later refuses a message because of custom emoji (for
+example, when the owner's Premium ends), the bot sends it without them,
+logs it once and stays without custom emoji until the settings
+change. Notes in the vault may use custom emoji too, as
+`![👍](tg://emoji?id=…)`.
+
+Admins set the emoji with **`/emoji_setup`**, a step-by-step dialog over
+every place: the three bottom buttons, the pin button, the greeting, each
+subject of the vault and each rank. Each step says where the emoji goes
+and what it currently is; the admin replies with a custom emoji, confirms
+the preview, or uses «Пропустить», «Без эмодзи» or «Отмена». The answers are
+written to `settings.yml` at the end, with a summary; «Отмена» changes
+nothing. `/emoji_setup <slot>` changes one place; the slots are
+`keyboard_subjects`, `keyboard_pinned`, `keyboard_account`, `pin`,
+`greeting`, `subject:<name>` and `rank:<title>` (an unknown slot lists
+them). **`/ranks`** shows the ladder; titles and thresholds are changed in
+the file for now.
+
+Outside `/emoji_setup`, an admin who sends the bot custom emoji gets each
+one's ID back.
 
 ### Images and the file_id cache
 

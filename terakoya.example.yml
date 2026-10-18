@@ -7,8 +7,8 @@ repo_url: ""
 repo_branch: main
 data_dir: ./data
 cache_chat_id: 0
-ranks: "Novice:0,Pupil:1,Student:3,Scholar:7,Mentor:15,Teacher:30,Master:60,Sage:100"
 log_level: info
+# Ranks and custom emoji are in settings.yml in data_dir (see README).
 # Telegram user IDs of the admins who grant edit access, comma-separated.
 admin_ids: ""
 # SVG drawings are rasterized with resvg (included in the Docker image).
