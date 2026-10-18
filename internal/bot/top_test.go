@@ -95,7 +95,7 @@ func TestTop(t *testing.T) {
 	h.bot.settings.Update(func(s *settings.Settings) {
 		s.Top = settings.Top{Size: 2, Medals: 1, RankStyle: settings.RankTitle, ShowCount: true}
 	})
-	if got := h.bot.topMarkdown(h.ctx, &anya); got != "# Топ участников\n\nПока здесь никого нет. Сюда попадают те, чьи сообщения об ошибках приняли.\n" {
+	if got := h.bot.topMarkdown(h.ctx, &anya); got != "# Топ участников\n\nПока здесь никого нет. Сюда попадают те, у кого приняли хотя бы одну правку.\n" {
 		t.Errorf("empty = %q", got)
 	}
 
@@ -106,7 +106,7 @@ func TestTop(t *testing.T) {
 
 	// Аня is third, past the two places: her own line comes last.
 	got := h.bot.topMarkdown(h.ctx, &anya)
-	want := "# Топ участников\n\n1\\. @boris — senpai · 3  \n2\\. Ольга — senpai · 1\n\nВаше место: 3 — 1 принятое сообщение\n"
+	want := "# Топ участников\n\n1\\. @boris — senpai · 3  \n2\\. Ольга — senpai · 1\n\nВаше место: 3 — 1 принятая правка\n"
 	if got != want {
 		t.Errorf("anya sees\n%q\nwant\n%q", got, want)
 	}
@@ -126,7 +126,7 @@ func TestTop(t *testing.T) {
 		t.Errorf("anya after boris hid: %q", got)
 	}
 	got = h.bot.topMarkdown(h.ctx, &boris)
-	if strings.Contains(got, "@boris") || !strings.HasSuffix(got, "\n\nВаше место: 1 — 3 принятых сообщения\n") {
+	if strings.Contains(got, "@boris") || !strings.HasSuffix(got, "\n\nВаше место: 1 — 3 принятые правки\n") {
 		t.Errorf("boris after hiding: %q", got)
 	}
 }

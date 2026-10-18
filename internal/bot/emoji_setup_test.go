@@ -87,7 +87,7 @@ func TestEmojiSetupWizard(t *testing.T) {
 		t.Errorf("subject step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // Геометрия
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 8 из 11. Значок ранга kōhai (от 0 принятых сообщений)") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 8 из 11. Значок ранга kōhai (от 0 принятых правок)") {
 		t.Errorf("rank step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // kōhai
@@ -132,7 +132,7 @@ func TestEmojiSetupOneSlotAndCancel(t *testing.T) {
 	h.as(ivan)
 
 	h.say("/emoji_setup rank:Senpai")
-	if c := last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 1. Значок ранга senpai (от 1 принятого сообщения)") {
+	if c := last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 1. Значок ранга senpai (от 1 принятой правки)") {
 		t.Errorf("one slot = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiClear)
@@ -210,7 +210,7 @@ func TestRanksCommand(t *testing.T) {
 	h.as(ivan)
 	h.say("/ranks")
 	c := last(t, h.tg.take())
-	want := "Ранги:\nkōhai — от 0 принятых сообщений\n⭐ senpai — от 1 принятого сообщения\n\n" + i18n.RU.RanksEdit
+	want := "Ранги:\nkōhai — от 0 принятых правок\n⭐ senpai — от 1 принятой правки\n\n" + i18n.RU.RanksEdit
 	if c.params["text"] != want {
 		t.Errorf("/ranks =\n%q\nwant\n%q", c.params["text"], want)
 	}

@@ -32,13 +32,9 @@ func TestSettingsMenuAndTopToggle(t *testing.T) {
 	h := newHarness(t, nil)
 	h.accept(anya, 1)
 	menu, c := h.openSettings()
-	if c.params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: да" {
-		t.Errorf("menu = %q", c.params["text"])
-	}
-	for _, b := range []string{`"st:t"`, `"st:n"`, `"Скрыть меня из топа","callback_data":"st:h"`, `"Закрыть","callback_data":"c"`} {
-		if !strings.Contains(c.params["reply_markup"], b) {
-			t.Errorf("menu has no %s: %s", b, c.params["reply_markup"])
-		}
+	if c.params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: да" ||
+		c.params["reply_markup"] != `{"inline_keyboard":[[{"text":"Ник","callback_data":"st:k"}],[{"text":"Топ: показывать ✓","callback_data":"st:h"}],[{"text":"Закрыть","callback_data":"c"}]]}` {
+		t.Errorf("menu = %+v", c.params)
 	}
 	// A second tap on the key only goes itself.
 	h.say(i18n.RU.KeySettings)
@@ -46,24 +42,106 @@ func TestSettingsMenuAndTopToggle(t *testing.T) {
 		t.Errorf("repeated tap = %+v", calls)
 	}
 
+	// The toggle changes the text and itself in place.
 	h.tapOn(menu, cbToggleTop)
 	e := to(h.tg.take(), "editMessageText", anya.ID)
-	if len(e) != 1 || e[0].params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: нет" ||
-		!strings.Contains(e[0].params["reply_markup"], `"Показывать меня в топе","callback_data":"st:h"`) {
+	if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(menu) || e[0].params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: нет" ||
+		!strings.Contains(e[0].params["reply_markup"], `{"text":"Топ: скрыт","callback_data":"st:h"}`) {
 		t.Fatalf("hidden = %+v", e)
 	}
-	if got := h.bot.topMarkdown(h.ctx, &boris); strings.Contains(got, "@anya") {
+	if got := h.bot.topMarkdown(h.ctx, &boris); strings.Contains(got, "Аня") || strings.Contains(got, "@anya") {
 		t.Errorf("others still see her: %q", got)
 	}
-	if got := h.bot.topMarkdown(h.ctx, &anya); !strings.Contains(got, "Ваше место: 1 — 1 принятое сообщение") {
+	if got := h.bot.topMarkdown(h.ctx, &anya); !strings.Contains(got, "Ваше место: 1 — 1 принятая правка") {
 		t.Errorf("she does not see her place: %q", got)
 	}
 	h.tapOn(menu, cbToggleTop)
-	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.HasSuffix(e[0].params["text"], ": да") {
+	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.HasSuffix(e[0].params["text"], ": да") ||
+		!strings.Contains(e[0].params["reply_markup"], `"Топ: показывать ✓"`) {
 		t.Errorf("shown again = %+v", e)
 	}
 	if got := h.bot.topMarkdown(h.ctx, &boris); !strings.Contains(got, "@anya") {
 		t.Errorf("back in the top: %q", got)
+	}
+}
+
+// nickScreen checks the «Ник» screen as the last edit of the menu.
+func nickScreen(t *testing.T, calls []call, menu int, now, tg, own string) {
+	t.Helper()
+	e := to(calls, "editMessageText", anya.ID)
+	if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(menu) {
+		t.Fatalf("no edit of the menu: %+v", calls)
+	}
+	want := "Ник\n\nСейчас: " + now + "\nНик видно в топе и в приветствии."
+	kb := `{"inline_keyboard":[[{"text":"` + tg + `","callback_data":"st:t"},{"text":"` + own + `","callback_data":"st:n"}],[{"text":"« Назад","callback_data":"st:m"}]]}`
+	if e[0].params["text"] != want || e[0].params["reply_markup"] != kb {
+		t.Errorf("«Ник» =\n%q %s\nwant\n%q %s", e[0].params["text"], e[0].params["reply_markup"], want, kb)
+	}
+}
+
+func TestNickScreen(t *testing.T) {
+	h := newHarness(t, nil)
+	menu, _ := h.openSettings()
+
+	// «Ник» replaces the main screen.
+	h.tapOn(menu, cbNickMenu)
+	nickScreen(t, h.tg.take(), menu, "Аня (из Telegram)", "Из Telegram ✓", "Свой ник")
+	// The «Настройки» key brings the main screen back.
+	h.say(i18n.RU.KeySettings)
+	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.HasPrefix(e[0].params["text"], "Настройки\n") {
+		t.Errorf("key on «Ник» = %+v", e)
+	}
+	h.tapOn(menu, cbNickMenu)
+	h.tg.take()
+
+	// The active choice only answers.
+	h.tapOn(menu, cbNickTG)
+	if c := h.tg.take(); len(c) != 1 || c[0].method != "answerCallbackQuery" {
+		t.Errorf("active «Из Telegram» = %+v", c)
+	}
+
+	// «Свой ник»: on save, back to «Ник» with the new name.
+	h.tapOn(menu, cbNickOwn)
+	wantPrompt(t, h.tg.take(), i18n.RU.NickAsk, "Отмена")
+	h.say("Ёжик")
+	nickScreen(t, h.tg.take(), menu, "Ёжик (свой)", "Из Telegram", "Свой ник ✓")
+	if d, _ := h.bot.loadDialog(h.ctx, anya.ID, anya.ID); d != nil {
+		t.Error("the dialog survived")
+	}
+	// The active «Свой ник» asks for a new one right away.
+	h.tapOn(menu, cbNickOwn)
+	wantPrompt(t, h.tg.take(), "Сейчас: Ёжик. Пришлите новый ник.", "Отмена")
+	h.say("Ёжик-2")
+	nickScreen(t, h.tg.take(), menu, "Ёжик-2 (свой)", "Из Telegram", "Свой ник ✓")
+	// Keeping the same one is fine too.
+	h.tapOn(menu, cbNickOwn)
+	h.tg.take()
+	h.say("Ёжик-2")
+	nickScreen(t, h.tg.take(), menu, "Ёжик-2 (свой)", "Из Telegram", "Свой ник ✓")
+
+	// «Из Telegram» clears it and refreshes the screen.
+	h.tapOn(menu, cbNickTG)
+	nickScreen(t, h.tg.take(), menu, "Аня (из Telegram)", "Из Telegram ✓", "Свой ник")
+	if u, _ := h.store.User(h.ctx, anya.ID); u.Nickname != "" {
+		t.Errorf("nickname = %q", u.Nickname)
+	}
+
+	// «Отмена» of «Свой ник» also goes back to «Ник».
+	h.tapOn(menu, cbNickOwn)
+	h.say("x")
+	h.tg.take()
+	msgs := h.dialogMsgs()
+	h.tap(cbCancel)
+	calls := h.tg.take()
+	if got := ids(calls, "deleteMessage"); !sameIDs(got, msgs) || len(texts(calls, "sendMessage")) != 0 {
+		t.Errorf("cancel = %+v", calls)
+	}
+	nickScreen(t, calls, menu, "Аня (из Telegram)", "Из Telegram ✓", "Свой ник")
+
+	// «Назад» to the main screen.
+	h.tapOn(menu, cbSettingsMain)
+	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || e[0].params["text"] != "Настройки\n\nНик: Аня\nПоказывать меня в топе: да" {
+		t.Errorf("back = %+v", e)
 	}
 }
 
@@ -73,6 +151,8 @@ func TestNickname(t *testing.T) {
 	h.store.TouchUser(h.ctx, boris.ID, boris.Username, boris.FirstName)
 	h.store.SetNickname(h.ctx, boris.ID, "Звезда", nick.Key("Звезда"))
 	menu, _ := h.openSettings()
+	h.tapOn(menu, cbNickMenu)
+	h.tg.take()
 
 	h.tapOn(menu, cbNickOwn)
 	wantPrompt(t, h.tg.take(), i18n.RU.NickAsk, "Отмена")
@@ -101,17 +181,11 @@ func TestNickname(t *testing.T) {
 	msgs := h.dialogMsgs()
 	h.say("Ёжик")
 	calls := h.tg.take()
-	// The dialog goes, and the menu shows the new name.
+	// The dialog goes, the user's name with it.
 	if got := ids(calls, "deleteMessage"); !sameIDs(got, append(msgs, h.msgID)) {
 		t.Errorf("deleted %v, want %v and the name", got, msgs)
 	}
-	e := to(calls, "editMessageText", anya.ID)
-	if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(menu) || !strings.HasPrefix(e[0].params["text"], "Настройки\n\nНик: Ёжик\n") {
-		t.Errorf("menu = %+v", e)
-	}
-	if d, _ := h.bot.loadDialog(h.ctx, anya.ID, anya.ID); d != nil {
-		t.Error("the dialog survived")
-	}
+	nickScreen(t, calls, menu, "Ёжик (свой)", "Из Telegram", "Свой ник ✓")
 	// The name shows everywhere.
 	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.HasPrefix(got, "# Ёжик\n") {
 		t.Errorf("account = %q", got)
@@ -133,24 +207,6 @@ func TestNickname(t *testing.T) {
 	// The admin may look like themselves.
 	if got := h.bot.nickProblem(h.ctx, ivan.ID, "Иван-2"); got != "" {
 		t.Errorf("admin's own name: %q", got)
-	}
-
-	// «Имя из Telegram» goes back to it.
-	h.tapOn(menu, cbNickTG)
-	if e := to(h.tg.take(), "editMessageText", anya.ID); len(e) != 1 || !strings.Contains(e[0].params["text"], "Ник: Аня\n") {
-		t.Errorf("telegram name = %+v", e)
-	}
-
-	// «Отмена» cleans up and leaves the menu as it is.
-	h.tapOn(menu, cbNickOwn)
-	h.say("x")
-	h.tg.take()
-	msgs = h.dialogMsgs()
-	h.tap(cbCancel)
-	calls = h.tg.take()
-	if got := ids(calls, "deleteMessage"); !sameIDs(got, msgs) || len(to(calls, "editMessageText", anya.ID)) != 0 ||
-		len(texts(calls, "sendMessage")) != 0 {
-		t.Errorf("cancel = %+v", calls)
 	}
 }
 

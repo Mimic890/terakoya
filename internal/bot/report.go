@@ -430,11 +430,15 @@ func (b *Bot) dropMessages(ctx context.Context, chatID int64, ids []int) {
 // goBack returns the user to where a cancelled dialog started: its note,
 // re-sent in place of the old one, or the topic list for a report about
 // the grade. A note that left the vault falls back to its topic list, then to
-// the subject list. A dialog without an origin (/emoji_setup) only goes.
+// the subject list. «Свой ник» goes back to the «Ник» screen. A dialog
+// without an origin (/emoji_setup) only goes.
 func (b *Bot) goBack(ctx context.Context, d *dialog) {
 	cat := b.catalog()
 	var g *content.Grade
 	switch {
+	case d.ses.State == stateNick:
+		b.showSettingsScreen(ctx, d.chatID, d.p.OriginMsg, d.ses.TgID, true)
+		return
 	case d.p.NoteID != "" || d.ses.ArticlePath != "":
 		if n := b.dialogNote(d); n != nil {
 			if b.sendArticle(ctx, d.chatID, n, false) && d.p.OriginMsg != 0 {

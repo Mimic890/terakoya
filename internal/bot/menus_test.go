@@ -191,7 +191,7 @@ func TestPins(t *testing.T) {
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
 	h.setRanks("Novice:0,Pupil:1,Student:3,Scholar:15")
-	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение  \nСледующий ранг: **Pupil**\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
+	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятая правка  \nСледующий ранг: **Pupil**\n\nПринято правок: 0  \nНа рассмотрении: 0"
 	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
@@ -205,11 +205,11 @@ func TestAccount(t *testing.T) {
 		sg, _ := h.store.SuggestionByNumber(h.ctx, n)
 		h.store.ResolveSuggestion(h.ctx, sg.ID, store.StatusMerged)
 	}
-	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 принятых сообщения  \nСледующий ранг: **Student**\n\nПринято сообщений: 1  \nНа рассмотрении: 1") {
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 принятые правки  \nСледующий ранг: **Student**\n\nПринято правок: 1  \nНа рассмотрении: 1") {
 		t.Errorf("after one = %s", got)
 	}
 	h.setRanks("Novice:0,Pupil:1,Student:6")
-	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "ещё 5 принятых сообщений  \nСледующий ранг: **Student**\n") {
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "ещё 5 принятых правок  \nСледующий ранг: **Student**\n") {
 		t.Errorf("five left = %s", got)
 	}
 	h.setRanks("Novice:0,Pupil:1")
@@ -236,7 +236,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 	calls := h.tg.take()
 	acc := lastRich(t, calls)
 	if !strings.HasPrefix(acc.params["rich_message"], `{"markdown":"# Аня`) ||
-		!strings.Contains(acc.params["reply_markup"], `"Мои сообщения","callback_data":"hl"`) ||
+		!strings.Contains(acc.params["reply_markup"], `"Мои правки","callback_data":"hl"`) ||
 		!strings.Contains(acc.params["reply_markup"], `"Закрыть","callback_data":"c"`) {
 		t.Fatalf("account = %+v", acc.params)
 	}
@@ -279,7 +279,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 
 func TestHistory(t *testing.T) {
 	h := newHarness(t, nil)
-	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Мои сообщения\n\n## На рассмотрении\n\nПока нет\n\n---\n\n## Приняты\n\nПока нет\n\n---\n\n## Отклонены\n\nПока нет\n" {
+	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Мои правки\n\n## На рассмотрении\n\nПока нет\n\n---\n\n## Приняты\n\nПока нет\n\n---\n\n## Отклонены\n\nПока нет\n" {
 		t.Errorf("empty = %q", got)
 	}
 	add := func(n int, kind, p, title, status, comment string) {
@@ -311,7 +311,7 @@ func TestHistory(t *testing.T) {
 		}
 	}
 	// Rendered, the links are buttons.
-	n := &content.Note{Title: "Мои сообщения", Body: got}
+	n := &content.Note{Title: "Мои правки", Body: got}
 	md := render.Convert(h.bot.catalog(), n, render.Options{}).Parts[0].Markdown
 	if !strings.Contains(md, `data="a:`+h.id(triangles)+`">Треугольники</tg-button>`) {
 		t.Errorf("rendered = %s", md)
@@ -324,7 +324,7 @@ func TestHistory(t *testing.T) {
 
 func TestPlural(t *testing.T) {
 	forms := i18n.RU.Reports
-	one, few, many := "принятое сообщение", "принятых сообщения", "принятых сообщений"
+	one, few, many := "принятая правка", "принятые правки", "принятых правок"
 	for n, want := range map[int]string{0: many, 1: one, 2: few, 4: few, 5: many, 11: many,
 		12: many, 21: one, 22: few, 111: many, 101: one} {
 		if got := plural(n, forms); got != want {
