@@ -182,6 +182,11 @@ func (b *Bot) startNewTopic(ctx context.Context, q *models.CallbackQuery, chatID
 	if !ok {
 		return
 	}
+	if !b.mayEdit(ctx, q.From.ID) {
+		// The topic list stays; the question comes as a new message.
+		b.askAccess(ctx, q, chatID, 0, "")
+		return
+	}
 	b.answer(ctx, q, "", false)
 	d := &dialog{chatID: chatID,
 		ses: store.Session{TgID: q.From.ID, State: stateNewTitle, BaseSHA: base},
@@ -279,8 +284,15 @@ func (b *Bot) onDialogCallback(ctx context.Context, q *models.CallbackQuery, msg
 		b.dropButtonsOf(ctx, msg)
 		return
 	}
-	b.answer(ctx, q, "", false)
 	data := q.Data
+	if (data == cbFix || data == cbAddNote) && d.ses.State == stateMenu && !b.mayEdit(ctx, q.From.ID) {
+		b.askAccess(ctx, q, d.chatID, msg.ID, d.p.NoteID)
+		return
+	}
+	b.answer(ctx, q, "", false)
+	if b.accessGone(ctx, d) {
+		return
+	}
 	switch {
 	case data == cbFix && d.ses.State == stateMenu:
 		b.chooseFix(ctx, d)
@@ -312,6 +324,15 @@ func (b *Bot) onDialogCallback(ctx context.Context, q *models.CallbackQuery, msg
 			b.askNoteTitle(ctx, d)
 		}
 	}
+}
+
+// accessGone ends an edit dialog whose user lost edit access meanwhile.
+func (b *Bot) accessGone(ctx context.Context, d *dialog) bool {
+	if !gatedState(d.ses.State) || b.mayEdit(ctx, d.ses.TgID) {
+		return false
+	}
+	b.cancel(ctx, d, b.t.AccessGone)
+	return true
 }
 
 // kinds lists the kinds a new note of the dialog's topic can have: the
@@ -515,6 +536,9 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 		return false
 	}
 
+	if b.accessGone(ctx, d) {
+		return true
+	}
 	text := strings.TrimSpace(m.Text)
 	img, isImage, problem := b.imageOf(m)
 	switch {

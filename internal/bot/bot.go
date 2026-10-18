@@ -133,7 +133,15 @@ func (b *Bot) logGroupMessage(m *models.Message) {
 
 func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	b.msgs.seen(ctx, m.Chat.ID, m.ID)
+	// The bottom keyboard works in the middle of a dialog too; the dialog
+	// stays where it was.
+	if b.onKeyButton(ctx, m) {
+		return
+	}
 	cmd, arg := splitCommand(m.Text)
+	if b.onAdminCommand(ctx, m, cmd, arg) {
+		return
+	}
 	switch cmd {
 	case "/cancel":
 		b.cancelSuggestion(ctx, m.Chat.ID, m.From.ID)
@@ -152,9 +160,10 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 	case "/download":
 		b.sendArchive(ctx, m.Chat.ID)
 	case "/start":
+		b.greet(ctx, m.Chat.ID, m.From)
 		if arg != "" {
 			if n := b.catalog().Note(arg); n != nil {
-				b.sendArticle(ctx, m.Chat.ID, n)
+				b.sendArticle(ctx, m.Chat.ID, n, false)
 				return
 			}
 			b.send(ctx, m.Chat.ID, b.t.NotFound, nil)

@@ -8,7 +8,6 @@ import (
 
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
-	"github.com/Mimic890/terakoya/internal/ranks"
 )
 
 func loadExamples(t *testing.T) *content.Catalog {
@@ -18,16 +17,6 @@ func loadExamples(t *testing.T) *content.Catalog {
 		t.Fatalf("load: %v %v", err, issues)
 	}
 	return cat
-}
-
-func callbacks(kb *models.InlineKeyboardMarkup) []string {
-	var out []string
-	for _, r := range kb.InlineKeyboard {
-		for _, b := range r {
-			out = append(out, b.CallbackData)
-		}
-	}
-	return out
 }
 
 func labels(kb *models.InlineKeyboardMarkup) []string {
@@ -42,14 +31,13 @@ func labels(kb *models.InlineKeyboardMarkup) []string {
 
 func TestViews(t *testing.T) {
 	cat := loadExamples(t)
-	ladder, _ := ranks.Parse(ranks.Default)
 	tr := i18n.RU
 	s := cat.Subjects[0]
 	g := s.Grades[0]
 	main := g.Topics[0].Main
 
-	text, kb := homeView(tr, cat, ladder, "Аня", 3)
-	if !strings.Contains(text, "Аня") || !strings.Contains(text, "senpai") {
+	text, kb := homeView(tr, cat)
+	if text != "Выберите предмет:" {
 		t.Errorf("home text = %q", text)
 	}
 	if got := callbacks(kb); len(got) != 1 || got[0] != "s:"+s.ID || labels(kb)[0] != "Геометрия" {
@@ -72,17 +60,22 @@ func TestViews(t *testing.T) {
 		t.Errorf("topic label = %q", labels(kb)[0])
 	}
 
-	// Under every note, the main page included: back, suggest, download;
-	// no buttons for the topic's notes.
-	if got := strings.Join(labels(articleKeyboard(tr, main)), ","); got != "« Назад,Предложить правку,Скачать" {
+	// Under every note, the main page included: back, suggest, download,
+	// pin; no buttons for the topic's notes.
+	if got := strings.Join(labels(articleKeyboard(tr, main, false, false)), ","); got != "« Назад,Предложить правку,Скачать,📌 Закрепить" {
 		t.Errorf("note keyboard = %q", got)
+	}
+	kb = articleKeyboard(tr, main, true, true)
+	if got := strings.Join(callbacks(kb), " "); got != "bp:"+main.ID+" e:"+main.ID+" d:"+main.ID+" p:"+main.ID || labels(kb)[3] != "📌 Открепить" {
+		t.Errorf("pinned note keyboard = %q %v", got, labels(kb))
 	}
 }
 
 func TestCallbackDataFits(t *testing.T) {
 	cat := loadExamples(t)
 	for _, n := range cat.Notes() {
-		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n)), cbParent+n.ID, cbOpen+n.ID) {
+		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true)), cbParent+n.ID, cbOpen+n.ID, cbFromPins+n.ID,
+			cbAllow+"-9223372036854775808", cbRequest+n.ID) {
 			if len(d) > 64 {
 				t.Errorf("callback %q is %d bytes", d, len(d))
 			}

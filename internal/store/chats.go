@@ -136,3 +136,13 @@ func (s *Store) DropMessageGroup(ctx context.Context, chatID int64, msgID int) e
 			SELECT group_id FROM message_parts WHERE chat_id = ? AND msg_id = ?)`, chatID, chatID, msgID)
 	return err
 }
+
+// ChatMenu returns the chat's menu message ID, wherever it is, or 0.
+func (s *Store) ChatMenu(ctx context.Context, chatID int64) (int, error) {
+	var id int
+	err := s.db.QueryRowContext(ctx, `SELECT msg_id FROM chat_menus WHERE chat_id = ?`, chatID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}

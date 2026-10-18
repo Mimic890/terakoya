@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,8 +59,13 @@ type Config struct {
 	Ranks       string `yaml:"ranks" env:"TERAKOYA_RANKS"`
 	LogLevel    string `yaml:"log_level" env:"TERAKOYA_LOG_LEVEL"`
 
-	// Ladder is parsed from Ranks.
+	// AdminIDs lists the Telegram user IDs, comma-separated, of the admins
+	// who grant edit access.
+	AdminIDs string `yaml:"admin_ids" env:"TERAKOYA_ADMIN_IDS"`
+
+	// Ladder is parsed from Ranks, Admins from AdminIDs.
 	Ladder ranks.Ladder `yaml:"-"`
+	Admins []int64      `yaml:"-"`
 }
 
 // Default returns the built-in defaults.
@@ -105,6 +111,9 @@ func Load(path string) (Config, error) {
 		return cfg, fmt.Errorf("ranks: %w", err)
 	}
 	cfg.Ladder = ladder
+	if cfg.Admins, err = parseIDs(cfg.AdminIDs); err != nil {
+		return cfg, fmt.Errorf("TERAKOYA_ADMIN_IDS: %w", err)
+	}
 	cfg.BotUsername = strings.TrimPrefix(cfg.BotUsername, "@")
 	return cfg, nil
 }
@@ -142,6 +151,28 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 		}
 	}
 	return nil
+}
+
+// parseIDs reads comma-separated Telegram user IDs.
+func parseIDs(s string) ([]int64, error) {
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("%q is not a Telegram user ID", part)
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// IsAdmin reports whether the user is one of the admins.
+func (c Config) IsAdmin(tgID int64) bool {
+	return slices.Contains(c.Admins, tgID)
 }
 
 // DBPath is the SQLite database file.

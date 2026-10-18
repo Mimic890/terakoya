@@ -48,6 +48,23 @@ func TestErrors(t *testing.T) {
 	}
 }
 
+func TestAdminIDs(t *testing.T) {
+	t.Setenv("TERAKOYA_ADMIN_IDS", " 12, 34 ,")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Admins) != 2 || !cfg.IsAdmin(34) || cfg.IsAdmin(56) {
+		t.Errorf("admins = %v", cfg.Admins)
+	}
+	for _, bad := range []string{"12,abc", "-5", "@admin"} {
+		t.Setenv("TERAKOYA_ADMIN_IDS", bad)
+		if _, err := Load(""); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
 func TestExampleFile(t *testing.T) {
 	cfg, err := Load("../../terakoya.example.yml")
 	if err != nil {

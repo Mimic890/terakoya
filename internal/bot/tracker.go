@@ -46,3 +46,10 @@ func (t *tracker) check(err error) {
 		t.log.Error("message tracking", "err", err)
 	}
 }
+
+// menu returns the menu message ID, last in the chat or not, or 0.
+func (t *tracker) menu(ctx context.Context, chatID int64) int {
+	id, err := t.store.ChatMenu(ctx, chatID)
+	t.check(err)
+	return id
+}

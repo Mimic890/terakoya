@@ -21,9 +21,15 @@ import (
 
 // sendArticle sends a note as one or more rich messages, with the buttons
 // under the last one, and reports whether it succeeded. The messages are
-// recorded as a group, so moving on removes all of them.
-func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note) bool {
+// recorded as a group, so moving on removes all of them. fromPins is set
+// when it was opened from the pinned list, which «Назад» then returns to.
+func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fromPins bool) bool {
 	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued})
+	// In a private chat the chat ID is the user's.
+	pinned, err := b.store.Pinned(ctx, chatID, n.ID)
+	if err != nil {
+		b.log.Error("pinned", "err", err)
+	}
 	var sent []int
 	defer func() {
 		if err := b.store.SetMessageGroup(ctx, chatID, sent); err != nil {
@@ -33,7 +39,7 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note) bo
 	for i, part := range res.Parts {
 		var kb *models.InlineKeyboardMarkup
 		if i == len(res.Parts)-1 {
-			kb = articleKeyboard(b.t, n)
+			kb = articleKeyboard(b.t, n, pinned, fromPins)
 		}
 		msg, err := b.sendRich(ctx, chatID, n, part, kb)
 		if err != nil {
