@@ -9,7 +9,7 @@ data_dir: ./data
 cache_chat_id: 0
 log_level: info
 # Ranks and custom emoji are in settings.yml in data_dir (see README).
-# Telegram user IDs of the admins who grant edit access, comma-separated.
+# Telegram user IDs of the admins (/emoji_setup, /ranks), comma-separated.
 admin_ids: ""
 # SVG drawings are rasterized with resvg (included in the Docker image).
 # resvg: resvg
@@ -29,5 +29,4 @@ http_addr: ":8080"
 sync_interval: 5m
 suggest_cooldown: 1m
 suggest_max_open: 5
-suggest_max_bytes: 262144
 image_max_bytes: 5242880

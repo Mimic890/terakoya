@@ -98,9 +98,9 @@ type Author struct {
 }
 
 // CommitAndPush creates a commit on top of base that writes the changes,
-// and pushes it as a new branch. The working tree is not touched, so the
-// commit is based on exactly the content the user saw; if the branch is
-// behind its target, the host shows the conflict in the pull request.
+// and pushes it as a new branch, such as the pictures of a report on a
+// host without issue attachments. The working tree is not touched, so the
+// commit is based on exactly the content the user saw.
 func (r *Repo) CommitAndPush(ctx context.Context, base, branch, message string, author, committer Author, changes []Change) (string, error) {
 	if !r.Managed() {
 		return "", fmt.Errorf("checkout is not managed by the bot; set TERAKOYA_REPO_URL")

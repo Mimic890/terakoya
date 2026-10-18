@@ -152,10 +152,6 @@ func (c *Catalog) Files() []string {
 	return out
 }
 
-// FileNamed returns the paths of the files with this base name, ignoring
-// case, as a link with just the name would match them.
-func (c *Catalog) FileNamed(name string) []string { return c.byFolded[strings.ToLower(name)] }
-
 // Notes returns every note in catalog order.
 func (c *Catalog) Notes() []*Note {
 	var out []*Note

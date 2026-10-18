@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -160,10 +159,15 @@ var migrations = []string{
 		pinned_at INTEGER NOT NULL,
 		PRIMARY KEY (tg_id, note_id)
 	) WITHOUT ROWID;`,
-	// The reviewer's comment on a rejected suggestion, for «Список правок»;
+	// The reviewer's comment on a rejected suggestion, for «Мои сообщения»;
 	// and menus sent as rich messages, which cannot be edited into text.
 	`ALTER TABLE suggestions ADD COLUMN comment TEXT NOT NULL DEFAULT '';
 	ALTER TABLE chat_menus ADD COLUMN rich INTEGER NOT NULL DEFAULT 0;`,
+	// Only error reports are left: no edit access, and ranks count the
+	// accepted reports, from the suggestions themselves.
+	`DROP TABLE access;
+	DROP TABLE access_messages;
+	ALTER TABLE users DROP COLUMN merged_count;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -193,10 +197,12 @@ func (s *Store) migrate(ctx context.Context) error {
 
 // User is a Telegram user known to the bot.
 type User struct {
-	TgID        int64
-	Username    string
-	FirstName   string
-	MergedCount int
+	TgID      int64
+	Username  string
+	FirstName string
+	// Accepted is how many of the user's error reports were accepted,
+	// which sets their rank.
+	Accepted int
 }
 
 // TouchUser creates the user or refreshes their name, and returns the row.
@@ -217,22 +223,11 @@ func (s *Store) TouchUser(ctx context.Context, tgID int64, username, firstName s
 // User returns a user by Telegram ID.
 func (s *Store) User(ctx context.Context, tgID int64) (User, error) {
 	var u User
-	err := s.db.QueryRowContext(ctx,
-		`SELECT tg_id, username, first_name, merged_count FROM users WHERE tg_id = ?`, tgID,
-	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.MergedCount)
-	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, ErrNotFound
-	}
-	return u, err
-}
-
-// UserByUsername finds a user by @username, ignoring case and the "@".
-func (s *Store) UserByUsername(ctx context.Context, username string) (User, error) {
-	var u User
-	err := s.db.QueryRowContext(ctx,
-		`SELECT tg_id, username, first_name, merged_count FROM users WHERE username = ? COLLATE NOCASE AND username != ''`,
-		strings.TrimPrefix(username, "@"),
-	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.MergedCount)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT tg_id, username, first_name,
+			(SELECT COUNT(*) FROM suggestions s WHERE s.tg_id = users.tg_id AND s.kind = 'report' AND s.status = 'merged')
+		FROM users WHERE tg_id = ?`, tgID,
+	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.Accepted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}

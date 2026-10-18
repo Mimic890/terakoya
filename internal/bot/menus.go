@@ -26,8 +26,9 @@ const (
 	cbPin      = "p:"  // p:<note id>, toggles the pin
 	cbFromPins = "pa:" // pa:<note id>, opens a note from the pinned list
 	cbBackPins = "bp:" // bp:<note id>, «Назад» of a note opened from the list
-	cbHistory  = "hl"  // «Список правок»
+	cbHistory  = "hl"  // «Мои сообщения»
 	cbAccount  = "ac"  // back to «Аккаунт»
+	cbClose    = "c"   // removes the message it is pressed in
 )
 
 func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
@@ -189,7 +190,7 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 }
 
 // accountMarkdown is the account page: rank, how far the next one is,
-// accepted and open suggestions, and for admins their level.
+// accepted and open reports, and for admins their level.
 func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
 	if err != nil {
@@ -199,14 +200,14 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	if err != nil {
 		b.log.Error("suggest quota", "err", err)
 	}
-	merged := u.MergedCount
+	accepted := u.Accepted
 	ladder := b.ladder()
-	rank := ladder.For(merged)
+	rank := ladder.For(accepted)
 	icon := richEmojiRef(b.emoji.Rank(rank.Title), "🏅")
 	next := b.t.AccountTop
 	if r, ok := ladder.Next(rank); ok {
-		left := r.From - merged
-		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Edits))
+		left := r.From - accepted
+		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Reports))
 	}
 	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
@@ -215,7 +216,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
 		next,
 		"",
-		fmt.Sprintf(b.t.AccountAccepted, merged) + "  ",
+		fmt.Sprintf(b.t.AccountAccepted, accepted) + "  ",
 		fmt.Sprintf(b.t.AccountOpen, open),
 	}
 	if b.cfg.IsAdmin(from.ID) {
@@ -229,8 +230,9 @@ func (b *Bot) accountKeyboard() *models.InlineKeyboardMarkup {
 	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Close, cbClose)))
 }
 
-// historyMarkdown lists the user's suggestions: open, accepted and
-// rejected, newest first. Titles of notes still in the vault are links.
+// historyMarkdown lists the user's reports, and the edits and topics they
+// suggested in earlier versions: open, accepted and rejected, newest
+// first. Titles of notes still in the vault are links.
 func (b *Bot) historyMarkdown(ctx context.Context, tgID int64) string {
 	all, err := b.store.UserSuggestions(ctx, tgID)
 	if err != nil {
@@ -282,12 +284,15 @@ func (b *Bot) historyKeyboard() *models.InlineKeyboardMarkup {
 	return keyboard(row(button(b.t.Back, cbAccount), button(b.t.Close, cbClose)))
 }
 
-// kindLabel names what a suggestion was. A new topic's page lies right in
-// the topic folder (subject/grade/topic/page.md); a new note is deeper.
+// kindLabel names what a suggestion was. A report about a grade names its
+// folder rather than a note. A new topic's page lies right in the topic
+// folder (subject/grade/topic/page.md); a new note is deeper.
 func (b *Bot) kindLabel(sg store.Suggestion) string {
 	switch {
 	case sg.Kind == store.KindEdit:
 		return b.t.KindEditLabel
+	case sg.Kind == store.KindReport && isGradeReport(sg):
+		return b.t.KindGradeLabel
 	case sg.Kind == store.KindReport:
 		return b.t.KindReportLabel
 	case strings.Count(sg.ArticlePath, "/") <= 3:
@@ -357,8 +362,19 @@ func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) 
 	b.showRich(ctx, chatID, b.t.History, b.historyMarkdown(ctx, from.ID), b.historyKeyboard())
 }
 
+// isGradeReport tells a report about a grade, filed under the grade
+// folder, from one about a note.
+func isGradeReport(sg store.Suggestion) bool {
+	return sg.Kind == store.KindReport && !strings.HasSuffix(sg.ArticlePath, ".md")
+}
+
+// date formats a day as «25 октября».
+func (b *Bot) date(t time.Time) string {
+	return fmt.Sprintf("%d %s", t.Day(), b.t.Months[t.Month()-1])
+}
+
 // plural picks the form of a word for n: forms are for 1, 2–4 and 5 or
-// more («правка», «правки», «правок»).
+// more («сообщение», «сообщения», «сообщений»).
 func plural(n int, forms [3]string) string {
 	n %= 100
 	switch {

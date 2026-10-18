@@ -23,8 +23,10 @@ const (
 	cbArticle  = render.ArticleCallbackPrefix // a:<note id>, replaces the message it is pressed in
 	cbBack     = "b:"                         // b:<note id>
 	cbDownload = "d:"                         // d:<note id>
-	cbSuggest  = "e:"                         // e:<note id>
-	cbAddTopic = "n:"                         // n:<grade id>
+	cbReport   = "e:"                         // e:<note id>, «Сообщить об ошибке» under a note
+	// n:<grade id>, «Сообщить об ошибке» under a topic list, for something
+	// missing in the grade; earlier versions had «Добавить тему» here.
+	cbReportGrade = "n:"
 )
 
 func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
@@ -111,21 +113,21 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.answer(ctx, q, "", false)
 		b.sendMarkdownFile(ctx, msg.Chat.ID, n)
 
-	case strings.HasPrefix(data, cbSuggest):
-		n := note(cbSuggest)
+	case strings.HasPrefix(data, cbReport):
+		n := note(cbReport)
 		if n == nil {
 			b.answer(ctx, q, b.t.NotFound, true)
 			return
 		}
-		b.startSuggestion(ctx, q, msg.Chat.ID, n)
+		b.startReport(ctx, q, msg.Chat.ID, n)
 
-	case strings.HasPrefix(data, cbAddTopic):
-		g := cat.Grade(strings.TrimPrefix(data, cbAddTopic))
+	case strings.HasPrefix(data, cbReportGrade):
+		g := cat.Grade(strings.TrimPrefix(data, cbReportGrade))
 		if g == nil {
 			b.answer(ctx, q, b.t.NotFound, true)
 			return
 		}
-		b.startNewTopic(ctx, q, msg.Chat.ID, g)
+		b.startGradeReport(ctx, q, msg.Chat.ID, g)
 
 	case strings.HasPrefix(data, cbPin):
 		n := note(cbPin)
@@ -158,9 +160,6 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.answer(ctx, q, "", false)
 		b.retire(ctx, msg)
 
-	case strings.HasPrefix(data, cbRequest):
-		b.requestAccess(ctx, q, msg, strings.TrimPrefix(data, cbRequest))
-
 	case data == cbHistory:
 		b.answer(ctx, q, "", false)
 		b.showHistory(ctx, msg.Chat.ID, &q.From)
@@ -172,23 +171,24 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 	case strings.HasPrefix(data, cbEmoji):
 		b.onEmojiWizardCallback(ctx, q, msg)
 
-	case strings.HasPrefix(data, cbAllow), strings.HasPrefix(data, cbDeny):
-		b.decideAccess(ctx, q, msg, data)
-
 	case data == cbCancel:
 		b.answer(ctx, q, "", false)
 		// A dialog's «Отмена» takes all its messages with it; a stale one
 		// just goes.
-		if !b.cancelSuggestion(ctx, msg.Chat.ID, q.From.ID) {
+		if !b.cancelDialog(ctx, msg.Chat.ID, q.From.ID) {
 			b.retire(ctx, msg)
 		}
 
-	case data == cbFix, data == cbReport, data == cbSend, data == cbAddNote,
-		strings.HasPrefix(data, cbSection), strings.HasPrefix(data, cbKind), strings.HasPrefix(data, cbParent):
+	case data == cbSend:
 		b.onDialogCallback(ctx, q, msg)
 
 	default:
+		// Buttons of earlier versions, such as «Исправить текст», and
+		// stale ones lose their keyboard.
 		b.answer(ctx, q, "", false)
+		if msg.ReplyMarkup != nil && len(msg.ReplyMarkup.InlineKeyboard) > 0 {
+			b.dropButtonsOf(ctx, msg)
+		}
 	}
 }
 
@@ -242,9 +242,9 @@ func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyb
 // button style, msg is the menu to edit; nil replaces the current menu.
 // A topic opens in place of the list either way.
 func (b *Bot) showGrade(ctx context.Context, chatID int64, msg *models.Message, g *content.Grade) {
-	addTopic := b.host != nil
+	report := b.host != nil
 	if b.settings.Get().TopicList() == settings.TopicListButtons {
-		text, kb := gradeView(b.t, g, addTopic)
+		text, kb := gradeView(b.t, g, report)
 		if msg != nil {
 			b.editMenu(ctx, chatID, msg.ID, text, kb)
 		} else {
@@ -253,7 +253,7 @@ func (b *Bot) showGrade(ctx context.Context, chatID int64, msg *models.Message, 
 		return
 	}
 	header := fmt.Sprintf(b.t.TopicsHeader, g.Subject.Name, g.Title())
-	b.showRich(ctx, chatID, header, b.topicListMarkdown(g), gradeKeyboard(b.t, g, addTopic))
+	b.showRich(ctx, chatID, header, b.topicListMarkdown(g), gradeKeyboard(b.t, g, report))
 }
 
 // topicLabel names a topic in the list: «§5 Параллельность…» from the
@@ -283,18 +283,18 @@ func (b *Bot) topicListMarkdown(g *content.Grade) string {
 	return sb.String()
 }
 
-// gradeKeyboard goes under the topic list: «Добавить тему» when
-// suggestions are on, and «Назад».
-func gradeKeyboard(t i18n.Strings, g *content.Grade, addTopic bool) *models.InlineKeyboardMarkup {
+// gradeKeyboard goes under the topic list: «Сообщить об ошибке» when
+// reports are on, and «Назад».
+func gradeKeyboard(t i18n.Strings, g *content.Grade, report bool) *models.InlineKeyboardMarkup {
 	var rows [][]models.InlineKeyboardButton
-	if addTopic {
-		rows = append(rows, row(button(t.AddTopic, cbAddTopic+g.ID)))
+	if report {
+		rows = append(rows, row(button(t.ReportError, cbReportGrade+g.ID)))
 	}
 	return keyboard(append(rows, row(button(t.Back, cbSubject+g.Subject.ID)))...)
 }
 
 // gradeView is the button style of the topic list.
-func gradeView(t i18n.Strings, g *content.Grade, addTopic bool) (string, *models.InlineKeyboardMarkup) {
+func gradeView(t i18n.Strings, g *content.Grade, report bool) (string, *models.InlineKeyboardMarkup) {
 	text := fmt.Sprintf(t.TopicsHeader, g.Subject.Name, g.Title()) + "\n\n" + t.ChooseTopic
 	if len(g.Topics) == 0 {
 		text += "\n\n" + t.NoTopics
@@ -303,7 +303,7 @@ func gradeView(t i18n.Strings, g *content.Grade, addTopic bool) (string, *models
 	for _, tp := range g.Topics {
 		rows = append(rows, row(button(topicLabel(tp), cbArticle+tp.Main.ID)))
 	}
-	rows = append(rows, gradeKeyboard(t, g, addTopic).InlineKeyboard...)
+	rows = append(rows, gradeKeyboard(t, g, report).InlineKeyboard...)
 	return text, keyboard(rows...)
 }
 
@@ -324,7 +324,7 @@ func articleKeyboard(t i18n.Strings, n *content.Note, pinned, fromPins bool, pin
 	pin.IconCustomEmojiID = pinIcon
 	return keyboard(
 		row(button(t.Back, back+n.ID)),
-		row(button(t.SuggestEdit, cbSuggest+n.ID), button(t.DownloadMD, cbDownload+n.ID)),
+		row(button(t.ReportError, cbReport+n.ID), button(t.DownloadMD, cbDownload+n.ID)),
 		row(pin),
 	)
 }

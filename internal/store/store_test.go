@@ -31,7 +31,7 @@ func TestUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Username != "new" || u.MergedCount != 0 {
+	if u.Username != "new" || u.Accepted != 0 {
 		t.Errorf("user = %+v", u)
 	}
 }

@@ -18,9 +18,10 @@ const (
 	StatusClosed = "closed"
 )
 
-// Suggestion is an edit proposed by a user, submitted as a pull request,
-// or an error report, submitted as an issue. PRNumber holds the issue
-// number for reports; both hosts number issues and pull requests together.
+// Suggestion is an error report, submitted as an issue. Edits and new
+// topics, submitted as pull requests by earlier versions, stay in the
+// user's history. PRNumber holds the issue number for reports; both hosts
+// number issues and pull requests together.
 type Suggestion struct {
 	ID          int64
 	ShortID     string
@@ -137,57 +138,31 @@ func (s *Store) OpenSuggestions(ctx context.Context) ([]Suggestion, error) {
 }
 
 // AcceptLate turns a report that was closed without being accepted into an
-// accepted one, when the label is added afterwards. It increments the
-// author's merged count and reports false if there was nothing to change.
+// accepted one, when the label is added afterwards. It reports false if
+// there was nothing to change.
 func (s *Store) AcceptLate(ctx context.Context, id int64) (bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE suggestions SET status = 'merged', resolved_at = ?
 		WHERE id = ? AND status = 'closed' AND kind = 'report'`, s.now().Unix(), id)
 	if err != nil {
 		return false, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return false, nil
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE users SET merged_count = merged_count + 1
-		WHERE tg_id = (SELECT tg_id FROM suggestions WHERE id = ?)`, id); err != nil {
-		return false, err
-	}
-	return true, tx.Commit()
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
-// ResolveSuggestion marks an open suggestion as merged or closed. Merging
-// increments the author's merged count. It reports false if the suggestion
-// was already resolved, so repeated webhook deliveries are harmless.
+// ResolveSuggestion marks an open suggestion as merged (accepted) or
+// closed. It reports false if the suggestion was already resolved, so
+// repeated webhook deliveries are harmless.
 func (s *Store) ResolveSuggestion(ctx context.Context, id int64, status string) (bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE suggestions SET status = ?, resolved_at = ? WHERE id = ? AND status = 'open'`,
 		status, s.now().Unix(), id)
 	if err != nil {
 		return false, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return false, nil
-	}
-	if status == StatusMerged {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE users SET merged_count = merged_count + 1
-			WHERE tg_id = (SELECT tg_id FROM suggestions WHERE id = ?)`, id); err != nil {
-			return false, err
-		}
-	}
-	return true, tx.Commit()
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // SuggestQuota returns how many of the user's suggestions are open and when

@@ -21,8 +21,8 @@ func TestSuggestionLifecycle(t *testing.T) {
 		t.Fatalf("quota = %d, %v, %v", open, last, err)
 	}
 
-	sg := &Suggestion{ShortID: "abc123", TgID: 42, Kind: KindEdit, ArticlePath: "content/geometry/7/a.md", Title: "A",
-		BaseSHA: "deadbeef", Branch: "suggest/42-a-abc123", PRNumber: 7, PRURL: "https://host/pr/7"}
+	sg := &Suggestion{ShortID: "abc123", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/a.md", Title: "A",
+		BaseSHA: "deadbeef", Branch: "report/42-a-abc123", PRNumber: 7, PRURL: "https://host/issues/7"}
 	if err := s.CreateSuggestion(ctx, sg); err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +49,12 @@ func TestSuggestionLifecycle(t *testing.T) {
 		t.Fatalf("second resolve = %v, %v", changed, err)
 	}
 	u, _ := s.User(ctx, 42)
-	if u.MergedCount != 1 {
-		t.Errorf("merged count = %d, want 1", u.MergedCount)
+	if u.Accepted != 1 {
+		t.Errorf("accepted = %d, want 1", u.Accepted)
 	}
 
-	closed := &Suggestion{ShortID: "def456", TgID: 42, Kind: KindNew, ArticlePath: "content/geometry/7/b.md",
-		BaseSHA: "deadbeef", Branch: "suggest/42-b-def456", PRNumber: 8}
+	closed := &Suggestion{ShortID: "def456", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/b.md",
+		BaseSHA: "deadbeef", PRNumber: 8}
 	if err := s.CreateSuggestion(ctx, closed); err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +63,25 @@ func TestSuggestionLifecycle(t *testing.T) {
 	}
 	u, _ = s.User(ctx, 42)
 	open, _, _ = s.SuggestQuota(ctx, 42)
-	if u.MergedCount != 1 || open != 0 {
-		t.Errorf("after close: merged %d open %d", u.MergedCount, open)
+	if u.Accepted != 1 || open != 0 {
+		t.Errorf("after close: accepted %d open %d", u.Accepted, open)
+	}
+
+	// Edits from earlier versions stay in the history but do not count.
+	edit := &Suggestion{ShortID: "e1", TgID: 42, Kind: KindEdit, ArticlePath: "content/geometry/7/c.md",
+		BaseSHA: "deadbeef", Branch: "suggest/42-c-e1", PRNumber: 9}
+	s.CreateSuggestion(ctx, edit)
+	s.ResolveSuggestion(ctx, edit.ID, StatusMerged)
+	u, _ = s.User(ctx, 42)
+	all, _ := s.UserSuggestions(ctx, 42)
+	if u.Accepted != 1 || len(all) != 3 || all[0].Kind != KindEdit || all[0].ResolvedAt.IsZero() {
+		t.Errorf("with an edit: accepted %d, history %+v", u.Accepted, all)
+	}
+	if err := s.SetSuggestionComment(ctx, closed.ID, "Слишком коротко."); err != nil {
+		t.Fatal(err)
+	}
+	if sg, _ := s.SuggestionByNumber(ctx, 8); sg.Comment != "Слишком коротко." {
+		t.Errorf("comment = %q", sg.Comment)
 	}
 }
 
@@ -98,8 +115,8 @@ func TestReports(t *testing.T) {
 	if ok, _ := s.AcceptLate(ctx, rep.ID); ok {
 		t.Error("accepted twice")
 	}
-	if u, _ := s.User(ctx, 42); u.MergedCount != 1 {
-		t.Errorf("merged count = %d", u.MergedCount)
+	if u, _ := s.User(ctx, 42); u.Accepted != 1 {
+		t.Errorf("accepted = %d", u.Accepted)
 	}
 	if list, _ := s.OpenSuggestions(ctx); len(list) != 0 {
 		t.Errorf("open after resolve = %+v", list)

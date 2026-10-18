@@ -296,16 +296,3 @@ func TestSplitBacklink(t *testing.T) {
 		}
 	}
 }
-
-func TestSafeFileName(t *testing.T) {
-	for in, want := range map[string]string{
-		"Теорема: о «трёх» точках?": "Теорема о «трёх» точках",
-		"  a/b\\c  ":        "abc",
-		"Конец...":          "Конец",
-		"Сумма углов (5.3)": "Сумма углов (5.3)",
-	} {
-		if got := SafeFileName(in); got != want {
-			t.Errorf("SafeFileName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}

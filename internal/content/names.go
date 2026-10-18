@@ -54,9 +54,6 @@ var kindLabels = map[string]string{
 	"следствия":   "Следствие",
 }
 
-// Kinds a new note can be created as, in menu order, with their folders.
-var Kinds = []string{"теоремы", "аксиомы", "определения", "задачи", "следствия"}
-
 // KindLabel returns the label of a kind folder: «Теорема» for теоремы, the
 // capitalized folder name for folders it does not know.
 func KindLabel(kind string) string {
@@ -65,9 +62,6 @@ func KindLabel(kind string) string {
 	}
 	return capitalize(kind)
 }
-
-// KindHeading is the main page section for a kind: «Теоремы».
-func KindHeading(kind string) string { return capitalize(kind) }
 
 func capitalize(s string) string {
 	r, n := utf8.DecodeRuneInString(s)
@@ -132,20 +126,4 @@ func ID(rel string) string {
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "/")))
 	return base64.RawURLEncoding.EncodeToString(sum[:])[:11]
-}
-
-// illegalName are characters Windows or macOS do not allow in file names.
-var illegalName = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
-
-// SafeFileName turns a title into a file name stem that works on Windows
-// and macOS: illegal characters removed, spaces collapsed, no trailing dots
-// or spaces.
-func SafeFileName(title string) string {
-	s := illegalName.ReplaceAllString(title, "")
-	s = strings.Join(strings.Fields(s), " ")
-	s = strings.TrimRight(s, ". ")
-	if r := []rune(s); len(r) > 120 {
-		s = strings.TrimRight(string(r[:120]), ". ")
-	}
-	return s
 }

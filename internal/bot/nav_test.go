@@ -62,7 +62,7 @@ func TestViews(t *testing.T) {
 
 	// Under every note, the main page included: back, suggest, download,
 	// pin; no buttons for the topic's notes.
-	if got := strings.Join(labels(articleKeyboard(tr, main, false, false, "")), ","); got != "« Назад,Предложить правку,Скачать,Закрепить" {
+	if got := strings.Join(labels(articleKeyboard(tr, main, false, false, "")), ","); got != "« Назад,Сообщить об ошибке,Скачать,Закрепить" {
 		t.Errorf("note keyboard = %q", got)
 	}
 	kb = articleKeyboard(tr, main, true, true, "")
@@ -74,16 +74,11 @@ func TestViews(t *testing.T) {
 func TestCallbackDataFits(t *testing.T) {
 	cat := loadExamples(t)
 	for _, n := range cat.Notes() {
-		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true, "")), cbParent+n.ID, cbOpen+n.ID, cbFromPins+n.ID,
-			cbAllow+"-9223372036854775808", cbRequest+n.ID) {
+		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true, "")), cbOpen+n.ID, cbFromPins+n.ID,
+			cbReportGrade+n.Grade().ID) {
 			if len(d) > 64 {
 				t.Errorf("callback %q is %d bytes", d, len(d))
 			}
-		}
-	}
-	for _, k := range content.Kinds {
-		if len(cbKind+"99") > 64 || len(content.KindLabel(k)) == 0 {
-			t.Error(k)
 		}
 	}
 }

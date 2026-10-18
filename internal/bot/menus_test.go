@@ -111,12 +111,11 @@ func TestKeyButtons(t *testing.T) {
 	}
 
 	// The keyboard does not disturb a dialog: the tap is not taken as the
-	// edited text.
+	// description.
 	h.tap("e:" + h.id(triangles))
-	h.tap(cbFix)
 	h.tg.take()
 	h.say(i18n.RU.KeyAccount)
-	if d := h.bot.mustDialog(t); d.ses.State != stateEditText || d.p.Text != "" {
+	if d := h.bot.mustDialog(t); d.ses.State != stateReport || d.p.Text != "" {
 		t.Errorf("dialog = %s %q", d.ses.State, d.p.Text)
 	}
 }
@@ -192,18 +191,26 @@ func TestPins(t *testing.T) {
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
 	h.setRanks("Novice:0,Pupil:1,Student:3,Scholar:15")
-	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 правка\n\nПринято правок: 0  \nНа рассмотрении: 0"
+	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
 	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
 
-	for n := 1; n <= 2; n++ {
-		h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: store.KindEdit, PRNumber: n})
+	// Accepted reports count; an accepted edit of an earlier version does
+	// not.
+	for n, kind := range []string{store.KindReport, store.KindReport, store.KindEdit} {
+		h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, PRNumber: n + 1})
 	}
-	sg, _ := h.store.SuggestionByNumber(h.ctx, 1)
-	h.store.ResolveSuggestion(h.ctx, sg.ID, store.StatusMerged)
-	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 правки\n\nПринято правок: 1  \nНа рассмотрении: 1") {
+	for _, n := range []int{1, 3} {
+		sg, _ := h.store.SuggestionByNumber(h.ctx, n)
+		h.store.ResolveSuggestion(h.ctx, sg.ID, store.StatusMerged)
+	}
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 принятых сообщения\n\nПринято сообщений: 1  \nНа рассмотрении: 1") {
 		t.Errorf("after one = %s", got)
+	}
+	h.setRanks("Novice:0,Pupil:1,Student:6")
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "ещё 5 принятых сообщений\n") {
+		t.Errorf("five left = %s", got)
 	}
 	h.setRanks("Novice:0,Pupil:1")
 	got := h.bot.accountMarkdown(h.ctx, &anya)
@@ -229,7 +236,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 	calls := h.tg.take()
 	acc := lastRich(t, calls)
 	if !strings.HasPrefix(acc.params["rich_message"], `{"markdown":"# Аня`) ||
-		!strings.Contains(acc.params["reply_markup"], `"Список правок","callback_data":"hl"`) ||
+		!strings.Contains(acc.params["reply_markup"], `"Мои сообщения","callback_data":"hl"`) ||
 		!strings.Contains(acc.params["reply_markup"], `"Закрыть","callback_data":"c"`) {
 		t.Fatalf("account = %+v", acc.params)
 	}
@@ -272,7 +279,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 
 func TestHistory(t *testing.T) {
 	h := newHarness(t, nil)
-	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Список правок\n\n## На рассмотрении\n\nПока нет\n\n---\n\n## Приняты\n\nПока нет\n\n---\n\n## Отклонены\n\nПока нет\n" {
+	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Мои сообщения\n\n## На рассмотрении\n\nПока нет\n\n---\n\n## Приняты\n\nПока нет\n\n---\n\n## Отклонены\n\nПока нет\n" {
 		t.Errorf("empty = %q", got)
 	}
 	add := func(n int, kind, p, title, status, comment string) {
@@ -289,12 +296,14 @@ func TestHistory(t *testing.T) {
 	add(2, store.KindNew, "Геометрия/7 класс/02 Углы/Углы.md", "Углы", store.StatusOpen, "")
 	add(3, store.KindNew, vtopic+"/задачи/Новая [задача].md", "Новая [задача]", store.StatusClosed, "Нужен\nчертёж $")
 	add(4, store.KindReport, vmain, "Параллельность прямой и плоскости", store.StatusOpen, "")
+	add(5, store.KindReport, "Геометрия/7 класс", "Геометрия · 7 класс", store.StatusMerged, "")
 	got := h.bot.historyMarkdown(h.ctx, 42)
 	today := h.bot.date(time.Now())
 	for _, want := range []string{
 		"## На рассмотрении\n\n- [Параллельность прямой и плоскости](" + suggest.LinkTarget(vmain) + ") — ошибка, " + today +
 			"\n- Углы — новая тема, " + today + "\n\n---\n\n## Приняты",
-		"## Приняты\n\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — правка, " + today + "\n",
+		"## Приняты\n\n- Геометрия · 7 класс — не хватает материала, " + today +
+			"\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — правка, " + today + "\n",
 		"## Отклонены\n\n- Новая \\[задача\\] — новая запись, " + today + "\n  Комментарий: «Нужен чертёж \\$»\n",
 	} {
 		if !strings.Contains(got, want) {
@@ -302,7 +311,7 @@ func TestHistory(t *testing.T) {
 		}
 	}
 	// Rendered, the links are buttons.
-	n := &content.Note{Title: "Список правок", Body: got}
+	n := &content.Note{Title: "Мои сообщения", Body: got}
 	md := render.Convert(h.bot.catalog(), n, render.Options{}).Parts[0].Markdown
 	if !strings.Contains(md, `data="a:`+h.id(triangles)+`">Треугольники</tg-button>`) {
 		t.Errorf("rendered = %s", md)
@@ -314,9 +323,10 @@ func TestHistory(t *testing.T) {
 }
 
 func TestPlural(t *testing.T) {
-	forms := i18n.RU.Edits
-	for n, want := range map[int]string{0: "правок", 1: "правка", 2: "правки", 4: "правки", 5: "правок", 11: "правок",
-		12: "правок", 21: "правка", 22: "правки", 111: "правок", 101: "правка"} {
+	forms := i18n.RU.Reports
+	one, few, many := "принятое сообщение", "принятых сообщения", "принятых сообщений"
+	for n, want := range map[int]string{0: many, 1: one, 2: few, 4: few, 5: many, 11: many,
+		12: many, 21: one, 22: few, 111: many, 101: one} {
 		if got := plural(n, forms); got != want {
 			t.Errorf("plural(%d) = %s, want %s", n, got, want)
 		}
