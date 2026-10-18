@@ -169,6 +169,9 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.answer(ctx, q, "", false)
 		b.showAccount(ctx, msg.Chat.ID, &q.From)
 
+	case strings.HasPrefix(data, cbEmoji):
+		b.onEmojiWizardCallback(ctx, q, msg)
+
 	case strings.HasPrefix(data, cbAllow), strings.HasPrefix(data, cbDeny):
 		b.decideAccess(ctx, q, msg, data)
 
@@ -196,18 +199,21 @@ func (b *Bot) homeView(ctx context.Context, from *models.User) (string, *models.
 	if _, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName); err != nil {
 		b.log.Error("touch user", "err", err)
 	}
-	return homeView(b.t, b.catalog())
+	return homeView(b.t, b.catalog(), b.emoji.Subject)
 }
 
-// homeView is the subject list. The greeting and the rank are elsewhere:
-// in the /start message and under «Аккаунт».
-func homeView(t i18n.Strings, cat *content.Catalog) (string, *models.InlineKeyboardMarkup) {
+// homeView is the subject list; icon gives a subject's custom emoji. The
+// greeting and the rank are elsewhere: in the /start message and under
+// «Аккаунт».
+func homeView(t i18n.Strings, cat *content.Catalog, icon func(subject string) string) (string, *models.InlineKeyboardMarkup) {
 	if len(cat.Subjects) == 0 {
 		return t.NoSubjects, keyboard()
 	}
 	var rows [][]models.InlineKeyboardButton
 	for _, s := range cat.Subjects {
-		rows = append(rows, row(button(s.Name, cbSubject+s.ID)))
+		btn := button(s.Name, cbSubject+s.ID)
+		btn.IconCustomEmojiID = icon(s.Name)
+		rows = append(rows, row(btn))
 	}
 	return t.ChooseSubject, keyboard(rows...)
 }
@@ -248,19 +254,22 @@ func gradeView(t i18n.Strings, g *content.Grade) (string, *models.InlineKeyboard
 // articleKeyboard goes under the last part of every note. The notes of a
 // topic are reached through the links on its main page. A note opened
 // from the pinned list goes back to the list.
-func articleKeyboard(t i18n.Strings, n *content.Note, pinned, fromPins bool) *models.InlineKeyboardMarkup {
+// pinIcon is the custom emoji of the pin button, or "" for the plain one.
+func articleKeyboard(t i18n.Strings, n *content.Note, pinned, fromPins bool, pinIcon string) *models.InlineKeyboardMarkup {
 	back := cbBack
 	if fromPins {
 		back = cbBackPins
 	}
-	pin := t.Pin
+	label := t.Pin
 	if pinned {
-		pin = t.Unpin
+		label = t.Unpin
 	}
+	pin := button(label, cbPin+n.ID)
+	pin.IconCustomEmojiID = pinIcon
 	return keyboard(
 		row(button(t.Back, back+n.ID)),
 		row(button(t.SuggestEdit, cbSuggest+n.ID), button(t.DownloadMD, cbDownload+n.ID)),
-		row(button(pin, cbPin+n.ID)),
+		row(pin),
 	)
 }
 

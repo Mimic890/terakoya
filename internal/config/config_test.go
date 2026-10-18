@@ -27,8 +27,8 @@ func TestFileThenEnv(t *testing.T) {
 	if cfg.RepoBranch != "main" || cfg.RepoDir != "./content" || cfg.Resvg != "resvg" {
 		t.Errorf("defaults not applied: %+v", cfg)
 	}
-	if len(cfg.Ladder) != 2 || cfg.Ladder.For(1).Title != "b" {
-		t.Errorf("ladder = %+v", cfg.Ladder)
+	if cfg.LegacyRanks != "a:0,b:1" {
+		t.Errorf("legacy ranks = %q", cfg.LegacyRanks)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestExampleFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := Default()
-	if cfg.RepoDir != def.RepoDir || cfg.Ranks != def.Ranks || cfg.DataDir != def.DataDir {
+	if cfg.RepoDir != def.RepoDir || cfg.LegacyRanks != "" || cfg.DataDir != def.DataDir {
 		t.Errorf("example file differs from defaults: %+v", cfg)
 	}
 }

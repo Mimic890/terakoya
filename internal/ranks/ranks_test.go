@@ -26,9 +26,21 @@ func TestNext(t *testing.T) {
 }
 
 func TestParseErrors(t *testing.T) {
-	for _, s := range []string{"", "a:1", "a", "a:0,b:x", "a:0,b:0", "a:-1"} {
+	for _, s := range []string{"", "a:1", "a", "a:0,b:x", "a:0,b:0", "a:-1", "a:0,a:1", ":0"} {
 		if _, err := Parse(s); err == nil {
 			t.Errorf("Parse(%q) succeeded", s)
+		}
+	}
+}
+
+func TestValidate(t *testing.T) {
+	for _, l := range []Ladder{
+		{{Title: "a", From: 0}, {Title: "b", From: 2}, {Title: "c", From: 1}},
+		{{Title: "a", From: 1}},
+		{},
+	} {
+		if err := l.Validate(); err == nil {
+			t.Errorf("%v accepted", l)
 		}
 	}
 }

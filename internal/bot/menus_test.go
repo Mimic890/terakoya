@@ -10,7 +10,6 @@ import (
 
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
-	"github.com/Mimic890/terakoya/internal/ranks"
 	"github.com/Mimic890/terakoya/internal/render"
 	"github.com/Mimic890/terakoya/internal/store"
 	"github.com/Mimic890/terakoya/internal/suggest"
@@ -192,7 +191,7 @@ func TestPins(t *testing.T) {
 
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
-	h.bot.cfg.Ladder, _ = ranks.Parse("Novice:0,Pupil:1,Student:3,Scholar:15")
+	h.setRanks("Novice:0,Pupil:1,Student:3,Scholar:15")
 	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 правка\n\nПринято правок: 0  \nНа рассмотрении: 0"
 	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
@@ -206,7 +205,7 @@ func TestAccount(t *testing.T) {
 	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 правки\n\nПринято правок: 1  \nНа рассмотрении: 1") {
 		t.Errorf("after one = %s", got)
 	}
-	h.bot.cfg.Ladder, _ = ranks.Parse("Novice:0,Pupil:1")
+	h.setRanks("Novice:0,Pupil:1")
 	got := h.bot.accountMarkdown(h.ctx, &anya)
 	if !strings.Contains(got, "Это высший ранг") || strings.Contains(got, "Pupil:") || strings.Contains(got, "Уровень прав") {
 		t.Errorf("top rank = %s", got)

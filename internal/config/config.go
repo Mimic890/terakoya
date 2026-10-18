@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/Mimic890/terakoya/internal/ranks"
 )
 
 // Config holds every option. The env tag names the environment variable,
@@ -56,16 +54,18 @@ type Config struct {
 
 	DataDir     string `yaml:"data_dir" env:"TERAKOYA_DATA_DIR"`
 	CacheChatID int64  `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
-	Ranks       string `yaml:"ranks" env:"TERAKOYA_RANKS"`
 	LogLevel    string `yaml:"log_level" env:"TERAKOYA_LOG_LEVEL"`
 
 	// AdminIDs lists the Telegram user IDs, comma-separated, of the admins
 	// who grant edit access.
 	AdminIDs string `yaml:"admin_ids" env:"TERAKOYA_ADMIN_IDS"`
 
-	// Ladder is parsed from Ranks, Admins from AdminIDs.
-	Ladder ranks.Ladder `yaml:"-"`
-	Admins []int64      `yaml:"-"`
+	// LegacyRanks is the old TERAKOYA_RANKS; ranks are now in the
+	// settings file, which it seeds once.
+	LegacyRanks string `yaml:"ranks" env:"TERAKOYA_RANKS"`
+
+	// Admins is parsed from AdminIDs.
+	Admins []int64 `yaml:"-"`
 }
 
 // Default returns the built-in defaults.
@@ -83,7 +83,6 @@ func Default() Config {
 		SuggestMaxOpen:  5,
 		SuggestMaxBytes: 256 << 10,
 		ImageMaxBytes:   5 << 20,
-		Ranks:           ranks.Default,
 		LogLevel:        "info",
 		Resvg:           "resvg",
 	}
@@ -106,11 +105,7 @@ func Load(path string) (Config, error) {
 	if err := applyEnv(&cfg, os.LookupEnv); err != nil {
 		return cfg, err
 	}
-	ladder, err := ranks.Parse(cfg.Ranks)
-	if err != nil {
-		return cfg, fmt.Errorf("ranks: %w", err)
-	}
-	cfg.Ladder = ladder
+	var err error
 	if cfg.Admins, err = parseIDs(cfg.AdminIDs); err != nil {
 		return cfg, fmt.Errorf("TERAKOYA_ADMIN_IDS: %w", err)
 	}
@@ -219,4 +214,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("TERAKOYA_GIT_REPO must be owner/name")
 	}
 	return nil
+}
+
+// SettingsPath is the settings file the bot keeps in its data directory.
+func (c Config) SettingsPath() string {
+	return filepath.Join(c.DataDir, "settings.yml")
 }
