@@ -76,7 +76,10 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 
 // Run polls Telegram for updates and syncs content until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
-	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil)
+	b.log.Info("bot started", "username", b.cfg.BotUsername, "suggestions", b.host != nil, "admins", len(b.cfg.Admins))
+	if b.host != nil && len(b.cfg.Admins) == 0 {
+		b.log.Warn("TERAKOYA_ADMIN_IDS is empty: nobody can be granted edit access; error reports still work")
+	}
 	go b.syncLoop(ctx)
 	b.api.Start(ctx)
 }
