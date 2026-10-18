@@ -4,10 +4,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-telegram/bot/models"
+
+	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/ranks"
+	"github.com/Mimic890/terakoya/internal/render"
 	"github.com/Mimic890/terakoya/internal/store"
+	"github.com/Mimic890/terakoya/internal/suggest"
 )
 
 // lastRich returns the last sendRichMessage call.
@@ -44,7 +50,7 @@ func TestStartSetsKeyboard(t *testing.T) {
 		}
 		sent++
 		if sent == 1 {
-			if c.params["text"] != "Привет, Аня! Это Теракоя — школьный справочник, который пишут сами пользователи." {
+			if c.params["text"] != "Привет, Аня! Это terakoya — школьный справочник, который пишут сами пользователи." {
 				t.Errorf("greeting = %q", c.params["text"])
 			}
 			kb := c.params["reply_markup"]
@@ -186,14 +192,10 @@ func TestPins(t *testing.T) {
 
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
-	h.bot.cfg.Ladder, _ = ranks.Parse("Novice:0,Pupil:1,Student:3")
-	text, kb := h.bot.accountView(h.ctx, &anya)
-	want := "👤 Аня\n\nРанг: Novice\nПринято правок: 0\nДо ранга Pupil: ещё 1 ▱▱▱▱▱▱▱\nПредложения на рассмотрении: 0\nПравка: разрешена"
-	if text != want {
-		t.Errorf("account =\n%s\nwant\n%s", text, want)
-	}
-	if strings.Join(callbacks(kb), " ") != cbClose {
-		t.Errorf("buttons = %v", callbacks(kb))
+	h.bot.cfg.Ladder, _ = ranks.Parse("Novice:0,Pupil:1,Student:3,Scholar:15")
+	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 правка\n\nПринято правок: 0  \nНа рассмотрении: 0"
+	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
+		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
 
 	for n := 1; n <= 2; n++ {
@@ -201,38 +203,119 @@ func TestAccount(t *testing.T) {
 	}
 	sg, _ := h.store.SuggestionByNumber(h.ctx, 1)
 	h.store.ResolveSuggestion(h.ctx, sg.ID, store.StatusMerged)
-	text, _ = h.bot.accountView(h.ctx, &anya)
-	if !strings.Contains(text, "Ранг: Pupil\nПринято правок: 1\nДо ранга Student: ещё 2 ▱▱▱▱▱▱▱\nПредложения на рассмотрении: 1") {
-		t.Errorf("after one = %s", text)
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 правки\n\nПринято правок: 1  \nНа рассмотрении: 1") {
+		t.Errorf("after one = %s", got)
 	}
-
-	// The others: no access yet, then pending; the admin.
-	text, kb = h.bot.accountView(h.ctx, &boris)
-	if !strings.HasSuffix(text, "Правка: нет доступа") || strings.Join(callbacks(kb), " ") != cbRequestAcc+" "+cbClose {
-		t.Errorf("boris = %q %v", text, callbacks(kb))
+	h.bot.cfg.Ladder, _ = ranks.Parse("Novice:0,Pupil:1")
+	got := h.bot.accountMarkdown(h.ctx, &anya)
+	if !strings.Contains(got, "Это высший ранг") || strings.Contains(got, "Pupil:") || strings.Contains(got, "Уровень прав") {
+		t.Errorf("top rank = %s", got)
 	}
-	h.as(boris)
-	h.tapOn(800, cbRequestAcc)
-	calls := h.tg.take()
-	if got := toasts(calls); len(got) != 1 || got[0] != i18n.RU.AccessRequested {
-		t.Errorf("toast = %q", got)
-	}
-	if e := to(calls, "editMessageText", boris.ID); len(e) != 1 || !strings.HasSuffix(e[0].params["text"], "Правка: запрос на рассмотрении") ||
-		strings.Contains(e[0].params["reply_markup"], cbRequestAcc) {
-		t.Errorf("refreshed = %+v", e)
-	}
-	if text, _ = h.bot.accountView(h.ctx, &ivan); !strings.HasSuffix(text, "Правка: администратор") {
-		t.Errorf("admin = %q", text)
+	// Only admins see their level; names are literal.
+	admin := models.User{ID: ivan.ID, FirstName: "*Иван*"}
+	if got := h.bot.accountMarkdown(h.ctx, &admin); !strings.HasPrefix(got, "# \\*Иван\\*\n") ||
+		!strings.HasSuffix(got, "На рассмотрении: 0  \nУровень прав: admin") {
+		t.Errorf("admin = %s", got)
 	}
 }
 
-func TestProgress(t *testing.T) {
-	for _, c := range []struct {
-		done, total int
-		want        string
-	}{{0, 1, "▱▱▱▱▱▱▱"}, {1, 2, "▰▰▰▱▱▱▱"}, {2, 2, "▰▰▰▰▰▰▰"}, {5, 0, "▱▱▱▱▱▱▱"}} {
-		if got := progress(c.done, c.total); got != c.want {
-			t.Errorf("progress(%d, %d) = %s, want %s", c.done, c.total, got, c.want)
+func TestAccountAndHistoryMessages(t *testing.T) {
+	h := newHarness(t, nil)
+	h.say("/start")
+	h.tg.take()
+
+	// «Аккаунт» is a rich message that replaces the subject list.
+	menu := h.bot.msgs.menu(h.ctx, 42)
+	h.say(i18n.RU.KeyAccount)
+	calls := h.tg.take()
+	acc := lastRich(t, calls)
+	if !strings.HasPrefix(acc.params["rich_message"], `{"markdown":"# Аня`) ||
+		!strings.Contains(acc.params["reply_markup"], `"Список правок","callback_data":"hl"`) ||
+		!strings.Contains(acc.params["reply_markup"], `"Закрыть","callback_data":"c"`) {
+		t.Fatalf("account = %+v", acc.params)
+	}
+	if got := ids(calls, "deleteMessage"); len(got) != 2 || got[1] != fmt.Sprint(menu) {
+		t.Errorf("deleted %v, want the tap and the menu %d", got, menu)
+	}
+	accID := h.tg.lastID("sendRichMessage")
+
+	// The list replaces it; «Назад» brings it back.
+	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "a", TgID: 42, Kind: store.KindEdit, PRNumber: 1,
+		ArticlePath: triangles, Title: "Треугольники"})
+	h.tapOn(accID, cbHistory)
+	calls = h.tg.take()
+	list := lastRich(t, calls)
+	if !strings.Contains(list.params["rich_message"], `data=\"a:`+h.id(triangles)+`\"`) ||
+		!strings.Contains(list.params["reply_markup"], `"callback_data":"ac"`) {
+		t.Errorf("list = %+v", list.params)
+	}
+	if got := ids(calls, "deleteMessage"); len(got) != 1 || got[0] != fmt.Sprint(accID) {
+		t.Errorf("deleted %v, want the account %d", got, accID)
+	}
+	listID := h.tg.lastID("sendRichMessage")
+	h.tapOn(listID, cbAccount)
+	calls = h.tg.take()
+	if got := ids(calls, "deleteMessage"); len(got) != 1 || got[0] != fmt.Sprint(listID) {
+		t.Errorf("deleted %v, want the list %d", got, listID)
+	}
+
+	// A text menu never edits a rich one: it replaces it.
+	accID = h.tg.lastID("sendRichMessage")
+	h.say(i18n.RU.KeySubjects)
+	calls = h.tg.take()
+	if len(to(calls, "editMessageText", 42)) != 0 || len(texts(calls, "sendMessage")) != 1 {
+		t.Errorf("subjects = %+v", calls)
+	}
+	if got := ids(calls, "deleteMessage"); len(got) != 2 || got[1] != fmt.Sprint(accID) {
+		t.Errorf("deleted %v, want the tap and the account %d", got, accID)
+	}
+}
+
+func TestHistory(t *testing.T) {
+	h := newHarness(t, nil)
+	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Список правок\n\n## На рассмотрении\n\nПока нет\n\n## Приняты\n\nПока нет\n\n## Отклонены\n\nПока нет\n" {
+		t.Errorf("empty = %q", got)
+	}
+	add := func(n int, kind, p, title, status, comment string) {
+		sg := &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, PRNumber: n, ArticlePath: p, Title: title}
+		h.store.CreateSuggestion(h.ctx, sg)
+		if status != store.StatusOpen {
+			h.store.ResolveSuggestion(h.ctx, sg.ID, status)
+		}
+		if comment != "" {
+			h.store.SetSuggestionComment(h.ctx, sg.ID, comment)
+		}
+	}
+	add(1, store.KindEdit, triangles, "Треугольники", store.StatusMerged, "")
+	add(2, store.KindNew, "Геометрия/7 класс/02 Углы/Углы.md", "Углы", store.StatusOpen, "")
+	add(3, store.KindNew, vtopic+"/задачи/Новая [задача].md", "Новая [задача]", store.StatusClosed, "Нужен\nчертёж $")
+	add(4, store.KindReport, vmain, "Параллельность прямой и плоскости", store.StatusOpen, "")
+	got := h.bot.historyMarkdown(h.ctx, 42)
+	today := h.bot.date(time.Now())
+	for _, want := range []string{
+		"## На рассмотрении\n\n- [Параллельность прямой и плоскости](" + suggest.LinkTarget(vmain) + ") — ошибка, " + today +
+			"\n- Углы — новая тема, " + today + "\n\n## Приняты",
+		"## Приняты\n\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — правка, " + today + "\n",
+		"## Отклонены\n\n- Новая \\[задача\\] — новая запись, " + today + "\n  Комментарий: «Нужен чертёж \\$»\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("history has no\n%s\n---\n%s", want, got)
+		}
+	}
+	// Rendered, the links are buttons.
+	n := &content.Note{Title: "Список правок", Body: got}
+	md := render.Convert(h.bot.catalog(), n, render.Options{}).Parts[0].Markdown
+	if !strings.Contains(md, `data="a:`+h.id(triangles)+`">Треугольники</tg-button>`) {
+		t.Errorf("rendered = %s", md)
+	}
+}
+
+func TestPlural(t *testing.T) {
+	forms := i18n.RU.Edits
+	for n, want := range map[int]string{0: "правок", 1: "правка", 2: "правки", 4: "правки", 5: "правок", 11: "правок",
+		12: "правок", 21: "правка", 22: "правки", 111: "правок", 101: "правка"} {
+		if got := plural(n, forms); got != want {
+			t.Errorf("plural(%d) = %s, want %s", n, got, want)
 		}
 	}
 }

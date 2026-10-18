@@ -159,10 +159,15 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.retire(ctx, msg)
 
 	case strings.HasPrefix(data, cbRequest):
-		b.requestAccess(ctx, q, msg, strings.TrimPrefix(data, cbRequest), false)
+		b.requestAccess(ctx, q, msg, strings.TrimPrefix(data, cbRequest))
 
-	case data == cbRequestAcc:
-		b.requestAccess(ctx, q, msg, "", true)
+	case data == cbHistory:
+		b.answer(ctx, q, "", false)
+		b.showHistory(ctx, msg.Chat.ID, &q.From)
+
+	case data == cbAccount:
+		b.answer(ctx, q, "", false)
+		b.showAccount(ctx, msg.Chat.ID, &q.From)
 
 	case strings.HasPrefix(data, cbAllow), strings.HasPrefix(data, cbDeny):
 		b.decideAccess(ctx, q, msg, data)

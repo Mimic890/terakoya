@@ -10,7 +10,9 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/Mimic890/terakoya/internal/content"
+	"github.com/Mimic890/terakoya/internal/render"
 	"github.com/Mimic890/terakoya/internal/store"
+	"github.com/Mimic890/terakoya/internal/suggest"
 )
 
 // The keyboard at the bottom of the chat opens the subject list, the pinned
@@ -23,7 +25,8 @@ const (
 	cbPin       = "p:"  // p:<note id>, toggles the pin
 	cbFromPins  = "pa:" // pa:<note id>, opens a note from the pinned list
 	cbBackPins  = "bp:" // bp:<note id>, «Назад» of a note opened from the list
-	progressLen = 7
+	cbHistory   = "hl"  // «Список правок»
+	cbAccount   = "ac"  // back to «Аккаунт»
 )
 
 func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
@@ -61,12 +64,15 @@ func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
 	case b.t.KeyPinned:
 		text, kb = b.pinsView(ctx, m.From.ID)
 	case b.t.KeyAccount:
-		text, kb = b.accountView(ctx, m.From)
 	default:
 		return false
 	}
 	// The tap would otherwise stay in the chat as the user's message.
 	b.deleteMessage(ctx, m.Chat.ID, m.ID)
+	if m.Text == b.t.KeyAccount {
+		b.showAccount(ctx, m.Chat.ID, m.From)
+		return true
+	}
 	b.replaceMenu(ctx, m.Chat.ID, text, kb)
 	return true
 }
@@ -149,8 +155,9 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 	}
 }
 
-// accountView shows the user's rank, progress and edit access.
-func (b *Bot) accountView(ctx context.Context, from *models.User) (string, *models.InlineKeyboardMarkup) {
+// accountMarkdown is the account page: rank, how far the next one is,
+// accepted and open suggestions, and for admins their level.
+func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
 	if err != nil {
 		b.log.Error("touch user", "err", err)
@@ -161,49 +168,158 @@ func (b *Bot) accountView(ctx context.Context, from *models.User) (string, *mode
 	}
 	merged := u.MergedCount
 	rank := b.cfg.Ladder.For(merged)
+	next := b.t.AccountTop
+	if r, ok := b.cfg.Ladder.Next(rank); ok {
+		left := r.From - merged
+		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Edits))
+	}
+	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
-		fmt.Sprintf(b.t.AccountTitle, from.FirstName),
+		"# " + escapeMarkdown(from.FirstName),
 		"",
-		fmt.Sprintf(b.t.AccountRank, rank.Title),
-		fmt.Sprintf(b.t.AccountAccepted, merged),
+		fmt.Sprintf(b.t.AccountRank, escapeMarkdown(rank.Title)) + "  ",
+		next,
+		"",
+		fmt.Sprintf(b.t.AccountAccepted, merged) + "  ",
+		fmt.Sprintf(b.t.AccountOpen, open),
 	}
-	if next, ok := b.cfg.Ladder.Next(rank); ok {
-		lines = append(lines, fmt.Sprintf(b.t.AccountNext, next.Title, next.From-merged,
-			progress(merged-rank.From, next.From-rank.From)))
-	} else {
-		lines = append(lines, b.t.AccountTop)
+	if b.cfg.IsAdmin(from.ID) {
+		lines[len(lines)-1] += "  "
+		lines = append(lines, b.t.AccountAdmin)
 	}
-	lines = append(lines, fmt.Sprintf(b.t.AccountOpen, open))
-
-	var rows [][]models.InlineKeyboardButton
-	state := b.t.AccessStateNone
-	switch a, err := b.store.Access(ctx, from.ID); {
-	case b.cfg.IsAdmin(from.ID):
-		state = b.t.AccessStateAdmin
-	case err == nil && a.Status == store.AccessGranted:
-		state = b.t.AccessStateOn
-	case err == nil && a.Status == store.AccessPending:
-		state = b.t.AccessStatePending
-	default:
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			b.log.Error("access", "err", err)
-		}
-		if _, until := b.accessBlock(ctx, from.ID); !until.IsZero() {
-			state = fmt.Sprintf(b.t.AccessStateDenied, b.date(until))
-		} else if len(b.cfg.Admins) > 0 {
-			rows = append(rows, row(button(b.t.RequestAccess, cbRequestAcc)))
-		}
-	}
-	lines = append(lines, fmt.Sprintf(b.t.AccountAccess, state))
-	return strings.Join(lines, "\n"), keyboard(append(rows, row(button(b.t.Close, cbClose)))...)
+	return strings.Join(lines, "\n")
 }
 
-// progress draws done out of total as a bar of progressLen cells.
-func progress(done, total int) string {
-	filled := 0
-	if total > 0 {
-		filled = done * progressLen / total
-	}
-	filled = max(0, min(filled, progressLen))
-	return strings.Repeat("▰", filled) + strings.Repeat("▱", progressLen-filled)
+func (b *Bot) accountKeyboard() *models.InlineKeyboardMarkup {
+	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Close, cbClose)))
 }
+
+// historyMarkdown lists the user's suggestions: open, accepted and
+// rejected, newest first. Titles of notes still in the vault are links.
+func (b *Bot) historyMarkdown(ctx context.Context, tgID int64) string {
+	all, err := b.store.UserSuggestions(ctx, tgID)
+	if err != nil {
+		b.log.Error("user suggestions", "err", err)
+	}
+	cat := b.catalog()
+	sections := []struct {
+		title, status string
+	}{
+		{b.t.HistoryPending, store.StatusOpen},
+		{b.t.HistoryAccepted, store.StatusMerged},
+		{b.t.HistoryRejected, store.StatusClosed},
+	}
+	var sb strings.Builder
+	sb.WriteString("# " + b.t.History + "\n")
+	for _, sec := range sections {
+		sb.WriteString("\n## " + sec.title + "\n\n")
+		n := 0
+		for _, sg := range all {
+			if sg.Status != sec.status {
+				continue
+			}
+			n++
+			title := escapeMarkdown(sg.Title)
+			if note := cat.NoteByPath(sg.ArticlePath); note != nil {
+				title = "[" + strings.NewReplacer("[", "", "]", "").Replace(sg.Title) + "](" + suggest.LinkTarget(note.Path) + ")"
+			}
+			when := sg.CreatedAt
+			if !sg.ResolvedAt.IsZero() {
+				when = sg.ResolvedAt
+			}
+			fmt.Fprintf(&sb, "- "+b.t.HistoryItem+"\n", title, b.kindLabel(sg), b.date(when))
+			if sg.Status == store.StatusClosed && sg.Comment != "" {
+				sb.WriteString("  " + escapeMarkdown(fmt.Sprintf(b.t.ReviewComment, oneLine(sg.Comment))) + "\n")
+			}
+		}
+		if n == 0 {
+			sb.WriteString(b.t.HistoryEmpty + "\n")
+		}
+	}
+	return sb.String()
+}
+
+func (b *Bot) historyKeyboard() *models.InlineKeyboardMarkup {
+	return keyboard(row(button(b.t.Back, cbAccount), button(b.t.Close, cbClose)))
+}
+
+// kindLabel names what a suggestion was. A new topic's page lies right in
+// the topic folder (subject/grade/topic/page.md); a new note is deeper.
+func (b *Bot) kindLabel(sg store.Suggestion) string {
+	switch {
+	case sg.Kind == store.KindEdit:
+		return b.t.KindEditLabel
+	case sg.Kind == store.KindReport:
+		return b.t.KindReportLabel
+	case strings.Count(sg.ArticlePath, "/") <= 3:
+		return b.t.KindTopicLabel
+	}
+	return b.t.KindNoteLabel
+}
+
+// showRich sends a menu as rich messages, split like a long note, with the
+// buttons under the last part, and removes the previous menu.
+func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *models.InlineKeyboardMarkup) {
+	old := b.msgs.menu(ctx, chatID)
+	n := &content.Note{Title: title, Body: md}
+	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued})
+	var sent []int
+	for i, part := range res.Parts {
+		p := &tg.SendRichMessageParams{ChatID: chatID, RichMessage: models.InputRichMessage{Markdown: part.Markdown}}
+		if i == len(res.Parts)-1 {
+			p.ReplyMarkup = kb
+		}
+		msg, err := b.api.SendRichMessage(ctx, p)
+		if err != nil {
+			b.log.Error("send rich menu", "title", title, "err", err)
+			b.log.Debug("rejected markdown", "markdown", part.Markdown)
+			break
+		}
+		b.msgs.seen(ctx, chatID, msg.ID)
+		sent = append(sent, msg.ID)
+	}
+	if len(sent) == 0 {
+		b.send(ctx, chatID, b.t.SendFailed, nil)
+		return
+	}
+	if err := b.store.SetMessageGroup(ctx, chatID, sent); err != nil {
+		b.log.Error("store message group", "err", err)
+	}
+	b.msgs.setRichMenu(ctx, chatID, sent[len(sent)-1])
+	if old != 0 {
+		b.retire(ctx, &models.Message{ID: old, Chat: models.Chat{ID: chatID}})
+	}
+}
+
+func (b *Bot) showAccount(ctx context.Context, chatID int64, from *models.User) {
+	b.showRich(ctx, chatID, from.FirstName, b.accountMarkdown(ctx, from), b.accountKeyboard())
+}
+
+func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) {
+	b.showRich(ctx, chatID, b.t.History, b.historyMarkdown(ctx, from.ID), b.historyKeyboard())
+}
+
+// plural picks the form of a word for n: forms are for 1, 2–4 and 5 or
+// more («правка», «правки», «правок»).
+func plural(n int, forms [3]string) string {
+	n %= 100
+	switch {
+	case n >= 11 && n <= 14:
+		return forms[2]
+	case n%10 == 1:
+		return forms[0]
+	case n%10 >= 2 && n%10 <= 4:
+		return forms[1]
+	}
+	return forms[2]
+}
+
+var markdownSpecial = strings.NewReplacer(
+	`\`, `\\`, "*", `\*`, "_", `\_`, "[", `\[`, "]", `\]`, "`", "\\`", "$", `\$`,
+	"#", `\#`, "<", `\<`, ">", `\>`, "~", `\~`, "|", `\|`,
+)
+
+// escapeMarkdown makes text from users or reviewers literal.
+func escapeMarkdown(s string) string { return markdownSpecial.Replace(s) }
+
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
