@@ -60,6 +60,12 @@ type sessionPayload struct {
 	// from, which is replaced when the user goes back to it.
 	Msgs      []int `json:"msgs,omitempty"`
 	OriginMsg int   `json:"origin_msg,omitempty"`
+	// A broadcast: its rich Markdown, picture (file_id) and the album the
+	// picture came in, and the preview message.
+	Markdown   string `json:"markdown,omitempty"`
+	Photo      string `json:"photo,omitempty"`
+	MediaGroup string `json:"media_group,omitempty"`
+	Preview    int    `json:"preview,omitempty"`
 }
 
 type pendingImage struct {
@@ -285,7 +291,14 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 	if d == nil {
 		return false
 	}
-	if d.ses.State != stateReport && d.ses.State != stateReportConfirm {
+	switch d.ses.State {
+	case stateReport, stateReportConfirm:
+	case stateBroadcastWait, stateBroadcastConfirm:
+		if !b.cfg.IsAdmin(m.From.ID) {
+			b.endDialog(ctx, d)
+			return false
+		}
+	default:
 		// A dialog of an earlier version, such as an edit.
 		b.endDialog(ctx, d)
 		return false
@@ -298,6 +311,10 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 			b.save(ctx, d)
 		}
 	}()
+	if d.ses.State == stateBroadcastWait || d.ses.State == stateBroadcastConfirm {
+		b.onBroadcastMessage(ctx, d, m)
+		return true
+	}
 
 	text := strings.TrimSpace(m.Text)
 	img, isImage, problem := b.imageOf(m)

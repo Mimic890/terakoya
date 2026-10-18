@@ -243,12 +243,12 @@ func TestCommandMenus(t *testing.T) {
 	if len(calls) != 2 || calls[0].method != "setMyCommands" || calls[1].method != "setMyCommands" {
 		t.Fatalf("calls = %+v", calls)
 	}
-	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") ||
+	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") || strings.Contains(all, "broadcast") ||
 		!strings.Contains(all, `"start"`) || !strings.Contains(all, `"top"`) {
 		t.Errorf("everyone's menu = %v", calls[0].params)
 	}
 	if admin := calls[1].params; !strings.Contains(admin["scope"], `"chat_id":7`) ||
-		!strings.Contains(admin["commands"], `"emoji_setup"`) || !strings.Contains(admin["commands"], `"ranks"`) ||
+		!strings.Contains(admin["commands"], `"emoji_setup"`) || !strings.Contains(admin["commands"], `"ranks"`) || !strings.Contains(admin["commands"], `"broadcast"`) ||
 		strings.Contains(admin["commands"], `"revoke"`) || strings.Contains(admin["commands"], `"access"`) {
 		t.Errorf("admin menu = %v", admin)
 	}

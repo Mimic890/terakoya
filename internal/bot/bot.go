@@ -50,6 +50,10 @@ type Bot struct {
 	userLocks   userLocks
 	syncMu      sync.Mutex
 	rejectGrace time.Duration
+	// Broadcast pacing; tests shorten them and record the waits.
+	broadcastGap  time.Duration
+	progressEvery time.Duration
+	sleep         func(context.Context, time.Duration)
 
 	mu  sync.RWMutex
 	cat *content.Catalog
@@ -60,7 +64,7 @@ type Bot struct {
 // Extra options are passed to the Telegram client.
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
 	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
-		rejectGrace: rejectGrace}
+		rejectGrace: rejectGrace, broadcastGap: broadcastGap, progressEvery: progressEvery, sleep: sleep}
 	api, err := tg.New(cfg.BotToken, append([]tg.Option{
 		tg.WithDefaultHandler(b.handle),
 		tg.WithAllowedUpdates(tg.AllowedUpdates{"message", "callback_query", "my_chat_member"}),

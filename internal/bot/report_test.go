@@ -42,6 +42,9 @@ type fakeTelegram struct {
 	reject func(method string, params map[string]string) bool
 	// emoji are the custom emoji IDs getCustomEmojiStickers knows.
 	emoji []string
+	// fail, when set, answers the calls it returns an error code for with
+	// that error, and retry_after for a 429.
+	fail func(method string, params map[string]string) (code, retryAfter int)
 }
 
 type call struct {
@@ -84,6 +87,16 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400, "description": "Bad Request: DOCUMENT_INVALID"})
 		return
+	}
+	if f.fail != nil {
+		if code, retry := f.fail(method, params); code != 0 {
+			f.calls = append(f.calls, call{method + " (failed)", params})
+			f.mu.Unlock()
+			w.WriteHeader(code)
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": code, "description": http.StatusText(code),
+				"parameters": map[string]any{"retry_after": retry}})
+			return
+		}
 	}
 	f.calls = append(f.calls, call{method, params})
 	f.next++

@@ -426,6 +426,7 @@ func (b *Bot) setCommands(ctx context.Context) {
 	admin := append(append([]models.BotCommand{}, common...),
 		models.BotCommand{Command: "emoji_setup", Description: b.t.CmdEmojiSetup},
 		models.BotCommand{Command: "ranks", Description: b.t.CmdRanks},
+		models.BotCommand{Command: "broadcast", Description: b.t.CmdBroadcast},
 	)
 	for _, id := range b.cfg.Admins {
 		_, err := b.api.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: admin,
@@ -437,21 +438,25 @@ func (b *Bot) setCommands(ctx context.Context) {
 	}
 }
 
-// onAdminCommand handles /emoji_setup and /ranks. It reports false for
-// other commands; users who are not admins get no answer at all.
+// onAdminCommand handles /emoji_setup, /ranks and /broadcast. It reports
+// false for other commands; users who are not admins get no answer at
+// all.
 func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
 	switch cmd {
-	case "/emoji_setup", "/ranks":
+	case "/emoji_setup", "/ranks", "/broadcast":
 	default:
 		return false
 	}
 	if !b.cfg.IsAdmin(m.From.ID) {
 		return true
 	}
-	if cmd == "/emoji_setup" {
+	switch cmd {
+	case "/emoji_setup":
 		b.startEmojiSetup(ctx, m, arg)
-	} else {
+	case "/ranks":
 		b.sendRanks(ctx, m.Chat.ID)
+	case "/broadcast":
+		b.startBroadcast(ctx, m)
 	}
 	return true
 }

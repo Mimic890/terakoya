@@ -141,6 +141,18 @@ type Strings struct {
 	AcceptedFrom       [3]string // «от 1 принятого сообщения», «от 2 принятых сообщений»…
 	RanksEdit          string
 
+	// /broadcast.
+	BroadcastAsk           string
+	BroadcastOnlyText      string
+	BroadcastOnePhoto      string
+	BroadcastPreviewFailed string
+	BroadcastConfirm       string // %d: recipients
+	BroadcastYes           string
+	BroadcastEdit          string
+	No                     string
+	BroadcastProgress      string // %d: done, %d: recipients
+	BroadcastDone          string // %d: sent, %d: blocked, %d: failed
+
 	// The command menu.
 	CmdStart      string
 	CmdDownload   string
@@ -148,6 +160,7 @@ type Strings struct {
 	CmdEmojiSetup string
 	CmdRanks      string
 	CmdTop        string
+	CmdBroadcast  string
 
 	// Months in the genitive case, for dates such as «25 октября».
 	Months [12]string
@@ -281,12 +294,24 @@ var RU = Strings{
 	RanksLine:          "%s — от %d %s",
 	RanksEdit:          "Значки рангов меняются через /emoji_setup. Названия и пороги пока меняются только в файле data/settings.yml на сервере — бот перечитает его сам.",
 
+	BroadcastAsk:           "Пришлите сообщение для рассылки.",
+	BroadcastOnlyText:      "Для рассылки подойдёт текст, можно с одной фотографией.",
+	BroadcastOnePhoto:      "В рассылке может быть только одна фотография — взял первую.",
+	BroadcastPreviewFailed: "Telegram не принял это сообщение. Пришлите другое.",
+	BroadcastConfirm:       "Отправить всем? Получателей: %d",
+	BroadcastYes:           "Да, отправить",
+	BroadcastEdit:          "Изменить",
+	No:                     "Нет",
+	BroadcastProgress:      "Рассылка: отправлено %d из %d…",
+	BroadcastDone:          "Рассылка завершена. Доставлено: %d, заблокировали бота: %d, не доставлено: %d.",
+
 	CmdStart:      "Открыть каталог",
 	CmdDownload:   "Скачать все материалы",
 	CmdCancel:     "Отменить текущее действие",
 	CmdEmojiSetup: "Настроить кастомные эмодзи",
 	CmdRanks:      "Показать ранги",
 	CmdTop:        "Топ участников",
+	CmdBroadcast:  "Рассылка всем пользователям",
 
 	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря"},
