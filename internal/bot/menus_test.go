@@ -191,7 +191,7 @@ func TestPins(t *testing.T) {
 func TestAccount(t *testing.T) {
 	h := newHarness(t, nil)
 	h.setRanks("Novice:0,Pupil:1,Student:3,Scholar:15")
-	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
+	want := "# Аня\n\nРанг: **Novice**  \nДо следующего ранга: ещё 1 принятое сообщение  \nСледующий ранг: **Pupil**\n\nПринято сообщений: 0  \nНа рассмотрении: 0"
 	if got := h.bot.accountMarkdown(h.ctx, &anya); got != want {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
@@ -205,16 +205,16 @@ func TestAccount(t *testing.T) {
 		sg, _ := h.store.SuggestionByNumber(h.ctx, n)
 		h.store.ResolveSuggestion(h.ctx, sg.ID, store.StatusMerged)
 	}
-	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 принятых сообщения\n\nПринято сообщений: 1  \nНа рассмотрении: 1") {
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "Ранг: **Pupil**  \nДо следующего ранга: ещё 2 принятых сообщения  \nСледующий ранг: **Student**\n\nПринято сообщений: 1  \nНа рассмотрении: 1") {
 		t.Errorf("after one = %s", got)
 	}
 	h.setRanks("Novice:0,Pupil:1,Student:6")
-	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "ещё 5 принятых сообщений\n") {
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got, "ещё 5 принятых сообщений  \nСледующий ранг: **Student**\n") {
 		t.Errorf("five left = %s", got)
 	}
 	h.setRanks("Novice:0,Pupil:1")
 	got := h.bot.accountMarkdown(h.ctx, &anya)
-	if !strings.Contains(got, "Это высший ранг") || strings.Contains(got, "Pupil:") || strings.Contains(got, "Уровень прав") {
+	if !strings.Contains(got, "Ранг: **Pupil**  \nЭто высший ранг\n\n") || strings.Contains(got, "Следующий ранг") || strings.Contains(got, "Уровень прав") {
 		t.Errorf("top rank = %s", got)
 	}
 	// Only admins see their level; names are literal.

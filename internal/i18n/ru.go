@@ -79,6 +79,7 @@ type Strings struct {
 	AccountRank     string // %s: rank
 	AccountNext     string // %d: accepted reports left, %s: Reports in the right form
 	AccountTop      string
+	AccountNextRank string // %s: the next rank
 	AccountAccepted string // %d: accepted reports
 	AccountOpen     string // %d: open reports
 	AccountAdmin    string
@@ -211,6 +212,7 @@ var RU = Strings{
 	AccountRank:     "Ранг: %s",
 	AccountNext:     "До следующего ранга: ещё %d %s",
 	AccountTop:      "Это высший ранг",
+	AccountNextRank: "Следующий ранг: %s",
 	AccountAccepted: "Принято сообщений: %d",
 	AccountOpen:     "На рассмотрении: %d",
 	AccountAdmin:    "Уровень прав: admin",

@@ -204,21 +204,26 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	ladder := b.ladder()
 	rank := ladder.For(accepted)
 	icon := richEmojiRef(b.emoji.Rank(rank.Title), "🏅")
-	next := b.t.AccountTop
+	next := []string{b.t.AccountTop}
 	if r, ok := ladder.Next(rank); ok {
 		left := r.From - accepted
-		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Reports))
+		next = []string{
+			fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Reports)) + "  ",
+			fmt.Sprintf(b.t.AccountNextRank, richEmojiRef(b.emoji.Rank(r.Title), "🏅")+"**"+escapeMarkdown(r.Title)+"**"),
+		}
 	}
 	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
 		"# " + escapeMarkdown(from.FirstName),
 		"",
 		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
-		next,
-		"",
-		fmt.Sprintf(b.t.AccountAccepted, accepted) + "  ",
-		fmt.Sprintf(b.t.AccountOpen, open),
 	}
+	lines = append(lines, next...)
+	lines = append(lines,
+		"",
+		fmt.Sprintf(b.t.AccountAccepted, accepted)+"  ",
+		fmt.Sprintf(b.t.AccountOpen, open),
+	)
 	if b.cfg.IsAdmin(from.ID) {
 		lines[len(lines)-1] += "  "
 		lines = append(lines, b.t.AccountAdmin)
