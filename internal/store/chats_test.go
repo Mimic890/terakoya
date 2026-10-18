@@ -23,7 +23,7 @@ func TestChatMenuTracking(t *testing.T) {
 		return id
 	}
 
-	must(s.ChatMessageSeen(ctx, 1, 10)) // user's /start
+	must(s.ChatMessageSeen(ctx, 1, 10))    // user's /start
 	must(s.SetChatMenu(ctx, 1, 11, false)) // menu
 	if got := last(1); got != 11 {
 		t.Fatalf("lastMenu = %d, want 11", got)

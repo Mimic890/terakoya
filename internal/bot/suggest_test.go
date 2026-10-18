@@ -34,6 +34,9 @@ type fakeTelegram struct {
 	calls []call
 	next  int
 	last  map[string]int // the last message ID returned, by method
+	// delay, when set, is how long every call takes, like a real round
+	// trip to Telegram.
+	delay time.Duration
 }
 
 type call struct {
@@ -47,6 +50,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+	f.mu.Lock()
+	delay := f.delay
+	f.mu.Unlock()
+	time.Sleep(delay)
 	params := map[string]string{}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
 		r.ParseMultipartForm(1 << 20)
@@ -299,6 +306,7 @@ func (h *harness) tapWith(msgID int, data, markup string) {
 		ID: "q", From: h.user, Data: data,
 		Message: models.MaybeInaccessibleMessage{Message: msg},
 	}})
+	h.bot.bg.Wait() // deletions left to the background
 }
 
 // send delivers a message from the user; the clock advances 10 seconds per
@@ -311,6 +319,7 @@ func (h *harness) send(m *models.Message) {
 		m.Date = h.msgID * 10
 	}
 	h.bot.handle(h.ctx, nil, &models.Update{Message: m})
+	h.bot.bg.Wait() // deletions left to the background
 }
 
 func (h *harness) say(text string) { h.send(&models.Message{Text: text}) }

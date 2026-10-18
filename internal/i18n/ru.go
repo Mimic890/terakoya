@@ -93,7 +93,11 @@ type Strings struct {
 	KeySubjects string
 	KeyPinned   string
 	KeyAccount  string
-	Close       string
+	// KeyOld are the button texts of keyboards sent by earlier versions,
+	// which stay on users' screens until the next /start: Предметы,
+	// Закреплённые, Аккаунт.
+	KeyOld [3]string
+	Close  string
 
 	// Pins.
 	Pin         string
@@ -159,7 +163,7 @@ type Strings struct {
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting:       "Привет, %s! Это terakoya — школьный справочник, который пишут сами пользователи.",
+	Greeting:       "Привет, %s!\nЭто terakoya — школьный справочник, который пишут сами пользователи.",
 	ChooseSubject:  "Выберите предмет:",
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
@@ -244,24 +248,25 @@ var RU = Strings{
 	AcceptedNew:       "Ваша тема «%s» добавлена. Спасибо!",
 	AcceptedReport:    "Ошибку в «%s» исправили. Спасибо, что сообщили!",
 	AcceptedCount:     "Принятых правок: %d.",
-	RankUp:            "Теперь вы %s! 🎉",
+	RankUp:            "Теперь вы %s!",
 	RejectedEdit:      "Правку в «%s» не приняли.",
 	RejectedNew:       "Тему «%s» не добавили.",
 	RejectedReport:    "Сообщение об ошибке в «%s» закрыли без исправлений.",
 	ReviewComment:     "Комментарий: «%s»",
 
-	KeySubjects: "📚 Предметы",
-	KeyPinned:   "📌 Закреплённые",
-	KeyAccount:  "👤 Аккаунт",
+	KeySubjects: "Предметы",
+	KeyPinned:   "Закреплённые",
+	KeyAccount:  "Аккаунт",
+	KeyOld:      [3]string{"📚 Предметы", "📌 Закреплённые", "👤 Аккаунт"},
 	Close:       "Закрыть",
 
-	Pin:         "📌 Закрепить",
-	Unpin:       "📌 Открепить",
+	Pin:         "Закрепить",
+	Unpin:       "Открепить",
 	PinDone:     "Закреплено",
 	UnpinDone:   "Откреплено",
-	PinLimit:    "Можно закрепить не больше %d. Открепите что-нибудь в «📌 Закреплённые».",
-	PinnedTitle: "📌 Закреплённые",
-	PinnedEmpty: "Здесь будут темы, которые вы закрепите кнопкой 📌.",
+	PinLimit:    "Можно закрепить не больше %d. Открепите что-нибудь в «Закреплённых».",
+	PinnedTitle: "Закреплённые",
+	PinnedEmpty: "Здесь будут темы, которые вы закрепите кнопкой «Закрепить».",
 
 	AccountRank:     "Ранг: **%s**",
 	AccountNext:     "До следующего ранга: ещё %d %s",
@@ -292,10 +297,10 @@ var RU = Strings{
 	AdminRequest:      "Запрос на право предлагать правки\n%s\nПринято правок: %d · сообщений об ошибках: %d",
 	Allow:             "Разрешить",
 	Deny:              "Отклонить",
-	AdminAllowed:      "✅ Разрешено — %s",
-	AdminDenied:       "❌ Отклонено — %s",
+	AdminAllowed:      "Разрешено — %s",
+	AdminDenied:       "Отклонено — %s",
 	AdminDecided:      "Уже решено: %s",
-	AccessGranted:     "Теперь вы можете предлагать правки 🎉",
+	AccessGranted:     "Теперь вы можете предлагать правки.",
 	AccessDenied:      "Запрос отклонён. Повторить можно через 7 дней.",
 	AccessRevoked:     "Право предлагать правки отозвано.",
 	AccessGone:        "Доступ отозван.",

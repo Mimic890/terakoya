@@ -99,7 +99,7 @@ func TestAccessRequestAllowed(t *testing.T) {
 	calls = h.tg.take()
 	for admin, id := range copies {
 		e := to(calls, "editMessageText", admin)
-		if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(id) || e[0].params["text"] != want+"\n\n✅ Разрешено — Иван (@ivan)" {
+		if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(id) || e[0].params["text"] != want+"\n\nРазрешено — Иван (@ivan)" {
 			t.Errorf("copy of %d = %+v", admin, e)
 		}
 	}
@@ -214,7 +214,7 @@ func TestAccessDeniedAndReports(t *testing.T) {
 	h.as(ivan)
 	h.tapOn(copies[ivan.ID], cbDeny+"43")
 	calls = h.tg.take()
-	if e := to(calls, "editMessageText", ivan.ID); len(e) != 1 || !strings.HasSuffix(e[0].params["text"], "❌ Отклонено — Иван (@ivan)") {
+	if e := to(calls, "editMessageText", ivan.ID); len(e) != 1 || !strings.HasSuffix(e[0].params["text"], "Отклонено — Иван (@ivan)") {
 		t.Errorf("copy = %+v", e)
 	}
 	if got := texts(to(calls, "sendMessage", boris.ID), "sendMessage"); len(got) != 1 || got[0] != i18n.RU.AccessDenied {

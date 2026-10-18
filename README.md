@@ -103,20 +103,24 @@ terakoya lint [-strict] <vault>     validate a vault
 ```
 
 In Telegram, `/start` sends a greeting that sets the keyboard at the
-bottom of the chat, and the subject list. The keyboard stays: «📚 Предметы»
-opens the subject list, «📌 Закреплённые» the user's pinned notes, and
-«👤 Аккаунт» a page with their rank, how many accepted suggestions the
-next rank needs, accepted and open suggestions (and «Уровень прав: admin»
-for admins). From there, «Список правок» lists their suggestions under
-«На рассмотрении», «Приняты» and «Отклонены», with the reviewer's comment
-on rejected ones; titles of notes in the vault open them. Both pages are
-rich messages, split like long notes. Taps on the keyboard and typed
-commands are deleted from the chat once answered, and the previous menu
-is replaced rather than left behind. Every note has «📌 Закрепить» /
-«📌 Открепить» (at most 30 pins); a note opened from the pinned list goes
-back to it with «Назад». Pins of notes removed from the vault disappear
-from the list. `/download` sends the whole vault as a zip (without hidden
-files such as `.obsidian`).
+bottom of the chat, and the subject list. The keyboard stays: «Предметы»
+opens the subject list, «Закреплённые» the user's pinned notes, and
+«Аккаунт» a page with their rank, how many accepted suggestions the next
+rank needs, accepted and open suggestions (and «Уровень прав: admin» for
+admins). From there, «Список правок» lists their suggestions under
+«На рассмотрении», «Приняты» and «Отклонены», separated by dividers, with
+the reviewer's comment on rejected ones; titles of notes in the vault
+open them. Both pages are rich messages, split like long notes. A tap on
+the keyboard shows the new menu first; the tap itself and the previous
+menu are deleted afterwards, in the background, so the chat does not fill
+up. Tapping the button of the menu that is already the last message only
+deletes the tap. Typed commands are deleted once answered. Every note has
+«Закрепить» / «Открепить» (at most 30 pins); a note opened from the
+pinned list goes back to it with «Назад». Pins of notes removed from the
+vault disappear from the list. `/download` sends the whole vault as a zip
+(without hidden files such as `.obsidian`).
+
+The interface has no emoji of its own.
 
 Admins also have `/access`, which lists who has edit access, and
 `/revoke <id or @username>`. For everyone else these commands do nothing.
