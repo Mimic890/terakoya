@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tg "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -22,11 +23,11 @@ import (
 const maxPins = 30
 
 const (
-	cbPin       = "p:"  // p:<note id>, toggles the pin
-	cbFromPins  = "pa:" // pa:<note id>, opens a note from the pinned list
-	cbBackPins  = "bp:" // bp:<note id>, «Назад» of a note opened from the list
-	cbHistory   = "hl"  // «Список правок»
-	cbAccount   = "ac"  // back to «Аккаунт»
+	cbPin      = "p:"  // p:<note id>, toggles the pin
+	cbFromPins = "pa:" // pa:<note id>, opens a note from the pinned list
+	cbBackPins = "bp:" // bp:<note id>, «Назад» of a note opened from the list
+	cbHistory  = "hl"  // «Список правок»
+	cbAccount  = "ac"  // back to «Аккаунт»
 )
 
 func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
@@ -53,41 +54,72 @@ func (b *Bot) greet(ctx context.Context, chatID int64, from *models.User) {
 	b.msgs.seen(ctx, chatID, msg.ID)
 }
 
+// keyButton tells which bottom button a message is, or "". Keyboards sent
+// by earlier versions stay on screens and send their old texts.
+func (b *Bot) keyButton(text string) string {
+	for i, label := range []string{b.t.KeySubjects, b.t.KeyPinned, b.t.KeyAccount} {
+		if text == label || text == b.t.KeyOld[i] {
+			return label
+		}
+	}
+	return ""
+}
+
 // onKeyButton handles a tap on the bottom keyboard, which arrives as the
-// button's text. It reports false for any other message.
+// button's text. It reports false for any other message. The new menu
+// goes out first; the tap and the old menu are deleted in the background.
+// Tapping the button of the menu already last in the chat only deletes
+// the tap.
 func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
-	var text string
-	var kb *models.InlineKeyboardMarkup
-	switch m.Text {
-	case b.t.KeySubjects:
-		text, kb = b.homeView(ctx, m.From)
-	case b.t.KeyPinned:
-		text, kb = b.pinsView(ctx, m.From.ID)
-	case b.t.KeyAccount:
-	default:
+	key := b.keyButton(m.Text)
+	if key == "" {
 		return false
 	}
-	// The tap would otherwise stay in the chat as the user's message.
-	b.deleteMessage(ctx, m.Chat.ID, m.ID)
-	if m.Text == b.t.KeyAccount {
-		b.showAccount(ctx, m.Chat.ID, m.From)
+	start := time.Now()
+	chatID := m.Chat.ID
+	// The tap would otherwise stay in the chat as the user's message. It
+	// is forgotten at once, so the menu above it counts as the last
+	// message again.
+	b.msgs.gone(ctx, chatID, m.ID)
+	b.later(ctx, func(ctx context.Context) {
+		if _, err := b.api.DeleteMessage(ctx, &tg.DeleteMessageParams{ChatID: chatID, MessageID: m.ID}); err != nil {
+			b.log.Debug("delete key tap", "err", err)
+		}
+	})
+	if b.msgs.showing(ctx, chatID, key) {
+		b.log.Debug("key button: menu already shown", "button", key)
 		return true
 	}
-	b.replaceMenu(ctx, m.Chat.ID, text, kb)
+	switch key {
+	case b.t.KeySubjects:
+		text, kb := b.homeView(ctx, m.From)
+		b.replaceMenu(ctx, chatID, text, kb)
+	case b.t.KeyPinned:
+		text, kb := b.pinsView(ctx, m.From.ID)
+		b.replaceMenu(ctx, chatID, text, kb)
+	case b.t.KeyAccount:
+		b.showAccount(ctx, chatID, m.From)
+	}
+	if id := b.msgs.menu(ctx, chatID); id != 0 {
+		b.msgs.setKind(chatID, id, key)
+	}
+	b.log.Info("key button", "button", key, "ms", time.Since(start).Milliseconds())
 	return true
 }
 
 // replaceMenu shows a menu: in place when the current menu is the last
-// message, and otherwise as a new one, removing the old menu.
+// message, and otherwise as a new one; the old menu is removed afterwards,
+// in the background.
 func (b *Bot) replaceMenu(ctx context.Context, chatID int64, text string, kb *models.InlineKeyboardMarkup) {
 	if id := b.msgs.lastMenu(ctx, chatID); id != 0 {
 		b.editMenu(ctx, chatID, id, text, kb)
 		return
 	}
-	if id := b.msgs.menu(ctx, chatID); id != 0 {
-		b.retire(ctx, &models.Message{ID: id, Chat: models.Chat{ID: chatID}})
-	}
+	old := b.msgs.menu(ctx, chatID)
 	b.sendMenu(ctx, chatID, text, kb)
+	if old != 0 {
+		b.retireLater(ctx, chatID, old)
+	}
 }
 
 // pinsView lists the user's pinned notes, newest first. Pins of notes no
@@ -211,7 +243,11 @@ func (b *Bot) historyMarkdown(ctx context.Context, tgID int64) string {
 	}
 	var sb strings.Builder
 	sb.WriteString("# " + b.t.History + "\n")
-	for _, sec := range sections {
+	for i, sec := range sections {
+		if i > 0 {
+			// A divider between sections, none after the last.
+			sb.WriteString("\n---\n")
+		}
 		sb.WriteString("\n## " + sec.title + "\n\n")
 		n := 0
 		for _, sg := range all {
@@ -287,7 +323,7 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 	}
 	b.msgs.setRichMenu(ctx, chatID, sent[len(sent)-1])
 	if old != 0 {
-		b.retire(ctx, &models.Message{ID: old, Chat: models.Chat{ID: chatID}})
+		b.retireLater(ctx, chatID, old)
 	}
 }
 

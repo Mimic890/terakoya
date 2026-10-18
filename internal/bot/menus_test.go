@@ -50,12 +50,12 @@ func TestStartSetsKeyboard(t *testing.T) {
 		}
 		sent++
 		if sent == 1 {
-			if c.params["text"] != "Привет, Аня! Это terakoya — школьный справочник, который пишут сами пользователи." {
+			if c.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
 				t.Errorf("greeting = %q", c.params["text"])
 			}
 			kb := c.params["reply_markup"]
 			for _, want := range []string{`"keyboard"`, `"is_persistent":true`, `"resize_keyboard":true`,
-				`"📚 Предметы"`, `"📌 Закреплённые"`, `"👤 Аккаунт"`} {
+				`"Предметы"`, `"Закреплённые"`, `"Аккаунт"`} {
 				if !strings.Contains(kb, want) {
 					t.Errorf("keyboard has no %s: %s", want, kb)
 				}
@@ -87,7 +87,7 @@ func TestKeyButtons(t *testing.T) {
 		t.Errorf("deleted %v, want the tap %d", got, h.msgID)
 	}
 	e := to(calls, "editMessageText", 42)
-	if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(menu) || e[0].params["text"] != "📌 Закреплённые\n\n"+i18n.RU.PinnedEmpty {
+	if len(e) != 1 || e[0].params["message_id"] != fmt.Sprint(menu) || e[0].params["text"] != "Закреплённые\n\n"+i18n.RU.PinnedEmpty {
 		t.Errorf("pins = %+v", calls)
 	}
 	if len(texts(calls, "sendMessage")) != 0 {
@@ -129,7 +129,7 @@ func TestPins(t *testing.T) {
 	h.tapOn(500, "a:"+note)
 	calls := h.tg.take()
 	kb := lastRich(t, calls).params["reply_markup"]
-	if !strings.Contains(kb, `"📌 Закрепить"`) || !strings.Contains(kb, `"p:`+note+`"`) {
+	if !strings.Contains(kb, `"Закрепить"`) || !strings.Contains(kb, `"p:`+note+`"`) {
 		t.Fatalf("note keyboard = %s", kb)
 	}
 	noteMsg := h.tg.lastID("sendRichMessage")
@@ -140,7 +140,7 @@ func TestPins(t *testing.T) {
 		t.Errorf("toast = %q", got)
 	}
 	r := firstCall(t, calls, "editMessageReplyMarkup")
-	if !strings.Contains(r.params["reply_markup"], `"📌 Открепить"`) || !strings.Contains(r.params["reply_markup"], `"b:`+note+`"`) {
+	if !strings.Contains(r.params["reply_markup"], `"Открепить"`) || !strings.Contains(r.params["reply_markup"], `"b:`+note+`"`) {
 		t.Errorf("flipped = %s", r.params["reply_markup"])
 	}
 
@@ -157,7 +157,7 @@ func TestPins(t *testing.T) {
 	h.tapOn(700, cbFromPins+note)
 	calls = h.tg.take()
 	kb = lastRich(t, calls).params["reply_markup"]
-	if !strings.Contains(kb, `"bp:`+note+`"`) || !strings.Contains(kb, `"📌 Открепить"`) {
+	if !strings.Contains(kb, `"bp:`+note+`"`) || !strings.Contains(kb, `"Открепить"`) {
 		t.Errorf("note from pins = %s", kb)
 	}
 	if got := ids(calls, "deleteMessage"); len(got) != 1 || got[0] != "700" {
@@ -167,12 +167,12 @@ func TestPins(t *testing.T) {
 	// Unpinning keeps the way back to the list.
 	h.tapWith(noteMsg, cbPin+note, kb)
 	r = firstCall(t, h.tg.take(), "editMessageReplyMarkup")
-	if !strings.Contains(r.params["reply_markup"], `"bp:`+note+`"`) || !strings.Contains(r.params["reply_markup"], `"📌 Закрепить"`) {
+	if !strings.Contains(r.params["reply_markup"], `"bp:`+note+`"`) || !strings.Contains(r.params["reply_markup"], `"Закрепить"`) {
 		t.Errorf("unpinned = %s", r.params["reply_markup"])
 	}
 	h.tapOn(noteMsg, cbBackPins+note)
 	calls = h.tg.take()
-	if got := texts(calls, "sendMessage"); len(got) != 1 || got[0] != "📌 Закреплённые\n\n"+i18n.RU.PinnedEmpty {
+	if got := texts(calls, "sendMessage"); len(got) != 1 || got[0] != "Закреплённые\n\n"+i18n.RU.PinnedEmpty {
 		t.Errorf("back = %q", got)
 	}
 
@@ -273,7 +273,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 
 func TestHistory(t *testing.T) {
 	h := newHarness(t, nil)
-	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Список правок\n\n## На рассмотрении\n\nПока нет\n\n## Приняты\n\nПока нет\n\n## Отклонены\n\nПока нет\n" {
+	if got := h.bot.historyMarkdown(h.ctx, 42); got != "# Список правок\n\n## На рассмотрении\n\nПока нет\n\n---\n\n## Приняты\n\nПока нет\n\n---\n\n## Отклонены\n\nПока нет\n" {
 		t.Errorf("empty = %q", got)
 	}
 	add := func(n int, kind, p, title, status, comment string) {
@@ -294,7 +294,7 @@ func TestHistory(t *testing.T) {
 	today := h.bot.date(time.Now())
 	for _, want := range []string{
 		"## На рассмотрении\n\n- [Параллельность прямой и плоскости](" + suggest.LinkTarget(vmain) + ") — ошибка, " + today +
-			"\n- Углы — новая тема, " + today + "\n\n## Приняты",
+			"\n- Углы — новая тема, " + today + "\n\n---\n\n## Приняты",
 		"## Приняты\n\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — правка, " + today + "\n",
 		"## Отклонены\n\n- Новая \\[задача\\] — новая запись, " + today + "\n  Комментарий: «Нужен чертёж \\$»\n",
 	} {
@@ -307,6 +307,10 @@ func TestHistory(t *testing.T) {
 	md := render.Convert(h.bot.catalog(), n, render.Options{}).Parts[0].Markdown
 	if !strings.Contains(md, `data="a:`+h.id(triangles)+`">Треугольники</tg-button>`) {
 		t.Errorf("rendered = %s", md)
+	}
+	// Two dividers, between the three sections.
+	if strings.Count(md, "\n---\n") != 2 || strings.HasSuffix(strings.TrimSpace(md), "---") {
+		t.Errorf("dividers in %s", md)
 	}
 }
 

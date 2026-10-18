@@ -62,11 +62,11 @@ func TestViews(t *testing.T) {
 
 	// Under every note, the main page included: back, suggest, download,
 	// pin; no buttons for the topic's notes.
-	if got := strings.Join(labels(articleKeyboard(tr, main, false, false)), ","); got != "« Назад,Предложить правку,Скачать,📌 Закрепить" {
+	if got := strings.Join(labels(articleKeyboard(tr, main, false, false)), ","); got != "« Назад,Предложить правку,Скачать,Закрепить" {
 		t.Errorf("note keyboard = %q", got)
 	}
 	kb = articleKeyboard(tr, main, true, true)
-	if got := strings.Join(callbacks(kb), " "); got != "bp:"+main.ID+" e:"+main.ID+" d:"+main.ID+" p:"+main.ID || labels(kb)[3] != "📌 Открепить" {
+	if got := strings.Join(callbacks(kb), " "); got != "bp:"+main.ID+" e:"+main.ID+" d:"+main.ID+" p:"+main.ID || labels(kb)[3] != "Открепить" {
 		t.Errorf("pinned note keyboard = %q %v", got, labels(kb))
 	}
 }

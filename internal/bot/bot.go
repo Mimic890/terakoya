@@ -36,6 +36,7 @@ type Bot struct {
 	t     i18n.Strings
 
 	msgs        *tracker
+	bg          sync.WaitGroup // work left running after a reply, such as deleting old messages
 	userLocks   userLocks
 	syncMu      sync.Mutex
 	rejectGrace time.Duration
@@ -219,7 +220,7 @@ func (b *Bot) sendMenu(ctx context.Context, chatID int64, text string, kb *model
 func (b *Bot) editMenu(ctx context.Context, chatID int64, msgID int, text string, kb *models.InlineKeyboardMarkup) {
 	if b.msgs.isRich(ctx, chatID, msgID) {
 		b.sendMenu(ctx, chatID, text, kb)
-		b.retire(ctx, &models.Message{ID: msgID, Chat: models.Chat{ID: chatID}})
+		b.retireLater(ctx, chatID, msgID)
 		return
 	}
 	_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
@@ -241,6 +242,24 @@ func (b *Bot) showMenu(ctx context.Context, chatID int64, text string, kb *model
 		return
 	}
 	b.sendMenu(ctx, chatID, text, kb)
+}
+
+// later runs f in the background, after the handler has answered. It
+// keeps running when the update's context ends.
+func (b *Bot) later(ctx context.Context, f func(context.Context)) {
+	ctx = context.WithoutCancel(ctx)
+	b.bg.Add(1)
+	go func() {
+		defer b.bg.Done()
+		f(ctx)
+	}()
+}
+
+// retireLater removes a replaced message in the background.
+func (b *Bot) retireLater(ctx context.Context, chatID int64, msgID int) {
+	b.later(ctx, func(ctx context.Context) {
+		b.retire(ctx, &models.Message{ID: msgID, Chat: models.Chat{ID: chatID}})
+	})
 }
 
 func (b *Bot) answer(ctx context.Context, q *models.CallbackQuery, text string, alert bool) {

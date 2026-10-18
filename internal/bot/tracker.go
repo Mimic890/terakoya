@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/Mimic890/terakoya/internal/store"
 )
@@ -15,6 +16,17 @@ import (
 type tracker struct {
 	store *store.Store
 	log   *slog.Logger
+
+	// kinds remembers which bottom-keyboard menu each chat's menu is, so a
+	// second tap on the same button can be ignored. It is kept in memory
+	// only: after a restart the menu is just shown again.
+	mu    sync.Mutex
+	kinds map[int64]menuKind
+}
+
+type menuKind struct {
+	msg  int
+	kind string
 }
 
 func (t *tracker) seen(ctx context.Context, chatID int64, msgID int) {
@@ -22,13 +34,40 @@ func (t *tracker) seen(ctx context.Context, chatID int64, msgID int) {
 }
 
 func (t *tracker) setMenu(ctx context.Context, chatID int64, msgID int) {
+	t.forgetKind(chatID)
 	t.check(t.store.SetChatMenu(ctx, chatID, msgID, false))
 }
 
 // setRichMenu marks a rich message as the menu; it is replaced, not
 // edited, when the next menu comes.
 func (t *tracker) setRichMenu(ctx context.Context, chatID int64, msgID int) {
+	t.forgetKind(chatID)
 	t.check(t.store.SetChatMenu(ctx, chatID, msgID, true))
+}
+
+func (t *tracker) forgetKind(chatID int64) {
+	t.mu.Lock()
+	delete(t.kinds, chatID)
+	t.mu.Unlock()
+}
+
+// setKind records that the chat's menu msgID shows the bottom-keyboard
+// menu kind.
+func (t *tracker) setKind(chatID int64, msgID int, kind string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.kinds == nil {
+		t.kinds = map[int64]menuKind{}
+	}
+	t.kinds[chatID] = menuKind{msgID, kind}
+}
+
+// showing reports whether the chat's last message is the menu kind.
+func (t *tracker) showing(ctx context.Context, chatID int64, kind string) bool {
+	t.mu.Lock()
+	k, ok := t.kinds[chatID]
+	t.mu.Unlock()
+	return ok && k.kind == kind && k.msg == t.lastMenu(ctx, chatID)
 }
 
 func (t *tracker) isRich(ctx context.Context, chatID int64, msgID int) bool {
