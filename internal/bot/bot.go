@@ -204,6 +204,8 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 		b.sendArchive(ctx, m.Chat.ID)
 	case "/top":
 		b.showTop(ctx, m.Chat.ID, m.From)
+	case "/ranks":
+		b.showRanks(ctx, m.Chat.ID, m.From)
 	case "/start":
 		b.greet(ctx, m.Chat.ID, m.From)
 		if arg != "" {

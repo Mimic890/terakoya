@@ -140,7 +140,10 @@ type Strings struct {
 	EmojiUnknownSlot   string // %s: the slots
 	EmojiSaveFailed    string // %s: error
 	RanksTitle         string
-	RanksLine          string    // %s: rank, %d: accepted reports, %s: AcceptedFrom form
+	RanksButton        string
+	RanksLine          string // %s: rank, %d: accepted reports, %s: AcceptedFrom form
+	RanksHidden        string // %d: accepted reports, %s: AcceptedFrom form
+	RanksYours         string
 	AcceptedFrom       [3]string // «от 1 принятой правки», «от 2 принятых правок»…
 	RanksEdit          string
 
@@ -284,9 +287,9 @@ var RU = Strings{
 	KindGradeLabel:  "не хватает материала",
 	Top:             "Топ",
 	TopTitle:        "Топ участников",
-	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, у кого приняли хотя бы одну правку.",
+	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, чьи правки приняли.",
 	TopYou:          "Ваше место: %d — %d %s",
-	TopYouNone:      "Вас пока нет в топе: сообщите об ошибке, и когда её примут, вы сюда попадёте.",
+	TopYouNone:      "Вас пока нет в топе: вы попадёте сюда, когда примут вашу первую правку.",
 	KindEditLabel:   "правка",
 	KindTopicLabel:  "новая тема",
 	KindNoteLabel:   "новая запись",
@@ -326,9 +329,12 @@ var RU = Strings{
 	EmojiNone:          "—",
 	EmojiUnknownSlot:   "Нет такого места. Напишите /emoji_setup, чтобы пройти все по порядку, или /emoji_setup <место>, где место — одно из:\n%s",
 	EmojiSaveFailed:    "Не удалось сохранить: %s",
-	RanksTitle:         "Ранги:",
+	RanksTitle:         "Ранги",
+	RanksButton:        "Ранги",
 	AcceptedFrom:       [3]string{"принятой правки", "принятых правок", "принятых правок"},
 	RanksLine:          "%s — от %d %s",
+	RanksHidden:        "??? — от %d %s",
+	RanksYours:         " · ваш ранг",
 	RanksEdit:          "Значки рангов меняются через /emoji_setup. Названия и пороги пока меняются только в файле data/settings.yml на сервере — бот перечитает его сам.",
 
 	BroadcastAsk:           "Пришлите сообщение для рассылки.",

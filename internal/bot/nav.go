@@ -172,6 +172,10 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		b.answer(ctx, q, "", false)
 		b.showTop(ctx, msg.Chat.ID, &q.From)
 
+	case data == cbRanks:
+		b.answer(ctx, q, "", false)
+		b.showRanks(ctx, msg.Chat.ID, &q.From)
+
 	case strings.HasPrefix(data, cbEmoji):
 		b.onEmojiWizardCallback(ctx, q, msg)
 

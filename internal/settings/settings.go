@@ -38,13 +38,91 @@ const (
 // MaxMedals is the most places of the top that can have a medal emoji.
 const MaxMedals = 5
 
-// Settings is the content of settings.yml.
+// Settings is the content of settings.yml (see file for its layout).
 type Settings struct {
 	// TopicListStyle is how a grade's topics are listed; empty means list.
-	TopicListStyle string `yaml:"topic_list_style"`
-	Ranks          []Rank `yaml:"ranks"`
-	Top            Top    `yaml:"top"`
-	Emoji          Emoji  `yaml:"emoji"`
+	TopicListStyle string
+	Ranks          []Rank
+	// HideFutureRanks shows ranks beyond a user's next one in /ranks as
+	// «???», with their threshold only.
+	HideFutureRanks bool
+	Top             Top
+	Emoji           Emoji
+}
+
+// file is settings.yml as written: ranks is a section with hide_future
+// and the ladder.
+type file struct {
+	TopicListStyle string      `yaml:"topic_list_style"`
+	Ranks          rankSection `yaml:"ranks"`
+	Top            Top         `yaml:"top"`
+	Emoji          Emoji       `yaml:"emoji"`
+}
+
+type rankSection struct {
+	HideFuture bool   `yaml:"hide_future"`
+	Ladder     []Rank `yaml:"ladder"`
+}
+
+// UnmarshalYAML reads the section, or the plain list of ranks files had
+// before hide_future, and refuses unknown keys like the rest of the file.
+func (r *rankSection) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.SequenceNode:
+		return decodeRanks(n, &r.Ladder)
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			switch k.Value {
+			case "hide_future":
+				if err := v.Decode(&r.HideFuture); err != nil {
+					return err
+				}
+			case "ladder":
+				if err := decodeRanks(v, &r.Ladder); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("line %d: field %s not found in ranks", k.Line, k.Value)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("line %d: ranks must be a section with hide_future and ladder", n.Line)
+}
+
+func decodeRanks(n *yaml.Node, out *[]Rank) error {
+	if n.Kind != yaml.SequenceNode {
+		return fmt.Errorf("line %d: ranks.ladder must be a list", n.Line)
+	}
+	*out = nil
+	for _, item := range n.Content {
+		if item.Kind == yaml.MappingNode {
+			for i := 0; i < len(item.Content); i += 2 {
+				switch k := item.Content[i]; k.Value {
+				case "title", "from", "emoji":
+				default:
+					return fmt.Errorf("line %d: field %s not found in a rank", k.Line, k.Value)
+				}
+			}
+		}
+		var r Rank
+		if err := item.Decode(&r); err != nil {
+			return err
+		}
+		*out = append(*out, r)
+	}
+	return nil
+}
+
+func (f file) settings() Settings {
+	return Settings{TopicListStyle: f.TopicListStyle, Ranks: f.Ranks.Ladder, HideFutureRanks: f.Ranks.HideFuture,
+		Top: f.Top, Emoji: f.Emoji}
+}
+
+func toFile(s Settings) file {
+	return file{TopicListStyle: s.TopicListStyle, Ranks: rankSection{HideFuture: s.HideFutureRanks, Ladder: s.Ranks},
+		Top: s.Top, Emoji: s.Emoji}
 }
 
 // Top configures /top.
@@ -115,7 +193,7 @@ func Default(subjects []string) Settings {
 
 // FromLadder returns settings with ladder l and no custom emoji.
 func FromLadder(l ranks.Ladder, subjects []string) Settings {
-	s := Settings{TopicListStyle: TopicListList, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
+	s := Settings{TopicListStyle: TopicListList, HideFutureRanks: true, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
 	for _, r := range l {
 		s.Ranks = append(s.Ranks, Rank{Title: r.Title, From: r.From, Emoji: r.Emoji})
 	}
@@ -211,12 +289,13 @@ func Load(path string) (Settings, error) {
 		return Settings{}, err
 	}
 	// A file from before a section was added keeps its defaults.
-	s := Settings{Top: DefaultTop()}
+	f := file{Ranks: rankSection{HideFuture: true}, Top: DefaultTop()}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
-	if err := dec.Decode(&s); err != nil {
+	if err := dec.Decode(&f); err != nil {
 		return Settings{}, fmt.Errorf("%s: %w", path, err)
 	}
+	s := f.settings()
 	for i := range s.Ranks {
 		s.Ranks[i].Title = strings.TrimSpace(s.Ranks[i].Title)
 	}
@@ -234,8 +313,10 @@ const header = `# terakoya settings. Admin commands in the bot (/emoji_setup) re
 # and keeps the previous settings if the new ones are invalid (see its log).
 #
 # topic_list_style: list (a message with a link per topic) or buttons.
-# ranks: title, the number of accepted reports it starts at (the first
-# starts at 0, then strictly increasing), and an optional custom emoji ID.
+# ranks: hide_future shows ranks beyond a user's next one in /ranks as
+# "???" with their threshold; ladder lists title, the number of accepted
+# reports it starts at (the first starts at 0, then strictly increasing),
+# and an optional custom emoji ID.
 # top: /top. size is the number of places; the first medals places (0-5)
 # show their emoji.top custom emoji instead of the number; rank_style is
 # none, title, emoji or title_emoji; show_count shows accepted reports.
@@ -254,7 +335,7 @@ func Save(path string, s Settings) error {
 	buf.WriteString(header)
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(s); err != nil {
+	if err := enc.Encode(toFile(s)); err != nil {
 		return err
 	}
 	if err := enc.Close(); err != nil {

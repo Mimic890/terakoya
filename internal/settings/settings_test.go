@@ -197,3 +197,46 @@ func TestTopSettings(t *testing.T) {
 		t.Errorf("medals = %q", e.Top)
 	}
 }
+
+func TestRanksSection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	f, _ := Open(path, nil, "", logger(nil))
+	if !f.Get().HideFutureRanks {
+		t.Error("hide_future off by default")
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "\nranks:\n  hide_future: true\n  ladder:\n    - title: Novice\n") {
+		t.Errorf("file:\n%s", data)
+	}
+	// The list form of earlier files still loads, hiding future ranks.
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\n  - {title: b, from: 2}\n"), 0o644)
+	if s, err := Load(path); err != nil || !s.HideFutureRanks || len(s.Ranks) != 2 || s.Ranks[1].From != 2 {
+		t.Errorf("list form = %+v, %v", s, err)
+	}
+	os.WriteFile(path, []byte("ranks:\n  hide_future: false\n  ladder:\n    - {title: a, from: 0, emoji: \"5\"}\n"), 0o644)
+	if s, err := Load(path); err != nil || s.HideFutureRanks || s.Ranks[0].Emoji != "5" {
+		t.Errorf("section = %+v, %v", s, err)
+	}
+	os.WriteFile(path, []byte("ranks:\n  ladder:\n    - {title: a, from: 0}\n"), 0o644)
+	if s, err := Load(path); err != nil || !s.HideFutureRanks {
+		t.Errorf("without hide_future = %+v, %v", s, err)
+	}
+	for name, bad := range map[string]string{
+		"unknown key":      "ranks:\n  hide: true\n  ladder:\n    - {title: a, from: 0}\n",
+		"unknown rank key": "ranks:\n  ladder:\n    - {title: a, form: 0}\n",
+		"unknown in list":  "ranks:\n  - {title: a, from: 0, icon: x}\n",
+		"not a list":       "ranks:\n  ladder: a\n",
+		"no ranks":         "ranks:\n  hide_future: true\n",
+	} {
+		os.WriteFile(path, []byte(bad), 0o644)
+		if _, err := Load(path); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	// Saved settings keep the flag.
+	if err := f.Update(func(s *Settings) { s.HideFutureRanks = false }); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Load(path); err != nil || s.HideFutureRanks {
+		t.Errorf("after update = %+v, %v", s.HideFutureRanks, err)
+	}
+}

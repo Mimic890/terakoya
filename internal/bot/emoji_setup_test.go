@@ -187,7 +187,6 @@ func TestEmojiSetupOneSlotAndCancel(t *testing.T) {
 func TestEmojiSetupAdminsOnly(t *testing.T) {
 	h := newHarness(t, nil)
 	h.say("/emoji_setup")
-	h.say("/ranks")
 	for _, c := range h.tg.take() {
 		if c.method != "deleteMessage" {
 			t.Errorf("non-admin got %s %v", c.method, c.params)
@@ -200,22 +199,6 @@ func TestEmojiSetupAdminsOnly(t *testing.T) {
 	h.tapOn(1, cbEmojiYes)
 	if got := toasts(h.tg.take()); len(got) != 1 || got[0] != "" {
 		t.Errorf("non-admin tap = %q", got)
-	}
-}
-
-func TestRanksCommand(t *testing.T) {
-	h := newHarness(t, nil)
-	h.tg.emoji = []string{"5002"}
-	h.bot.settings.Update(func(s *settings.Settings) { s.Ranks[1].Emoji = "5002" })
-	h.as(ivan)
-	h.say("/ranks")
-	c := last(t, h.tg.take())
-	want := "Ранги:\nkōhai — от 0 принятых правок\n⭐ senpai — от 1 принятой правки\n\n" + i18n.RU.RanksEdit
-	if c.params["text"] != want {
-		t.Errorf("/ranks =\n%q\nwant\n%q", c.params["text"], want)
-	}
-	if !strings.Contains(c.params["entities"], `"custom_emoji_id":"5002"`) {
-		t.Errorf("entities = %s", c.params["entities"])
 	}
 }
 
@@ -248,7 +231,7 @@ func TestCommandMenus(t *testing.T) {
 		t.Fatalf("calls = %+v", calls)
 	}
 	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") || strings.Contains(all, "broadcast") || strings.Contains(all, "nick_reset") ||
-		!strings.Contains(all, `"start"`) || !strings.Contains(all, `"top"`) {
+		!strings.Contains(all, `"start"`) || !strings.Contains(all, `"top"`) || !strings.Contains(all, `"ranks"`) {
 		t.Errorf("everyone's menu = %v", calls[0].params)
 	}
 	if admin := calls[1].params; !strings.Contains(admin["scope"], `"chat_id":7`) ||

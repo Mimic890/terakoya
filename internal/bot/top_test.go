@@ -95,7 +95,7 @@ func TestTop(t *testing.T) {
 	h.bot.settings.Update(func(s *settings.Settings) {
 		s.Top = settings.Top{Size: 2, Medals: 1, RankStyle: settings.RankTitle, ShowCount: true}
 	})
-	if got := h.bot.topMarkdown(h.ctx, &anya); got != "# Топ участников\n\nПока здесь никого нет. Сюда попадают те, у кого приняли хотя бы одну правку.\n" {
+	if got := h.bot.topMarkdown(h.ctx, &anya); got != "# Топ участников\n\nПока здесь никого нет. Сюда попадают те, чьи правки приняли.\n" {
 		t.Errorf("empty = %q", got)
 	}
 
@@ -111,7 +111,7 @@ func TestTop(t *testing.T) {
 		t.Errorf("anya sees\n%q\nwant\n%q", got, want)
 	}
 	// Иван has none.
-	if got := h.bot.topMarkdown(h.ctx, &ivan); !strings.HasSuffix(got, "\n\nВас пока нет в топе: сообщите об ошибке, и когда её примут, вы сюда попадёте.\n") {
+	if got := h.bot.topMarkdown(h.ctx, &ivan); !strings.HasSuffix(got, "\n\nВас пока нет в топе: вы попадёте сюда, когда примут вашу первую правку.\n") {
 		t.Errorf("ivan sees %q", got)
 	}
 	// Борис is in the list: no line of his own.
