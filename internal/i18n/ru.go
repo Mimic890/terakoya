@@ -104,20 +104,25 @@ type Strings struct {
 	PinnedTitle string
 	PinnedEmpty string
 
-	// Account.
-	AccountTitle       string // %s: first name
-	AccountRank        string // %s: rank
-	AccountAccepted    string // %d: accepted suggestions
-	AccountNext        string // %s: next rank, %d: suggestions left, %s: progress bar
-	AccountTop         string
-	AccountOpen        string // %d: open suggestions
-	AccountAccess      string // %s: one of the Access* states
-	AccessStateOn      string
-	AccessStateNone    string
-	AccessStatePending string
-	AccessStateDenied  string // %s: date
-	AccessStateAdmin   string
-	RequestAccess      string
+	// Account and the list of suggestions, sent as rich messages
+	// (Markdown).
+	AccountRank     string // %s: rank
+	AccountNext     string // %d: accepted suggestions left, %s: «правка» in the right form
+	AccountTop      string
+	AccountAccepted string // %d: accepted suggestions
+	AccountOpen     string // %d: open suggestions
+	AccountAdmin    string
+	Edits           [3]string // «правка», «правки», «правок»
+	History         string
+	HistoryPending  string
+	HistoryAccepted string
+	HistoryRejected string
+	HistoryEmpty    string
+	HistoryItem     string // %s: title, %s: kind, %s: date
+	KindEditLabel   string
+	KindTopicLabel  string
+	KindNoteLabel   string
+	KindReportLabel string
 
 	// Edit access.
 	AccessNeeded      string
@@ -154,7 +159,7 @@ type Strings struct {
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting:       "Привет, %s! Это Теракоя — школьный справочник, который пишут сами пользователи.",
+	Greeting:       "Привет, %s! Это terakoya — школьный справочник, который пишут сами пользователи.",
 	ChooseSubject:  "Выберите предмет:",
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
@@ -258,19 +263,23 @@ var RU = Strings{
 	PinnedTitle: "📌 Закреплённые",
 	PinnedEmpty: "Здесь будут темы, которые вы закрепите кнопкой 📌.",
 
-	AccountTitle:       "👤 %s",
-	AccountRank:        "Ранг: %s",
-	AccountAccepted:    "Принято правок: %d",
-	AccountNext:        "До ранга %s: ещё %d %s",
-	AccountTop:         "Это высший ранг",
-	AccountOpen:        "Предложения на рассмотрении: %d",
-	AccountAccess:      "Правка: %s",
-	AccessStateOn:      "разрешена",
-	AccessStateNone:    "нет доступа",
-	AccessStatePending: "запрос на рассмотрении",
-	AccessStateDenied:  "отклонено, повторить можно с %s",
-	AccessStateAdmin:   "администратор",
-	RequestAccess:      "Запросить доступ",
+	AccountRank:     "Ранг: **%s**",
+	AccountNext:     "До следующего ранга: ещё %d %s",
+	AccountTop:      "Это высший ранг",
+	AccountAccepted: "Принято правок: %d",
+	AccountOpen:     "На рассмотрении: %d",
+	AccountAdmin:    "Уровень прав: admin",
+	Edits:           [3]string{"правка", "правки", "правок"},
+	History:         "Список правок",
+	HistoryPending:  "На рассмотрении",
+	HistoryAccepted: "Приняты",
+	HistoryRejected: "Отклонены",
+	HistoryEmpty:    "Пока нет",
+	HistoryItem:     "%s — %s, %s",
+	KindEditLabel:   "правка",
+	KindTopicLabel:  "новая тема",
+	KindNoteLabel:   "новая запись",
+	KindReportLabel: "ошибка",
 
 	AccessNeeded:      "Чтобы предлагать правки, нужно разрешение. Отправить запрос?",
 	SendRequest:       "Отправить запрос",
