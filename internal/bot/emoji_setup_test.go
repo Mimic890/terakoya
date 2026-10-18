@@ -37,7 +37,7 @@ func TestEmojiSetupWizard(t *testing.T) {
 
 	h.say("/emoji_setup")
 	c := last(t, h.tg.take())
-	want := "Шаг 1 из 10. Кнопка «Предметы» в нижней клавиатуре.\n\nСейчас: нет\n\n" + i18n.RU.EmojiAsk
+	want := "Шаг 1 из 11. Кнопка «Предметы» в нижней клавиатуре.\n\nСейчас: нет\n\n" + i18n.RU.EmojiAsk
 	if c.params["text"] != want {
 		t.Errorf("step 1 = %q, want %q", c.params["text"], want)
 	}
@@ -61,35 +61,39 @@ func TestEmojiSetupWizard(t *testing.T) {
 		t.Errorf("preview = %+v", c.params)
 	}
 	h.wizardTap(cbEmojiAnother)
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 10.") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 1 из 11.") {
 		t.Errorf("after «Другой» = %q", c.params["text"])
 	}
 	h.custom("5001", "😀")
 	h.wizardTap(cbEmojiYes)
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 2 из 10. Кнопка «Закреплённые»") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 2 из 11. Кнопка «Закреплённые»") {
 		t.Errorf("step 2 = %q", c.params["text"])
 	}
 
 	h.wizardTap(cbEmojiSkip)  // Закреплённые
 	h.wizardTap(cbEmojiClear) // Аккаунт
-	h.wizardTap(cbEmojiSkip)  // Закрепить
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 4 из 11. Кнопка «Настройки» в нижней клавиатуре.") {
+		t.Errorf("settings step = %q", c.params["text"])
+	}
+	h.wizardTap(cbEmojiSkip) // Настройки
+	h.wizardTap(cbEmojiSkip) // Закрепить
 	c = last(t, h.tg.take())
-	if !strings.HasPrefix(c.params["text"], "Шаг 5 из 10. Приветствие после /start") ||
+	if !strings.HasPrefix(c.params["text"], "Шаг 6 из 11. Приветствие после /start") ||
 		!strings.Contains(c.params["text"], "\n"+i18n.RU.EmojiHintGreeting+"\n\nСейчас: нет") {
 		t.Errorf("greeting step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // Приветствие
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 6 из 10. Кнопка предмета «Геометрия» в списке предметов.") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 7 из 11. Кнопка предмета «Геометрия» в списке предметов.") {
 		t.Errorf("subject step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // Геометрия
-	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 7 из 10. Значок ранга kōhai (от 0 принятых сообщений)") {
+	if c = last(t, h.tg.take()); !strings.HasPrefix(c.params["text"], "Шаг 8 из 11. Значок ранга kōhai (от 0 принятых сообщений)") {
 		t.Errorf("rank step = %q", c.params["text"])
 	}
 	h.wizardTap(cbEmojiSkip) // kōhai
 	h.custom("5002", "🎓")
 	h.wizardTap(cbEmojiYes) // senpai
-	if c = last(t, h.tg.take()); c.params["text"] != "Шаг 9 из 10. Медаль 1 места в /top — вместо номера места.\n1 место\n\nСейчас: нет\n\n"+i18n.RU.EmojiAsk {
+	if c = last(t, h.tg.take()); c.params["text"] != "Шаг 10 из 11. Медаль 1 места в /top — вместо номера места.\n1 место\n\nСейчас: нет\n\n"+i18n.RU.EmojiAsk {
 		t.Errorf("medal step = %q", c.params["text"])
 	}
 	h.custom("5003", "🥇")
@@ -97,7 +101,7 @@ func TestEmojiSetupWizard(t *testing.T) {
 	h.wizardTap(cbEmojiSkip) // top:2
 
 	c = last(t, h.tg.take())
-	wantSum := "Готово, сохранено:\nПредметы: ⭐\nЗакреплённые: —\nАккаунт: —\nЗакрепить: —\nПриветствие: —\nПредмет «Геометрия»: —\nРанг kōhai: —\nРанг senpai: ⭐\nТоп, 1 место: ⭐\nТоп, 2 место: —"
+	wantSum := "Готово, сохранено:\nПредметы: ⭐\nЗакреплённые: —\nАккаунт: —\nНастройки: —\nЗакрепить: —\nПриветствие: —\nПредмет «Геометрия»: —\nРанг kōhai: —\nРанг senpai: ⭐\nТоп, 1 место: ⭐\nТоп, 2 место: —"
 	if c.params["text"] != wantSum {
 		t.Errorf("summary =\n%q\nwant\n%q", c.params["text"], wantSum)
 	}
@@ -243,12 +247,12 @@ func TestCommandMenus(t *testing.T) {
 	if len(calls) != 2 || calls[0].method != "setMyCommands" || calls[1].method != "setMyCommands" {
 		t.Fatalf("calls = %+v", calls)
 	}
-	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") || strings.Contains(all, "broadcast") ||
+	if all := calls[0].params["commands"]; calls[0].params["scope"] != "" || strings.Contains(all, "emoji_setup") || strings.Contains(all, "broadcast") || strings.Contains(all, "nick_reset") ||
 		!strings.Contains(all, `"start"`) || !strings.Contains(all, `"top"`) {
 		t.Errorf("everyone's menu = %v", calls[0].params)
 	}
 	if admin := calls[1].params; !strings.Contains(admin["scope"], `"chat_id":7`) ||
-		!strings.Contains(admin["commands"], `"emoji_setup"`) || !strings.Contains(admin["commands"], `"ranks"`) || !strings.Contains(admin["commands"], `"broadcast"`) ||
+		!strings.Contains(admin["commands"], `"emoji_setup"`) || !strings.Contains(admin["commands"], `"ranks"`) || !strings.Contains(admin["commands"], `"broadcast"`) || !strings.Contains(admin["commands"], `"nick_reset"`) ||
 		strings.Contains(admin["commands"], `"revoke"`) || strings.Contains(admin["commands"], `"access"`) {
 		t.Errorf("admin menu = %v", admin)
 	}

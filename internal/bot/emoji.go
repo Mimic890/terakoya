@@ -143,6 +143,9 @@ func (e *emojiSet) Pinned() string {
 func (e *emojiSet) Account() string {
 	return e.get(func(e *emojiSet) string { return e.e.KeyboardAccount })
 }
+func (e *emojiSet) Settings() string {
+	return e.get(func(e *emojiSet) string { return e.e.KeyboardSettings })
+}
 func (e *emojiSet) Pin() string      { return e.get(func(e *emojiSet) string { return e.e.Pin }) }
 func (e *emojiSet) Greeting() string { return e.get(func(e *emojiSet) string { return e.e.Greeting }) }
 

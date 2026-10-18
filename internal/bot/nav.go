@@ -175,6 +175,9 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 	case strings.HasPrefix(data, cbEmoji):
 		b.onEmojiWizardCallback(ctx, q, msg)
 
+	case strings.HasPrefix(data, cbSettings):
+		b.onSettingsCallback(ctx, q, msg)
+
 	case strings.HasPrefix(data, cbBroadcast):
 		b.onBroadcastCallback(ctx, q, msg)
 

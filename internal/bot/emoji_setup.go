@@ -58,6 +58,7 @@ func (b *Bot) slotsUpTo(s settings.Settings, medals int) []emojiSlot {
 		{"keyboard_subjects", t.EmojiShortSubjects, t.EmojiWhereSubjects, ""},
 		{"keyboard_pinned", t.EmojiShortPinned, t.EmojiWherePinned, ""},
 		{"keyboard_account", t.EmojiShortAccount, t.EmojiWhereAccount, ""},
+		{"keyboard_settings", t.EmojiShortSettings, t.EmojiWhereSettings, ""},
 		{"pin", t.EmojiShortPin, t.EmojiWherePin, ""},
 		{"greeting", t.EmojiShortGreeting, t.EmojiWhereGreeting, t.EmojiHintGreeting},
 	}
@@ -94,6 +95,8 @@ func slotID(s settings.Settings, key string) string {
 		return s.Emoji.KeyboardPinned
 	case key == "keyboard_account":
 		return s.Emoji.KeyboardAccount
+	case key == "keyboard_settings":
+		return s.Emoji.KeyboardSettings
 	case key == "pin":
 		return s.Emoji.Pin
 	case key == "greeting":
@@ -121,6 +124,8 @@ func setSlot(s *settings.Settings, key, id string) {
 		s.Emoji.KeyboardPinned = id
 	case key == "keyboard_account":
 		s.Emoji.KeyboardAccount = id
+	case key == "keyboard_settings":
+		s.Emoji.KeyboardSettings = id
 	case key == "pin":
 		s.Emoji.Pin = id
 	case key == "greeting":
@@ -427,6 +432,7 @@ func (b *Bot) setCommands(ctx context.Context) {
 		models.BotCommand{Command: "emoji_setup", Description: b.t.CmdEmojiSetup},
 		models.BotCommand{Command: "ranks", Description: b.t.CmdRanks},
 		models.BotCommand{Command: "broadcast", Description: b.t.CmdBroadcast},
+		models.BotCommand{Command: "nick_reset", Description: b.t.CmdNickReset},
 	)
 	for _, id := range b.cfg.Admins {
 		_, err := b.api.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: admin,
@@ -438,12 +444,13 @@ func (b *Bot) setCommands(ctx context.Context) {
 	}
 }
 
-// onAdminCommand handles /emoji_setup, /ranks and /broadcast. It reports
+// onAdminCommand handles /emoji_setup, /ranks, /broadcast and
+// /nick_reset. It reports
 // false for other commands; users who are not admins get no answer at
 // all.
 func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
 	switch cmd {
-	case "/emoji_setup", "/ranks", "/broadcast":
+	case "/emoji_setup", "/ranks", "/broadcast", "/nick_reset":
 	default:
 		return false
 	}
@@ -457,6 +464,8 @@ func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg st
 		b.sendRanks(ctx, m.Chat.ID)
 	case "/broadcast":
 		b.startBroadcast(ctx, m)
+	case "/nick_reset":
+		b.nickReset(ctx, m, arg)
 	}
 	return true
 }

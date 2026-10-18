@@ -60,6 +60,7 @@ type Strings struct {
 	KeySubjects string
 	KeyPinned   string
 	KeyAccount  string
+	KeySettings string
 	// KeyOld are the button texts of keyboards sent by earlier versions,
 	// which stay on users' screens until the next /start: Предметы,
 	// Закреплённые, Аккаунт.
@@ -119,6 +120,8 @@ type Strings struct {
 	EmojiShortSubjects string
 	EmojiShortPinned   string
 	EmojiShortAccount  string
+	EmojiShortSettings string
+	EmojiWhereSettings string
 	EmojiShortPin      string
 	EmojiShortGreeting string
 	EmojiShortSubject  string // %s: subject
@@ -153,6 +156,29 @@ type Strings struct {
 	BroadcastProgress      string // %d: done, %d: recipients
 	BroadcastDone          string // %d: sent, %d: blocked, %d: failed
 
+	// «Настройки» and nicknames.
+	SettingsTitle    string
+	SettingsNick     string // %s: the name others see
+	SettingsTop      string // %s: «да» or «нет»
+	SettingsNo       string
+	NickFromTelegram string
+	NickOwn          string
+	TopHide          string
+	TopShow          string
+	NickAsk          string
+	NickAgain        string
+	NickLength       string // %d: min, %d: max
+	NickChars        string
+	NickSpaces       string
+	NickBanned       string
+	NickReserved     string
+	NickTaken        string
+	NickResetUsage   string
+	NickResetUnknown string
+	NickResetNone    string // %s: user
+	NickResetDone    string // %s: old nickname, %s: the name now
+	NickResetNotice  string
+
 	// The command menu.
 	CmdStart      string
 	CmdDownload   string
@@ -161,6 +187,7 @@ type Strings struct {
 	CmdRanks      string
 	CmdTop        string
 	CmdBroadcast  string
+	CmdNickReset  string
 
 	// Months in the genitive case, for dates such as «25 октября».
 	Months [12]string
@@ -220,6 +247,7 @@ var RU = Strings{
 	KeySubjects: "Предметы",
 	KeyPinned:   "Закреплённые",
 	KeyAccount:  "Аккаунт",
+	KeySettings: "Настройки",
 	KeyOld:      [3]string{"📚 Предметы", "📌 Закреплённые", "👤 Аккаунт"},
 	Close:       "Закрыть",
 
@@ -272,6 +300,8 @@ var RU = Strings{
 	EmojiShortSubjects: "Предметы",
 	EmojiShortPinned:   "Закреплённые",
 	EmojiShortAccount:  "Аккаунт",
+	EmojiShortSettings: "Настройки",
+	EmojiWhereSettings: "Кнопка «Настройки» в нижней клавиатуре.",
 	EmojiShortPin:      "Закрепить",
 	EmojiShortGreeting: "Приветствие",
 	EmojiShortSubject:  "Предмет «%s»",
@@ -305,6 +335,28 @@ var RU = Strings{
 	BroadcastProgress:      "Рассылка: отправлено %d из %d…",
 	BroadcastDone:          "Рассылка завершена. Доставлено: %d, заблокировали бота: %d, не доставлено: %d.",
 
+	SettingsTitle:    "Настройки",
+	SettingsNick:     "Ник: %s",
+	SettingsTop:      "Показывать меня в топе: %s",
+	SettingsNo:       "Нет",
+	NickFromTelegram: "Имя из Telegram",
+	NickOwn:          "Свой ник",
+	TopHide:          "Скрыть меня из топа",
+	TopShow:          "Показывать меня в топе",
+	NickAsk:          "Пришлите ник: от 3 до 20 символов — буквы, цифры, «_», «-» и пробелы.",
+	NickAgain:        "Пришлите другой.",
+	NickLength:       "Ник должен быть от %d до %d символов.",
+	NickChars:        "В нике могут быть только буквы, цифры, «_», «-» и пробелы.",
+	NickSpaces:       "Пробел не может стоять в начале или в конце ника, и два пробела подряд тоже нельзя.",
+	NickBanned:       "Такой ник использовать нельзя.",
+	NickReserved:     "Такой ник можно спутать с администратором или ботом.",
+	NickTaken:        "Этот ник уже занят.",
+	NickResetUsage:   "Напишите так: /nick_reset 123456 или /nick_reset @username",
+	NickResetUnknown: "Не нашёл такого пользователя.",
+	NickResetNone:    "У %s нет своего ника.",
+	NickResetDone:    "Ник «%s» сброшен, теперь это %s.",
+	NickResetNotice:  "Ваш ник сброшен администратором.",
+
 	CmdStart:      "Открыть каталог",
 	CmdDownload:   "Скачать все материалы",
 	CmdCancel:     "Отменить текущее действие",
@@ -312,6 +364,7 @@ var RU = Strings{
 	CmdRanks:      "Показать ранги",
 	CmdTop:        "Топ участников",
 	CmdBroadcast:  "Рассылка всем пользователям",
+	CmdNickReset:  "Сбросить ник: /nick_reset <id или @username>",
 
 	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря"},

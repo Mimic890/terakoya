@@ -38,7 +38,7 @@ func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
 	return &models.ReplyKeyboardMarkup{
 		Keyboard: [][]models.KeyboardButton{
 			{key(b.emoji.Subjects(), b.t.KeySubjects), key(b.emoji.Pinned(), b.t.KeyPinned)},
-			{key(b.emoji.Account(), b.t.KeyAccount)},
+			{key(b.emoji.Account(), b.t.KeyAccount), key(b.emoji.Settings(), b.t.KeySettings)},
 		},
 		IsPersistent:   true,
 		ResizeKeyboard: true,
@@ -60,6 +60,9 @@ func (b *Bot) keyButton(text string) string {
 		if text == label || text == b.t.KeyOld[i] {
 			return label
 		}
+	}
+	if text == b.t.KeySettings {
+		return text
 	}
 	return ""
 }
@@ -98,6 +101,9 @@ func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
 		b.replaceMenu(ctx, chatID, text, kb)
 	case b.t.KeyAccount:
 		b.showAccount(ctx, chatID, m.From)
+	case b.t.KeySettings:
+		text, kb := b.settingsView(ctx, m.From)
+		b.replaceMenu(ctx, chatID, text, kb)
 	}
 	if id := b.msgs.menu(ctx, chatID); id != 0 {
 		b.msgs.setKind(chatID, id, key)
@@ -214,7 +220,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	}
 	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
-		"# " + escapeMarkdown(from.FirstName),
+		"# " + escapeMarkdown(u.DisplayName()),
 		"",
 		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
 	}
