@@ -16,7 +16,7 @@ FROM alpine:3.22
 RUN apk add --no-cache ca-certificates git tzdata font-dejavu
 COPY --from=resvg /out/bin/resvg /usr/local/bin/resvg
 COPY --from=build /out/terakoya /usr/local/bin/terakoya
-ENV TERAKOYA_REPO_DIR=/srv/content \
+ENV TERAKOYA_REPO_DIR=/srv/vault \
     TERAKOYA_DATA_DIR=/srv/data \
     TERAKOYA_FONTS_DIR=/usr/share/fonts/dejavu
 WORKDIR /srv
