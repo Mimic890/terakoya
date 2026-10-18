@@ -13,11 +13,16 @@ type Submitter struct {
 	TgID      int64
 	Username  string
 	FirstName string
+	Nickname  string // chosen in the bot, or ""
 }
 
-// Handle is "@username", or the first name when there is no username.
+// Handle is how the bot names the user: the nickname, else "@username",
+// else the first name.
 func (s Submitter) Handle() string {
-	if s.Username != "" {
+	switch {
+	case s.Nickname != "":
+		return s.Nickname
+	case s.Username != "":
 		return "@" + s.Username
 	}
 	return s.FirstName
@@ -83,6 +88,9 @@ func (r Report) IssueBody() string {
 	}
 	if r.By.FirstName != "" {
 		fmt.Fprintf(&b, "- Name: %s\n", r.By.FirstName)
+	}
+	if r.By.Nickname != "" {
+		fmt.Fprintf(&b, "- Nickname: %s\n", r.By.Nickname)
 	}
 	if r.ArticleURL != "" {
 		fmt.Fprintf(&b, "- %s: [`%s`](%s) as the user saw it", where, r.RepoPath, r.ArticleURL)

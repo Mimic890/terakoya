@@ -158,3 +158,42 @@ func TestTopicListStyle(t *testing.T) {
 		t.Errorf("buttons = %q, %v", f.Get().TopicList(), err)
 	}
 }
+
+func TestTopSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	f, _ := Open(path, nil, "", logger(nil))
+	if got := f.Get().Top; got != DefaultTop() {
+		t.Errorf("default = %+v", got)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "top:\n  size: 20\n  medals: 3\n  rank_style: emoji\n  show_count: true\n") {
+		t.Errorf("file:\n%s", data)
+	}
+	// Files from before the section get the defaults; a partial section
+	// keeps the defaults of the keys it leaves out.
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\n"), 0o644)
+	if s, err := Load(path); err != nil || s.Top != DefaultTop() {
+		t.Errorf("old file = %+v, %v", s.Top, err)
+	}
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\ntop:\n  size: 5\n  show_count: false\n"), 0o644)
+	if s, err := Load(path); err != nil || s.Top != (Top{Size: 5, Medals: 3, RankStyle: RankEmoji}) {
+		t.Errorf("partial = %+v, %v", s.Top, err)
+	}
+	for _, bad := range []string{"size: 0", "size: 101", "medals: 6", "medals: -1", "rank_style: big"} {
+		os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\ntop:\n  "+bad+"\n"), 0o644)
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "top.") {
+			t.Errorf("%s accepted: %v", bad, err)
+		}
+	}
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\nemoji:\n  top: [\"1\", \"2\", \"3\", \"4\", \"5\", \"6\"]\n"), 0o644)
+	if _, err := Load(path); err == nil {
+		t.Error("six medals accepted")
+	}
+
+	// Medals are set by place and read back.
+	if err := f.Update(func(s *Settings) { s.Emoji.SetMedal(2, "777") }); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.Get().Emoji; e.Medal(1) != "" || e.Medal(2) != "777" || e.Medal(3) != "" || e.Medal(0) != "" {
+		t.Errorf("medals = %q", e.Top)
+	}
+}

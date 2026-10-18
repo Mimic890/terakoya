@@ -255,3 +255,14 @@ func TestNoStraySpaces(t *testing.T) {
 		t.Errorf("plain account = %q", md)
 	}
 }
+
+func TestAccountNextRankEmoji(t *testing.T) {
+	h := newHarness(t, nil)
+	withEmoji(h)
+	// kōhai has 201, senpai 202.
+	if got := h.bot.accountMarkdown(h.ctx, &anya); !strings.Contains(got,
+		"Ранг: ![🏅](tg://emoji?id=201) **kōhai**  \nДо следующего ранга: ещё 1 принятое сообщение  \n"+
+			"Следующий ранг: ![🏅](tg://emoji?id=202) **senpai**\n") {
+		t.Errorf("account = %s", got)
+	}
+}

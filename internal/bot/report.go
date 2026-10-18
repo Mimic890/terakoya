@@ -60,6 +60,12 @@ type sessionPayload struct {
 	// from, which is replaced when the user goes back to it.
 	Msgs      []int `json:"msgs,omitempty"`
 	OriginMsg int   `json:"origin_msg,omitempty"`
+	// A broadcast: its rich Markdown, picture (file_id) and the album the
+	// picture came in, and the preview message.
+	Markdown   string `json:"markdown,omitempty"`
+	Photo      string `json:"photo,omitempty"`
+	MediaGroup string `json:"media_group,omitempty"`
+	Preview    int    `json:"preview,omitempty"`
 }
 
 type pendingImage struct {
@@ -285,7 +291,15 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 	if d == nil {
 		return false
 	}
-	if d.ses.State != stateReport && d.ses.State != stateReportConfirm {
+	switch d.ses.State {
+	case stateReport, stateReportConfirm:
+	case stateBroadcastWait, stateBroadcastConfirm:
+		if !b.cfg.IsAdmin(m.From.ID) {
+			b.endDialog(ctx, d)
+			return false
+		}
+	case stateNick:
+	default:
 		// A dialog of an earlier version, such as an edit.
 		b.endDialog(ctx, d)
 		return false
@@ -298,6 +312,14 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 			b.save(ctx, d)
 		}
 	}()
+	switch d.ses.State {
+	case stateBroadcastWait, stateBroadcastConfirm:
+		b.onBroadcastMessage(ctx, d, m)
+		return true
+	case stateNick:
+		b.onNickMessage(ctx, d, m)
+		return true
+	}
 
 	text := strings.TrimSpace(m.Text)
 	img, isImage, problem := b.imageOf(m)
@@ -487,15 +509,20 @@ func (b *Bot) deleteMessage(ctx context.Context, chatID int64, msgID int) {
 	}
 }
 
-func submitter(u *models.User) suggest.Submitter {
-	return suggest.Submitter{TgID: u.ID, Username: u.Username, FirstName: u.FirstName}
+// submitter describes the user behind a report, with their nickname.
+func (b *Bot) submitter(ctx context.Context, u *models.User) suggest.Submitter {
+	s := suggest.Submitter{TgID: u.ID, Username: u.Username, FirstName: u.FirstName}
+	if stored, err := b.store.User(ctx, u.ID); err == nil {
+		s.Nickname = stored.Nickname
+	}
+	return s
 }
 
 // submitReport opens an issue with the user's description. Pictures become
 // issue attachments, or, on hosts without an attachment API, files on a
 // report/ branch.
 func (b *Bot) submitReport(ctx context.Context, d *dialog, from *models.User) {
-	r, assets, ok := b.reportOf(d, from)
+	r, assets, ok := b.reportOf(d, b.submitter(ctx, from))
 	if !ok {
 		b.cancel(ctx, d, b.t.NotFound)
 		return
@@ -509,8 +536,8 @@ func (b *Bot) submitReport(ctx context.Context, d *dialog, from *models.User) {
 
 // reportOf describes the dialog's report and names the folder its pictures
 // would go to. It fails if the note or grade left the vault.
-func (b *Bot) reportOf(d *dialog, from *models.User) (r suggest.Report, assets string, ok bool) {
-	r = suggest.Report{BaseSHA: d.ses.BaseSHA, ShortID: d.p.ShortID, By: submitter(from), Text: d.p.Text,
+func (b *Bot) reportOf(d *dialog, by suggest.Submitter) (r suggest.Report, assets string, ok bool) {
+	r = suggest.Report{BaseSHA: d.ses.BaseSHA, ShortID: d.p.ShortID, By: by, Text: d.p.Text,
 		AcceptLabel: b.cfg.AcceptedLabel}
 	if d.p.GradeID != "" {
 		g := b.catalog().Grade(d.p.GradeID)

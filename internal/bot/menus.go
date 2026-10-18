@@ -38,18 +38,30 @@ func (b *Bot) replyKeyboard() *models.ReplyKeyboardMarkup {
 	return &models.ReplyKeyboardMarkup{
 		Keyboard: [][]models.KeyboardButton{
 			{key(b.emoji.Subjects(), b.t.KeySubjects), key(b.emoji.Pinned(), b.t.KeyPinned)},
-			{key(b.emoji.Account(), b.t.KeyAccount)},
+			{key(b.emoji.Account(), b.t.KeyAccount), key(b.emoji.Settings(), b.t.KeySettings)},
 		},
 		IsPersistent:   true,
 		ResizeKeyboard: true,
 	}
 }
 
+// addressName is how the bot addresses a user: the nickname, else the
+// Telegram first name, never the @username. The user is recorded on the
+// way, so their latest Telegram name counts.
+func (b *Bot) addressName(ctx context.Context, from *models.User) string {
+	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
+	if err != nil {
+		b.log.Error("touch user", "err", err)
+		return store.User{Username: from.Username, FirstName: from.FirstName}.AddressName()
+	}
+	return u.AddressName()
+}
+
 // greet sends the greeting, which carries the bottom keyboard: a message
 // cannot have both that keyboard and inline buttons.
 func (b *Bot) greet(ctx context.Context, chatID int64, from *models.User) {
 	b.sendEmojiText(ctx, chatID, emojiText{
-		fmt.Sprintf(b.t.Greeting, from.FirstName), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
+		fmt.Sprintf(b.t.Greeting, b.addressName(ctx, from)), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
 	}, b.replyKeyboard())
 }
 
@@ -60,6 +72,9 @@ func (b *Bot) keyButton(text string) string {
 		if text == label || text == b.t.KeyOld[i] {
 			return label
 		}
+	}
+	if text == b.t.KeySettings {
+		return text
 	}
 	return ""
 }
@@ -98,6 +113,9 @@ func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
 		b.replaceMenu(ctx, chatID, text, kb)
 	case b.t.KeyAccount:
 		b.showAccount(ctx, chatID, m.From)
+	case b.t.KeySettings:
+		text, kb := b.settingsView(ctx, m.From)
+		b.replaceMenu(ctx, chatID, text, kb)
 	}
 	if id := b.msgs.menu(ctx, chatID); id != 0 {
 		b.msgs.setKind(chatID, id, key)
@@ -204,21 +222,26 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 	ladder := b.ladder()
 	rank := ladder.For(accepted)
 	icon := richEmojiRef(b.emoji.Rank(rank.Title), "🏅")
-	next := b.t.AccountTop
+	next := []string{b.t.AccountTop}
 	if r, ok := ladder.Next(rank); ok {
 		left := r.From - accepted
-		next = fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Reports))
+		next = []string{
+			fmt.Sprintf(b.t.AccountNext, left, plural(left, b.t.Reports)) + "  ",
+			fmt.Sprintf(b.t.AccountNextRank, richEmojiRef(b.emoji.Rank(r.Title), "🏅")+"**"+escapeMarkdown(r.Title)+"**"),
+		}
 	}
 	// Two trailing spaces break the line within a paragraph.
 	lines := []string{
-		"# " + escapeMarkdown(from.FirstName),
+		"# " + escapeMarkdown(u.AddressName()),
 		"",
 		fmt.Sprintf(b.t.AccountRank, icon+"**"+escapeMarkdown(rank.Title)+"**") + "  ",
-		next,
-		"",
-		fmt.Sprintf(b.t.AccountAccepted, accepted) + "  ",
-		fmt.Sprintf(b.t.AccountOpen, open),
 	}
+	lines = append(lines, next...)
+	lines = append(lines,
+		"",
+		fmt.Sprintf(b.t.AccountAccepted, accepted)+"  ",
+		fmt.Sprintf(b.t.AccountOpen, open),
+	)
 	if b.cfg.IsAdmin(from.ID) {
 		lines[len(lines)-1] += "  "
 		lines = append(lines, b.t.AccountAdmin)
@@ -227,7 +250,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 }
 
 func (b *Bot) accountKeyboard() *models.InlineKeyboardMarkup {
-	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Close, cbClose)))
+	return keyboard(row(button(b.t.History, cbHistory), button(b.t.Top, cbTop)), row(button(b.t.Close, cbClose)))
 }
 
 // historyMarkdown lists the user's reports, and the edits and topics they
@@ -355,7 +378,7 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 }
 
 func (b *Bot) showAccount(ctx context.Context, chatID int64, from *models.User) {
-	b.showRich(ctx, chatID, from.FirstName, b.accountMarkdown(ctx, from), b.accountKeyboard())
+	b.showRich(ctx, chatID, b.addressName(ctx, from), b.accountMarkdown(ctx, from), b.accountKeyboard())
 }
 
 func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) {

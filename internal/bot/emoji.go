@@ -59,7 +59,11 @@ func (e *emojiSet) ids() []string {
 			out = append(out, id)
 		}
 	}
-	for _, id := range []string{e.e.KeyboardSubjects, e.e.KeyboardPinned, e.e.KeyboardAccount, e.e.Pin, e.e.Greeting} {
+	for _, id := range []string{e.e.KeyboardSubjects, e.e.KeyboardPinned, e.e.KeyboardAccount, e.e.KeyboardSettings,
+		e.e.Pin, e.e.Greeting} {
+		add(id)
+	}
+	for _, id := range e.e.Top {
 		add(id)
 	}
 	for _, id := range e.ranks {
@@ -99,6 +103,10 @@ func (e *emojiSet) check(ctx context.Context, api *tg.Bot) {
 	drop(&e.e.KeyboardSubjects, "keyboard_subjects")
 	drop(&e.e.KeyboardPinned, "keyboard_pinned")
 	drop(&e.e.KeyboardAccount, "keyboard_account")
+	drop(&e.e.KeyboardSettings, "keyboard_settings")
+	for i := range e.e.Top {
+		drop(&e.e.Top[i], fmt.Sprintf("top %d", i+1))
+	}
 	drop(&e.e.Pin, "pin")
 	drop(&e.e.Greeting, "greeting")
 	for title, id := range e.ranks {
@@ -135,12 +143,20 @@ func (e *emojiSet) Pinned() string {
 func (e *emojiSet) Account() string {
 	return e.get(func(e *emojiSet) string { return e.e.KeyboardAccount })
 }
+func (e *emojiSet) Settings() string {
+	return e.get(func(e *emojiSet) string { return e.e.KeyboardSettings })
+}
 func (e *emojiSet) Pin() string      { return e.get(func(e *emojiSet) string { return e.e.Pin }) }
 func (e *emojiSet) Greeting() string { return e.get(func(e *emojiSet) string { return e.e.Greeting }) }
 
 // Subject is the emoji of a subject's button, by its name.
 func (e *emojiSet) Subject(name string) string {
 	return e.get(func(e *emojiSet) string { return e.e.Subjects[name] })
+}
+
+// Medal is the emoji of a place of the top.
+func (e *emojiSet) Medal(place int) string {
+	return e.get(func(e *emojiSet) string { return e.e.Medal(place) })
 }
 
 // Rank is the emoji of a rank, by its title.

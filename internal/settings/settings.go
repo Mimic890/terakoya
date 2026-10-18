@@ -27,12 +27,39 @@ const (
 	TopicListButtons = "buttons"
 )
 
+// Rank styles of the top: what follows a user's name.
+const (
+	RankNone       = "none"
+	RankTitle      = "title"
+	RankEmoji      = "emoji"
+	RankTitleEmoji = "title_emoji"
+)
+
+// MaxMedals is the most places of the top that can have a medal emoji.
+const MaxMedals = 5
+
 // Settings is the content of settings.yml.
 type Settings struct {
 	// TopicListStyle is how a grade's topics are listed; empty means list.
 	TopicListStyle string `yaml:"topic_list_style"`
 	Ranks          []Rank `yaml:"ranks"`
+	Top            Top    `yaml:"top"`
 	Emoji          Emoji  `yaml:"emoji"`
+}
+
+// Top configures /top.
+type Top struct {
+	Size int `yaml:"size"` // number of places
+	// Medals is how many first places show their custom emoji (emoji.top)
+	// instead of the number.
+	Medals    int    `yaml:"medals"`
+	RankStyle string `yaml:"rank_style"`
+	ShowCount bool   `yaml:"show_count"`
+}
+
+// DefaultTop is /top without a top: section.
+func DefaultTop() Top {
+	return Top{Size: 20, Medals: 3, RankStyle: RankEmoji, ShowCount: true}
 }
 
 // TopicList returns the topic list style in use.
@@ -55,9 +82,28 @@ type Emoji struct {
 	KeyboardSubjects string            `yaml:"keyboard_subjects"`
 	KeyboardPinned   string            `yaml:"keyboard_pinned"`
 	KeyboardAccount  string            `yaml:"keyboard_account"`
+	KeyboardSettings string            `yaml:"keyboard_settings"`
 	Pin              string            `yaml:"pin"`
 	Greeting         string            `yaml:"greeting"`
 	Subjects         map[string]string `yaml:"subjects"` // by subject folder name
+	// Top holds the medals of the first places of /top, from the first.
+	Top []string `yaml:"top"`
+}
+
+// Medal returns the custom emoji of a place of the top, or "".
+func (e Emoji) Medal(place int) string {
+	if place < 1 || place > len(e.Top) {
+		return ""
+	}
+	return e.Top[place-1]
+}
+
+// SetMedal sets the custom emoji of a place, 1 to MaxMedals.
+func (e *Emoji) SetMedal(place int, id string) {
+	for len(e.Top) < place {
+		e.Top = append(e.Top, "")
+	}
+	e.Top[place-1] = id
 }
 
 // Default returns the settings of a new file: the default ladder and no
@@ -69,7 +115,7 @@ func Default(subjects []string) Settings {
 
 // FromLadder returns settings with ladder l and no custom emoji.
 func FromLadder(l ranks.Ladder, subjects []string) Settings {
-	s := Settings{TopicListStyle: TopicListList, Emoji: Emoji{Subjects: map[string]string{}}}
+	s := Settings{TopicListStyle: TopicListList, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
 	for _, r := range l {
 		s.Ranks = append(s.Ranks, Rank{Title: r.Title, From: r.From, Emoji: r.Emoji})
 	}
@@ -92,6 +138,7 @@ func (s Settings) Ladder() ranks.Ladder {
 func (s Settings) Clone() Settings {
 	out := s
 	out.Ranks = append([]Rank{}, s.Ranks...)
+	out.Emoji.Top = append([]string(nil), s.Emoji.Top...)
 	out.Emoji.Subjects = map[string]string{}
 	for k, v := range s.Emoji.Subjects {
 		out.Emoji.Subjects[k] = v
@@ -99,8 +146,8 @@ func (s Settings) Clone() Settings {
 	return out
 }
 
-// Validate checks the topic list style, the ladder and that every emoji
-// ID is a number.
+// Validate checks the topic list style, the ladder, the top and that
+// every emoji ID is a number.
 func (s Settings) Validate() error {
 	switch s.TopicListStyle {
 	case "", TopicListList, TopicListButtons:
@@ -109,6 +156,20 @@ func (s Settings) Validate() error {
 	}
 	if err := s.Ladder().Validate(); err != nil {
 		return fmt.Errorf("ranks: %w", err)
+	}
+	if t := s.Top; t.Size < 1 || t.Size > 100 {
+		return fmt.Errorf("top.size: %d, want 1 to 100", t.Size)
+	}
+	if t := s.Top; t.Medals < 0 || t.Medals > MaxMedals {
+		return fmt.Errorf("top.medals: %d, want 0 to %d", t.Medals, MaxMedals)
+	}
+	switch s.Top.RankStyle {
+	case RankNone, RankTitle, RankEmoji, RankTitleEmoji:
+	default:
+		return fmt.Errorf("top.rank_style: %q, want none, title, emoji or title_emoji", s.Top.RankStyle)
+	}
+	if len(s.Emoji.Top) > MaxMedals {
+		return fmt.Errorf("emoji.top: %d medals, at most %d", len(s.Emoji.Top), MaxMedals)
 	}
 	check := func(where, id string) error {
 		for _, r := range id {
@@ -125,8 +186,13 @@ func (s Settings) Validate() error {
 	}
 	e := s.Emoji
 	for where, id := range map[string]string{"keyboard_subjects": e.KeyboardSubjects, "keyboard_pinned": e.KeyboardPinned,
-		"keyboard_account": e.KeyboardAccount, "pin": e.Pin, "greeting": e.Greeting} {
+		"keyboard_account": e.KeyboardAccount, "keyboard_settings": e.KeyboardSettings, "pin": e.Pin, "greeting": e.Greeting} {
 		if err := check(where, id); err != nil {
+			return err
+		}
+	}
+	for i, id := range e.Top {
+		if err := check(fmt.Sprintf("top %d", i+1), id); err != nil {
 			return err
 		}
 	}
@@ -144,7 +210,8 @@ func Load(path string) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	var s Settings
+	// A file from before a section was added keeps its defaults.
+	s := Settings{Top: DefaultTop()}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&s); err != nil {
@@ -167,10 +234,14 @@ const header = `# terakoya settings. Admin commands in the bot (/emoji_setup) re
 # and keeps the previous settings if the new ones are invalid (see its log).
 #
 # topic_list_style: list (a message with a link per topic) or buttons.
-# ranks: title, the number of accepted suggestions it starts at (the first
+# ranks: title, the number of accepted reports it starts at (the first
 # starts at 0, then strictly increasing), and an optional custom emoji ID.
+# top: /top. size is the number of places; the first medals places (0-5)
+# show their emoji.top custom emoji instead of the number; rank_style is
+# none, title, emoji or title_emoji; show_count shows accepted reports.
 # emoji: custom emoji IDs; empty means the plain emoji, or none. subjects
-# are keyed by the subject's folder name in the vault.
+# are keyed by the subject's folder name in the vault; top lists the
+# medals of the first places.
 
 `
 

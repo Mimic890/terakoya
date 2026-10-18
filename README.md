@@ -17,7 +17,7 @@ into several messages. See [docs/content-guide.md](docs/content-guide.md)
 - [x] Obsidian vault loader, Markdown → Telegram rich message converter with SVG drawings and long-note splitting, `lint`
 - [x] Navigation: subjects → grades → topics → notes, deep links, note download, `/download` of the whole vault
 - [x] Error reports from Telegram as issues (GitHub or Forgejo), git host webhooks, content sync
-- [x] Bottom keyboard, pinned notes, account page, ranks
+- [x] Bottom keyboard, pinned notes, account page, ranks, leaderboard, nicknames, admin broadcasts
 - [x] Multi-arch Docker image on ghcr.io
 - [ ] Telegram webhook mode
 
@@ -103,16 +103,20 @@ terakoya lint [-strict] <vault>     validate a vault
 ```
 
 In Telegram, `/start` sends a greeting that sets the keyboard at the
-bottom of the chat, and the subject list. The keyboard stays: «Предметы»
-opens the subject list, «Закреплённые» the user's pinned notes, and
-«Аккаунт» a page with their rank, how many accepted reports the next
-rank needs («ещё 2 принятых сообщения»), «Принято сообщений: N» and
-«На рассмотрении: N» (and «Уровень прав: admin» for admins). From there,
-«Мои сообщения» lists their reports under «На рассмотрении», «Приняты»
-and «Отклонены», separated by dividers, with the reviewer's comment on
+bottom of the chat, and the subject list. The keyboard stays, two by two:
+«Предметы» opens the subject list, «Закреплённые» the user's pinned
+notes, «Аккаунт» a page with their rank, how many accepted reports the
+next rank needs («ещё 2 принятых сообщения») and which it is
+(«Следующий ранг: Student», with its custom emoji; at the top rank just
+«Это высший ранг»), «Принято сообщений: N» and «На рассмотрении: N»
+(and «Уровень прав: admin» for admins), and «Настройки» (see
+[below](#settings-nickname-and-the-top)). From «Аккаунт», «Мои
+сообщения» lists their reports under «На рассмотрении», «Приняты» and
+«Отклонены», separated by dividers, with the reviewer's comment on
 rejected ones; titles of notes in the vault open them. Edits and topics
 suggested through earlier versions of the bot stay in the list, but only
-reports count toward the rank. Both pages are rich messages, split like long notes. A tap on
+reports count toward the rank. «Топ» there, or `/top`, shows the
+[leaderboard](#top). These pages are rich messages, split like long notes. A tap on
 the keyboard shows the new menu first; the tap itself and the previous
 menu are deleted afterwards, in the background, so the chat does not fill
 up. Tapping the button of the menu that is already the last message only
@@ -125,11 +129,76 @@ vault disappear from the list. `/download` sends the whole vault as a zip
 The interface has no emoji of its own.
 
 Admins also have `/emoji_setup` and `/ranks` (see
-[the settings file](#settings-file-ranks-and-custom-emoji)). For everyone
-else these commands do nothing. The command menu shows `/start`,
-`/download` and `/cancel` to everyone, and the admin commands only in the
-admins' chats (set on start; an admin who has never opened the bot gets
-them after the next restart).
+[the settings file](#settings-file-ranks-custom-emoji-topic-list-top)),
+[`/broadcast`](#broadcasts) and `/nick_reset <id or @username>`. For
+everyone else these commands do nothing. The command menu shows
+`/start`, `/download`, `/top` and `/cancel` to everyone, and the admin
+commands only in the admins' chats (set on start; an admin who has never
+opened the bot gets them after the next restart).
+
+### Top
+
+«Топ участников» ranks users by accepted reports; of two with the same
+count, whoever reached it first is higher. Users without accepted
+reports are not listed. A viewer outside the list gets a last line with
+their own place, «Ваше место: 25 — 3 принятых сообщения». It has
+«Назад» (to «Аккаунт») and «Закрыть». The `top:` section of
+`settings.yml` sets how it looks; a line reads, by `rank_style`:
+
+| `rank_style` | line |
+|---|---|
+| `none` | 1. name — 12 |
+| `title` | 1. name — Scholar · 12 |
+| `emoji` (default) | 🥇 name 🎓 · 12 |
+| `title_emoji` | 🥇 name — 🎓 Scholar · 12 |
+
+The first `medals` places show their medal (`/emoji_setup top:1` …
+`top:5`) instead of the number, while one is set. A rank without a
+custom emoji shows its title instead (`emoji` and `title_emoji` then
+read like `title`). Without `show_count` the count goes.
+
+### Settings: nickname and the top
+
+«Настройки» shows «Ник: …» with «Имя из Telegram» and «Свой ник», and
+«Показывать меня в топе: да/нет» with a button to switch it. A user who
+hides is left out of the top for everyone else, and still sees their own
+place.
+
+Where the bot addresses the user (the /start greeting «Привет, …!», the
+«Аккаунт» heading, «Ник: …» in «Настройки») it uses the nickname, else
+the Telegram first name, never the @username. Where people must be told
+apart (the top, admin replies, report issues) it uses the nickname, else
+the @username, else the first name. A nickname is 3 to 20 characters: Latin or Cyrillic
+letters, digits, `_`, `-` and single spaces, not at either end. It must
+be unique ignoring case, look-alike letters and separators (with «Маша»
+taken, «Mаша» with a Latin M, «Ма_ша» or «Ма ша» are too), and is
+refused if it contains a rude word from
+a short built-in list, «admin», «админ», «terakoya», the bot's username,
+or an admin's Telegram name or username, look-alike Latin and Cyrillic
+letters included (an admin may use their own name). A refused nickname
+gets the reason and the question again. `/nick_reset <id or @username>`
+puts a user back on their Telegram name and tells them «Ваш ник сброшен
+администратором.»
+
+### Broadcasts
+
+`/broadcast` asks an admin for the message: text, optionally with one
+photo, with Telegram formatting (bold, italic, underline,
+strikethrough, spoilers, code, links, quotes, custom emoji), which is
+converted to rich Markdown. The bot shows a preview exactly as users will
+get it and asks «Отправить всем? Получателей: N» with «Да, отправить»,
+«Изменить» (asks for the message again) and «Нет» (cleans up like
+«Отмена»). Recipients are everyone who has started the bot, except admins
+and users who blocked it.
+
+Sending runs in the background, 40 ms apart (under Telegram's 25
+messages a second). After a 429 the bot waits as long as Telegram says
+and sends again; a user who answers 403 has blocked the bot and is
+skipped from then on, until they use the bot again. The admin gets a
+progress message, updated every 10 seconds, that ends with how many were
+sent, blocked and failed; the preview stays in their chat as a record.
+Broadcasts and their counts are stored in the database. A restart in the
+middle stops the broadcast; what was sent is in the stored counts.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
@@ -193,7 +262,7 @@ file; empty variables are ignored. See
 | `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a report. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
-### Settings file: ranks, custom emoji, topic list
+### Settings file: ranks, custom emoji, topic list, top
 
 What admins change while the bot runs lives in `settings.yml` in the data
 directory (`./data/settings.yml` with Docker Compose, so it survives
@@ -204,8 +273,9 @@ style for topic lists, and
 rereads it within seconds when it is edited by hand. A file that does not
 validate (the first rank must start at 0, thresholds must strictly
 increase, emoji IDs are numbers, the topic list style is `list` or
-`buttons`) is logged and ignored; the previous
-settings stay in use.
+`buttons`, `top.size` is 1 to 100, `top.medals` 0 to 5, `rank_style` one
+of the four) is logged and ignored; the previous settings stay in use. A
+file from before a section existed gets its defaults.
 
 ```yaml
 topic_list_style: list   # or buttons
@@ -216,14 +286,21 @@ ranks:
   - title: Pupil
     from: 1
     emoji: "5368324170671202286"
+top:
+  size: 20            # number of places
+  medals: 3           # first N places (0–5) show a custom emoji instead of the number
+  rank_style: emoji   # none | title | emoji | title_emoji
+  show_count: true
 emoji:
   keyboard_subjects: ""
   keyboard_pinned: ""
   keyboard_account: ""
+  keyboard_settings: ""
   pin: ""
   greeting: ""
   subjects:
     Геометрия: ""    # by the subject's folder name
+  top: ["", "", ""]  # medals of the first places
 ```
 
 `TERAKOYA_RANKS` is no longer a setting. If it is still set when the file
@@ -231,8 +308,8 @@ is created, its ranks seed the file once and the bot logs a warning;
 after that it is ignored (with a warning) and can be removed.
 
 Custom emoji need a bot owner with Telegram Premium. They show as icons on
-buttons, in the greeting and rank-up messages, and before the rank in
-«Аккаунт»; where none is set, there is no emoji at all. The bot checks
+buttons, in the greeting and rank-up messages, before the rank in
+«Аккаунт», and as ranks and medals in the top; where none is set, there is no emoji at all. The bot checks
 the IDs with Telegram when the settings load and does not use unknown
 ones. If Telegram later refuses a message because of custom emoji (for
 example, when the owner's Premium ends), the bot sends it without them,
@@ -241,15 +318,16 @@ change. Notes in the vault may use custom emoji too, as
 `![👍](tg://emoji?id=…)`.
 
 Admins set the emoji with **`/emoji_setup`**, a step-by-step dialog over
-every place: the three bottom buttons, the pin button, the greeting, each
-subject of the vault and each rank. Each step says where the emoji goes
+every place: the four bottom buttons, the pin button, the greeting, each
+subject of the vault, each rank and the medals of the first `top.medals`
+places («1 место», «2 место»…). Each step says where the emoji goes
 and what it currently is; the admin replies with a custom emoji, confirms
 the preview, or uses «Пропустить», «Без эмодзи» or «Отмена». The answers are
 written to `settings.yml` at the end, with a summary; «Отмена» (or
 `/cancel`) changes nothing and deletes the wizard's messages. `/emoji_setup <slot>` changes one place; the slots are
-`keyboard_subjects`, `keyboard_pinned`, `keyboard_account`, `pin`,
-`greeting`, `subject:<name>` and `rank:<title>` (an unknown slot lists
-them). **`/ranks`** shows the ladder; titles and thresholds are changed in
+`keyboard_subjects`, `keyboard_pinned`, `keyboard_account`,
+`keyboard_settings`, `pin`, `greeting`, `subject:<name>`, `rank:<title>`
+and `top:1` … `top:5`, any of the five (an unknown slot lists them). **`/ranks`** shows the ladder; titles and thresholds are changed in
 the file for now.
 
 Outside `/emoji_setup`, an admin who sends the bot custom emoji gets each
