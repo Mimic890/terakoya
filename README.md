@@ -164,9 +164,9 @@ read like `title`). Without `show_count` the count goes.
 hides is left out of the top for everyone else, and still sees their own
 place.
 
-Everywhere the bot names a user to others (the top, the «Аккаунт»
-heading, report issues) it uses the nickname, else the @username, else
-the first name. A nickname is 3 to 20 characters: Latin or Cyrillic
+Everywhere the bot names a user (the /start greeting «Привет, …!», the
+«Аккаунт» heading, the top, report issues) it uses the nickname, else
+the @username, else the first name. A nickname is 3 to 20 characters: Latin or Cyrillic
 letters, digits, `_`, `-` and single spaces, not at either end. It must
 be unique ignoring case, and is refused if it contains a rude word from
 a short built-in list, «admin», «админ», «terakoya», the bot's username,

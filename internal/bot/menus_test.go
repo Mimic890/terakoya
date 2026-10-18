@@ -49,7 +49,7 @@ func TestStartSetsKeyboard(t *testing.T) {
 		}
 		sent++
 		if sent == 1 {
-			if c.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
+			if c.params["text"] != "Привет, @anya!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
 				t.Errorf("greeting = %q", c.params["text"])
 			}
 			kb := c.params["reply_markup"]

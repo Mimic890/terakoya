@@ -90,10 +90,10 @@ func TestEmojiInUse(t *testing.T) {
 	h.say("/start")
 	calls := h.tg.take()
 	greet := firstCall(t, calls, "sendMessage")
-	if greet.params["text"] != "Привет, Аня! 👋\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
+	if greet.params["text"] != "Привет, @anya! 👋\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
 		t.Errorf("greeting = %q", greet.params["text"])
 	}
-	if e := entities(t, greet); len(e) != 1 || e[0].Offset != 13 || e[0].Length != 2 || e[0].CustomEmojiID != "105" {
+	if e := entities(t, greet); len(e) != 1 || e[0].Offset != 15 || e[0].Length != 2 || e[0].CustomEmojiID != "105" {
 		t.Errorf("greeting entities = %+v", e)
 	}
 	kb := greet.params["reply_markup"]
@@ -143,7 +143,7 @@ func TestEmojiRejected(t *testing.T) {
 		t.Fatalf("first call = %s", calls[0].method)
 	}
 	greet := calls[1]
-	if greet.method != "sendMessage" || greet.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." ||
+	if greet.method != "sendMessage" || greet.params["text"] != "Привет, @anya!\nЭто terakoya — школьный справочник, который пишут сами пользователи." ||
 		!strings.Contains(greet.params["reply_markup"], `{"text":"Предметы"}`) || greet.params["entities"] != "" {
 		t.Errorf("plain greeting = %+v", greet)
 	}

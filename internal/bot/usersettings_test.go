@@ -190,3 +190,23 @@ func TestNickReset(t *testing.T) {
 		t.Error("a non-admin reset a nickname")
 	}
 }
+
+func TestDisplayNameEverywhere(t *testing.T) {
+	h := newHarness(t, nil)
+	h.store.SetNickname(h.ctx, anya.ID, "Ёжик", "ёжик")
+	h.say("/start")
+	if c := firstCall(t, h.tg.take(), "sendMessage"); !strings.HasPrefix(c.params["text"], "Привет, Ёжик!\n") {
+		t.Errorf("greeting = %q", c.params["text"])
+	}
+	// Without a nickname and a username, the first name.
+	olga := models.User{ID: 44, FirstName: "Ольга"}
+	h.as(olga)
+	h.say("/start")
+	if c := firstCall(t, h.tg.take(), "sendMessage"); !strings.HasPrefix(c.params["text"], "Привет, Ольга!\n") {
+		t.Errorf("greeting = %q", c.params["text"])
+	}
+	// A long «Аккаунт» would continue under the same name.
+	if got := h.bot.displayName(h.ctx, &anya); got != "Ёжик" {
+		t.Errorf("display name = %q", got)
+	}
+}

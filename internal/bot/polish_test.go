@@ -98,7 +98,7 @@ func TestNoEmojiByDefault(t *testing.T) {
 	h.say("/start")
 	calls := h.tg.take()
 	greet := firstCall(t, calls, "sendMessage")
-	if greet.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
+	if greet.params["text"] != "Привет, @anya!\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
 		t.Errorf("greeting = %q", greet.params["text"])
 	}
 	h.tapOn(500, "a:"+h.id(triangles))
