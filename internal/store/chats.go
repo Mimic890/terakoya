@@ -34,26 +34,15 @@ func (s *Store) ChatMessageSeen(ctx context.Context, chatID int64, msgID int) er
 	return tx.Commit()
 }
 
-// SetChatMenu marks a message as the chat's navigation menu. A rich menu
-// is a rich message, which is replaced rather than edited.
-func (s *Store) SetChatMenu(ctx context.Context, chatID int64, msgID int, rich bool) error {
+// SetChatMenu marks a message as the chat's navigation menu.
+func (s *Store) SetChatMenu(ctx context.Context, chatID int64, msgID int) error {
 	if err := s.ChatMessageSeen(ctx, chatID, msgID); err != nil {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO chat_menus (chat_id, msg_id, rich) VALUES (?, ?, ?)
-		ON CONFLICT (chat_id) DO UPDATE SET msg_id = excluded.msg_id, rich = excluded.rich`, chatID, msgID, rich)
+		INSERT INTO chat_menus (chat_id, msg_id) VALUES (?, ?)
+		ON CONFLICT (chat_id) DO UPDATE SET msg_id = excluded.msg_id`, chatID, msgID)
 	return err
-}
-
-// RichMenu reports whether msgID is the chat's menu and a rich message.
-func (s *Store) RichMenu(ctx context.Context, chatID int64, msgID int) (bool, error) {
-	var rich bool
-	err := s.db.QueryRowContext(ctx, `SELECT rich FROM chat_menus WHERE chat_id = ? AND msg_id = ?`, chatID, msgID).Scan(&rich)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return rich, err
 }
 
 // ChatMessageGone forgets a deleted message.

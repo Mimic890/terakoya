@@ -135,11 +135,8 @@ func TestAccessRequestAllowed(t *testing.T) {
 	h.as(boris)
 	h.say("/access")
 	h.say("/revoke @anya")
-	// The commands are deleted like any other, and get no answer.
-	for _, c := range h.tg.take() {
-		if c.method != "deleteMessage" {
-			t.Errorf("non-admin got %s %v", c.method, c.params)
-		}
+	if calls := h.tg.take(); len(calls) != 0 {
+		t.Errorf("non-admin got %+v", calls)
 	}
 	if _, err := h.store.Access(h.ctx, anya.ID); err != nil {
 		t.Fatal(err)

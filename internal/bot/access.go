@@ -22,10 +22,11 @@ import (
 const accessCooldown = 7 * 24 * time.Hour
 
 const (
-	cbRequest = "ar:" // ar:<note id>, from the «нужно разрешение» prompt
-	cbAllow   = "ay:" // ay:<user id>
-	cbDeny    = "an:" // an:<user id>
-	cbClose   = "c"   // removes the message it is pressed in
+	cbRequest    = "ar:" // ar:<note id>, from the «нужно разрешение» prompt
+	cbRequestAcc = "aq"  // from «Аккаунт»
+	cbAllow      = "ay:" // ay:<user id>
+	cbDeny       = "an:" // an:<user id>
+	cbClose      = "c"   // removes the message it is pressed in
 )
 
 // mayEdit reports whether the user may make edits.
@@ -106,8 +107,9 @@ func (b *Bot) askAccess(ctx context.Context, q *models.CallbackQuery, chatID int
 	}
 }
 
-// requestAccess sends the user's request to every admin.
-func (b *Bot) requestAccess(ctx context.Context, q *models.CallbackQuery, msg *models.Message, noteID string) {
+// requestAccess sends the user's request to every admin. fromAccount is
+// set when it was asked for under «Аккаунт», which is then refreshed.
+func (b *Bot) requestAccess(ctx context.Context, q *models.CallbackQuery, msg *models.Message, noteID string, fromAccount bool) {
 	unlock := b.userLocks.lock(q.From.ID)
 	defer unlock()
 	if b.mayEdit(ctx, q.From.ID) {
@@ -155,6 +157,12 @@ func (b *Bot) requestAccess(ctx context.Context, q *models.CallbackQuery, msg *m
 		}
 	}
 	b.log.Info("access requested", "user", u.TgID, "admins", delivered)
+	if fromAccount {
+		b.answer(ctx, q, b.t.AccessRequested, false)
+		text, kb := b.accountView(ctx, &q.From)
+		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+		return
+	}
 	b.answer(ctx, q, "", false)
 	if _, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
 		ChatID: msg.Chat.ID, MessageID: msg.ID, Text: b.t.AccessRequested, ReplyMarkup: keyboard(),

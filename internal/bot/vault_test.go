@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -215,9 +214,7 @@ func TestDownloadArchive(t *testing.T) {
 	h := newHarness(t, nil)
 	h.say("/download")
 	calls := h.tg.take()
-	// The command itself is deleted after the answer.
-	if len(calls) != 2 || calls[0].method != "sendDocument" || calls[1].method != "deleteMessage" ||
-		calls[1].params["message_id"] != fmt.Sprint(h.msgID) {
+	if len(calls) != 1 || calls[0].method != "sendDocument" {
 		t.Fatalf("calls = %+v", calls)
 	}
 	// The fake keeps no files; build the archive the same way to check it.
@@ -237,7 +234,7 @@ func TestDownloadArchive(t *testing.T) {
 	// The second request reuses the uploaded file.
 	h.say("/download")
 	calls = h.tg.take()
-	if len(calls) != 2 || !strings.HasPrefix(calls[0].params["document"], "doc") {
+	if len(calls) != 1 || !strings.HasPrefix(calls[0].params["document"], "doc") {
 		t.Errorf("second download = %+v", calls)
 	}
 }

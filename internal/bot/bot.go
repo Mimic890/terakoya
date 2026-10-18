@@ -142,10 +142,6 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 		return
 	}
 	cmd, arg := splitCommand(m.Text)
-	if cmd != "" {
-		// Typed commands do not stay in the chat once answered.
-		defer b.deleteMessage(ctx, m.Chat.ID, m.ID)
-	}
 	if b.onAdminCommand(ctx, m, cmd, arg) {
 		return
 	}
@@ -214,14 +210,8 @@ func (b *Bot) sendMenu(ctx context.Context, chatID int64, text string, kb *model
 }
 
 // editMenu replaces a navigation message in place, or sends a new menu if
-// the message can no longer be edited. A rich menu is replaced by the new
-// one.
+// the message can no longer be edited.
 func (b *Bot) editMenu(ctx context.Context, chatID int64, msgID int, text string, kb *models.InlineKeyboardMarkup) {
-	if b.msgs.isRich(ctx, chatID, msgID) {
-		b.sendMenu(ctx, chatID, text, kb)
-		b.retire(ctx, &models.Message{ID: msgID, Chat: models.Chat{ID: chatID}})
-		return
-	}
 	_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{
 		ChatID: chatID, MessageID: msgID, Text: text, ReplyMarkup: kb,
 	})

@@ -160,10 +160,6 @@ var migrations = []string{
 		pinned_at INTEGER NOT NULL,
 		PRIMARY KEY (tg_id, note_id)
 	) WITHOUT ROWID;`,
-	// The reviewer's comment on a rejected suggestion, for «Список правок»;
-	// and menus sent as rich messages, which cannot be edited into text.
-	`ALTER TABLE suggestions ADD COLUMN comment TEXT NOT NULL DEFAULT '';
-	ALTER TABLE chat_menus ADD COLUMN rich INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

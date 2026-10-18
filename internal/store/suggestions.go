@@ -34,9 +34,6 @@ type Suggestion struct {
 	PRURL       string
 	Status      string
 	CreatedAt   time.Time
-	ResolvedAt  time.Time // zero while open
-	// Comment is the reviewer's last comment on a rejected suggestion.
-	Comment string
 }
 
 // CreateSuggestion stores a new suggestion and records the time of the
@@ -66,45 +63,15 @@ func (s *Store) CreateSuggestion(ctx context.Context, sg *Suggestion) error {
 	return nil
 }
 
-const suggestionColumns = `id, short_id, tg_id, kind, article_path, title, base_sha, branch, pr_number, pr_url, status,
-	created_at, resolved_at, comment`
+const suggestionColumns = `id, short_id, tg_id, kind, article_path, title, base_sha, branch, pr_number, pr_url, status, created_at`
 
 func scanSuggestion(row interface{ Scan(...any) error }) (Suggestion, error) {
 	var sg Suggestion
 	var created int64
-	var resolved sql.NullInt64
 	err := row.Scan(&sg.ID, &sg.ShortID, &sg.TgID, &sg.Kind, &sg.ArticlePath, &sg.Title, &sg.BaseSHA, &sg.Branch,
-		&sg.PRNumber, &sg.PRURL, &sg.Status, &created, &resolved, &sg.Comment)
+		&sg.PRNumber, &sg.PRURL, &sg.Status, &created)
 	sg.CreatedAt = time.Unix(created, 0)
-	if resolved.Valid {
-		sg.ResolvedAt = time.Unix(resolved.Int64, 0)
-	}
 	return sg, err
-}
-
-// UserSuggestions lists a user's suggestions, newest first.
-func (s *Store) UserSuggestions(ctx context.Context, tgID int64) ([]Suggestion, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+suggestionColumns+` FROM suggestions WHERE tg_id = ? ORDER BY id DESC`, tgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Suggestion
-	for rows.Next() {
-		sg, err := scanSuggestion(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sg)
-	}
-	return out, rows.Err()
-}
-
-// SetSuggestionComment stores the reviewer's comment.
-func (s *Store) SetSuggestionComment(ctx context.Context, id int64, comment string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE suggestions SET comment = ? WHERE id = ?`, comment, id)
-	return err
 }
 
 // SuggestionByNumber finds the suggestion behind a pull request or issue.

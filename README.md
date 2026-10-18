@@ -105,18 +105,13 @@ terakoya lint [-strict] <vault>     validate a vault
 In Telegram, `/start` sends a greeting that sets the keyboard at the
 bottom of the chat, and the subject list. The keyboard stays: «📚 Предметы»
 opens the subject list, «📌 Закреплённые» the user's pinned notes, and
-«👤 Аккаунт» a page with their rank, how many accepted suggestions the
-next rank needs, accepted and open suggestions (and «Уровень прав: admin»
-for admins). From there, «Список правок» lists their suggestions under
-«На рассмотрении», «Приняты» and «Отклонены», with the reviewer's comment
-on rejected ones; titles of notes in the vault open them. Both pages are
-rich messages, split like long notes. Taps on the keyboard and typed
-commands are deleted from the chat once answered, and the previous menu
-is replaced rather than left behind. Every note has «📌 Закрепить» /
-«📌 Открепить» (at most 30 pins); a note opened from the pinned list goes
-back to it with «Назад». Pins of notes removed from the vault disappear
-from the list. `/download` sends the whole vault as a zip (without hidden
-files such as `.obsidian`).
+«👤 Аккаунт» their rank, accepted suggestions, progress to the next rank,
+open suggestions and edit access. Taps on it are deleted from the chat,
+and the previous menu is replaced rather than left behind. Every note has
+«📌 Закрепить» / «📌 Открепить» (at most 30 pins); a note opened from the
+pinned list goes back to it with «Назад». Pins of notes removed from the
+vault disappear from the list. `/download` sends the whole vault as a zip
+(without hidden files such as `.obsidian`).
 
 Admins also have `/access`, which lists who has edit access, and
 `/revoke <id or @username>`. For everyone else these commands do nothing.
@@ -212,7 +207,7 @@ file names, frontmatter or syntax; everything is buttons and plain text.
 Anyone can report an error, but editing text and adding topics or notes
 need **edit access**. A user without it who taps «Исправить текст»,
 «Добавить тему» or «Добавить теорему, задачу…» is offered to send a
-request. Every admin (`TERAKOYA_ADMIN_IDS`) gets it
+request (also from «Аккаунт»). Every admin (`TERAKOYA_ADMIN_IDS`) gets it
 with the user's name, @username, ID and accepted edits and error reports,
 and «Разрешить» / «Отклонить». The first admin to decide wins; every
 admin's copy then shows who decided. The user is told either way. One

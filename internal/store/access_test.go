@@ -99,16 +99,6 @@ func TestAcceptedCounts(t *testing.T) {
 	if err != nil || edits != 2 || reports != 2 {
 		t.Fatalf("counts = %d, %d, %v", edits, reports, err)
 	}
-	all, err := s.UserSuggestions(ctx, 42)
-	if err != nil || len(all) != 5 || all[0].Status != StatusOpen || !all[0].ResolvedAt.IsZero() || all[4].ResolvedAt.IsZero() {
-		t.Fatalf("history = %+v, %v", all, err)
-	}
-	if err := s.SetSuggestionComment(ctx, all[0].ID, "Слишком коротко."); err != nil {
-		t.Fatal(err)
-	}
-	if sg, _ := s.SuggestionByNumber(ctx, 5); sg.Comment != "Слишком коротко." {
-		t.Errorf("comment = %q", sg.Comment)
-	}
 }
 
 func TestPins(t *testing.T) {
