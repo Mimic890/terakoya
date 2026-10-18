@@ -741,12 +741,13 @@ func TestDialogEdges(t *testing.T) {
 	}
 
 	h.tap(cbCancel)
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.Cancelled {
-		t.Errorf("cancel = %q", s)
+	if s := texts(h.tg.take(), "sendMessage"); len(s) != 0 {
+		t.Errorf("cancel said %q", s)
 	}
+	// With no dialog, /cancel only goes itself.
 	h.say("/cancel")
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.NothingToCancel {
-		t.Errorf("second cancel = %q", s)
+	if c := h.tg.take(); len(c) != 1 || c[0].method != "deleteMessage" {
+		t.Errorf("second cancel = %+v", c)
 	}
 	h.say("просто текст")
 	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UnknownCommand {

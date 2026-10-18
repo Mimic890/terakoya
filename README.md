@@ -245,8 +245,8 @@ every place: the three bottom buttons, the pin button, the greeting, each
 subject of the vault and each rank. Each step says where the emoji goes
 and what it currently is; the admin replies with a custom emoji, confirms
 the preview, or uses «Пропустить», «Без эмодзи» or «Отмена». The answers are
-written to `settings.yml` at the end, with a summary; «Отмена» changes
-nothing. `/emoji_setup <slot>` changes one place; the slots are
+written to `settings.yml` at the end, with a summary; «Отмена» (or
+`/cancel`) changes nothing and deletes the wizard's messages. `/emoji_setup <slot>` changes one place; the slots are
 `keyboard_subjects`, `keyboard_pinned`, `keyboard_account`, `pin`,
 `greeting`, `subject:<name>` and `rank:<title>` (an unknown slot lists
 them). **`/ranks`** shows the ladder; titles and thresholds are changed in
@@ -278,6 +278,16 @@ logs.
 With `TERAKOYA_GIT_HOST` set, users can suggest changes without knowing
 anything about Markdown, LaTeX, files or git. The bot never shows them
 file names, frontmatter or syntax; everything is buttons and plain text.
+
+Every step has «Отмена», and `/cancel` does the same. It says nothing:
+every message of the dialog goes, the bot's questions and plain-text
+copies as well as the user's texts and photos (deleted in the
+background), and the user is back where the dialog started: the note, or
+the topic's main page for a new theorem or task, sent again in place of
+the old copy, or the topic list for a new topic. If that note has left
+the vault meanwhile, they get its topic list, or failing that the subject
+list. The question asking a user without access to send a request is a
+dialog step too.
 
 Anyone can report an error, but editing text and adding topics or notes
 need **edit access**. A user without it who taps «Исправить текст»,
