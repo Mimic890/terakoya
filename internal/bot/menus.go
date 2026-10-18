@@ -26,7 +26,7 @@ const (
 	cbPin      = "p:"  // p:<note id>, toggles the pin
 	cbFromPins = "pa:" // pa:<note id>, opens a note from the pinned list
 	cbBackPins = "bp:" // bp:<note id>, «Назад» of a note opened from the list
-	cbHistory  = "hl"  // «Мои сообщения»
+	cbHistory  = "hl"  // «Мои правки»
 	cbAccount  = "ac"  // back to «Аккаунт»
 	cbClose    = "c"   // removes the message it is pressed in
 )
@@ -114,8 +114,7 @@ func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
 	case b.t.KeyAccount:
 		b.showAccount(ctx, chatID, m.From)
 	case b.t.KeySettings:
-		text, kb := b.settingsView(ctx, m.From)
-		b.replaceMenu(ctx, chatID, text, kb)
+		b.showSettings(ctx, chatID, m.From)
 	}
 	if id := b.msgs.menu(ctx, chatID); id != 0 {
 		b.msgs.setKind(chatID, id, key)
@@ -397,7 +396,7 @@ func (b *Bot) date(t time.Time) string {
 }
 
 // plural picks the form of a word for n: forms are for 1, 2–4 and 5 or
-// more («сообщение», «сообщения», «сообщений»).
+// more («правка», «правки», «правок»).
 func plural(n int, forms [3]string) string {
 	n %= 100
 	switch {

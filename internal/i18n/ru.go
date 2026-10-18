@@ -84,7 +84,7 @@ type Strings struct {
 	AccountAccepted string // %d: accepted reports
 	AccountOpen     string // %d: open reports
 	AccountAdmin    string
-	Reports         [3]string // «принятое сообщение», «принятых сообщения», «принятых сообщений»
+	Reports         [3]string // «принятая правка», «принятые правки», «принятых правок»
 	History         string
 	HistoryPending  string
 	HistoryAccepted string
@@ -141,7 +141,7 @@ type Strings struct {
 	EmojiSaveFailed    string // %s: error
 	RanksTitle         string
 	RanksLine          string    // %s: rank, %d: accepted reports, %s: AcceptedFrom form
-	AcceptedFrom       [3]string // «от 1 принятого сообщения», «от 2 принятых сообщений»…
+	AcceptedFrom       [3]string // «от 1 принятой правки», «от 2 принятых правок»…
 	RanksEdit          string
 
 	// /broadcast.
@@ -158,13 +158,19 @@ type Strings struct {
 
 	// «Настройки» and nicknames.
 	SettingsTitle    string
-	SettingsNick     string // %s: the name others see
-	SettingsTop      string // %s: «да» or «нет»
+	SettingsNick     string // %s: the name the user is addressed by
+	SettingsTop      string // %s: SettingsYes or SettingsNo
+	SettingsYes      string
 	SettingsNo       string
+	NickButton       string
+	TopShown         string // the toggle while shown, with a check mark after it
+	TopHidden        string
+	NickTitle        string
+	NickNowTelegram  string // %s: the Telegram first name
+	NickNowOwn       string // %s: the nickname
+	NickWhere        string
 	NickFromTelegram string
 	NickOwn          string
-	TopHide          string
-	TopShow          string
 	NickAsk          string
 	NickAgain        string
 	NickLength       string // %d: min, %d: max
@@ -227,13 +233,13 @@ var RU = Strings{
 	TooManyImages:       "Больше %d картинок прислать нельзя.",
 	Expired:             "Время вышло — начните заново кнопкой «Сообщить об ошибке».",
 	TooOften:            "Подождите минутку перед следующим сообщением.",
-	TooManyOpen:         "Ваших сообщений на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",
+	TooManyOpen:         "Ваших правок на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",
 	Submitting:          "Отправляю…",
 	SubmittedReport:     "Спасибо! Мы посмотрим и исправим. Я напишу, когда это случится.",
 	SubmitFailed:        "Не получилось отправить. Попробуйте ещё раз чуть позже.",
 	AcceptedReport:      "Ошибку в «%s» исправили. Спасибо, что сообщили!",
 	AcceptedGradeReport: "Ваше сообщение про «%s» учли. Спасибо!",
-	AcceptedCount:       "Принято сообщений: %d.",
+	AcceptedCount:       "Принято правок: %d.",
 	RankUp:              "%s!",
 	RankUpPrefix:        "Теперь вы ",
 	RejectedReport:      "Сообщение об ошибке в «%s» закрыли без исправлений.",
@@ -263,11 +269,11 @@ var RU = Strings{
 	AccountNext:     "До следующего ранга: ещё %d %s",
 	AccountTop:      "Это высший ранг",
 	AccountNextRank: "Следующий ранг: %s",
-	AccountAccepted: "Принято сообщений: %d",
+	AccountAccepted: "Принято правок: %d",
 	AccountOpen:     "На рассмотрении: %d",
 	AccountAdmin:    "Уровень прав: admin",
-	Reports:         [3]string{"принятое сообщение", "принятых сообщения", "принятых сообщений"},
-	History:         "Мои сообщения",
+	Reports:         [3]string{"принятая правка", "принятые правки", "принятых правок"},
+	History:         "Мои правки",
 	HistoryPending:  "На рассмотрении",
 	HistoryAccepted: "Приняты",
 	HistoryRejected: "Отклонены",
@@ -277,7 +283,7 @@ var RU = Strings{
 	KindGradeLabel:  "не хватает материала",
 	Top:             "Топ",
 	TopTitle:        "Топ участников",
-	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, чьи сообщения об ошибках приняли.",
+	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, у кого приняли хотя бы одну правку.",
 	TopYou:          "Ваше место: %d — %d %s",
 	TopYouNone:      "Вас пока нет в топе: сообщите об ошибке, и когда её примут, вы сюда попадёте.",
 	KindEditLabel:   "правка",
@@ -320,7 +326,7 @@ var RU = Strings{
 	EmojiUnknownSlot:   "Нет такого места. Напишите /emoji_setup, чтобы пройти все по порядку, или /emoji_setup <место>, где место — одно из:\n%s",
 	EmojiSaveFailed:    "Не удалось сохранить: %s",
 	RanksTitle:         "Ранги:",
-	AcceptedFrom:       [3]string{"принятого сообщения", "принятых сообщений", "принятых сообщений"},
+	AcceptedFrom:       [3]string{"принятой правки", "принятых правок", "принятых правок"},
 	RanksLine:          "%s — от %d %s",
 	RanksEdit:          "Значки рангов меняются через /emoji_setup. Названия и пороги пока меняются только в файле data/settings.yml на сервере — бот перечитает его сам.",
 
@@ -338,11 +344,17 @@ var RU = Strings{
 	SettingsTitle:    "Настройки",
 	SettingsNick:     "Ник: %s",
 	SettingsTop:      "Показывать меня в топе: %s",
-	SettingsNo:       "Нет",
-	NickFromTelegram: "Имя из Telegram",
+	SettingsYes:      "да",
+	SettingsNo:       "нет",
+	NickButton:       "Ник",
+	TopShown:         "Топ: показывать",
+	TopHidden:        "Топ: скрыт",
+	NickTitle:        "Ник",
+	NickNowTelegram:  "Сейчас: %s (из Telegram)",
+	NickNowOwn:       "Сейчас: %s (свой)",
+	NickWhere:        "Ник видно в топе и в приветствии.",
+	NickFromTelegram: "Из Telegram",
 	NickOwn:          "Свой ник",
-	TopHide:          "Скрыть меня из топа",
-	TopShow:          "Показывать меня в топе",
 	NickAsk:          "Пришлите ник: от 3 до 20 символов — буквы, цифры, «_», «-» и пробелы.",
 	NickAgain:        "Пришлите другой.",
 	NickLength:       "Ник должен быть от %d до %d символов.",

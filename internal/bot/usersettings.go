@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/go-telegram/bot/models"
 
@@ -13,64 +12,130 @@ import (
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
-// «Настройки» on the bottom keyboard: the nickname and whether the user
-// shows up in the top.
+// «Настройки» on the bottom keyboard has two screens: the main one, with
+// the nickname and whether the user shows up in the top, and «Ник», which
+// chooses between the Telegram name and an own nickname. Both are one
+// menu message, edited in place.
 
 const (
 	stateNick = "nick_wait" // waiting for a nickname
 
-	cbSettings  = "st:"
-	cbNickTG    = "st:t" // «Имя из Telegram»
-	cbNickOwn   = "st:n" // «Свой ник»
-	cbToggleTop = "st:h" // show or hide in the top
+	cbSettings     = "st:"
+	cbSettingsMain = "st:m" // back to the main screen
+	cbNickMenu     = "st:k" // the «Ник» screen
+	cbNickTG       = "st:t" // «Из Telegram»
+	cbNickOwn      = "st:n" // «Свой ник»
+	cbToggleTop    = "st:h" // show or hide in the top
+
+	// kindNick tells the «Ник» screen from the main one, so that the
+	// «Настройки» key brings the main one back.
+	kindNick = "settings:nick"
 )
 
-// settingsView is the settings menu with the current values.
-func (b *Bot) settingsView(ctx context.Context, from *models.User) (string, *models.InlineKeyboardMarkup) {
-	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
-	if err != nil {
-		b.log.Error("touch user", "err", err)
-	}
-	shown, toggle := b.t.Yes, b.t.TopHide
+// check marks the active choice on a button.
+const check = " ✓"
+
+// settingsView is the main screen.
+func (b *Bot) settingsView(u store.User) (string, *models.InlineKeyboardMarkup) {
+	shown, toggle := b.t.SettingsYes, b.t.TopShown+check
 	if u.HideTop {
-		shown, toggle = b.t.SettingsNo, b.t.TopShow
+		shown, toggle = b.t.SettingsNo, b.t.TopHidden
 	}
 	text := b.t.SettingsTitle + "\n\n" + fmt.Sprintf(b.t.SettingsNick, u.AddressName()) + "\n" +
-		fmt.Sprintf(b.t.SettingsTop, strings.ToLower(shown))
+		fmt.Sprintf(b.t.SettingsTop, shown)
 	return text, keyboard(
-		row(button(b.t.NickFromTelegram, cbNickTG), button(b.t.NickOwn, cbNickOwn)),
+		row(button(b.t.NickButton, cbNickMenu)),
 		row(button(toggle, cbToggleTop)),
 		row(button(b.t.Close, cbClose)),
 	)
 }
 
-// onSettingsCallback handles the settings menu's buttons.
+// nickView is the «Ник» screen.
+func (b *Bot) nickView(u store.User) (string, *models.InlineKeyboardMarkup) {
+	now, tg, own := fmt.Sprintf(b.t.NickNowTelegram, u.AddressName()), b.t.NickFromTelegram+check, b.t.NickOwn
+	if u.Nickname != "" {
+		now, tg, own = fmt.Sprintf(b.t.NickNowOwn, u.Nickname), b.t.NickFromTelegram, b.t.NickOwn+check
+	}
+	text := b.t.NickTitle + "\n\n" + now + "\n" + b.t.NickWhere
+	return text, keyboard(
+		row(button(tg, cbNickTG), button(own, cbNickOwn)),
+		row(button(b.t.Back, cbSettingsMain)),
+	)
+}
+
+// user records the user and returns their row.
+func (b *Bot) user(ctx context.Context, from *models.User) store.User {
+	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
+	if err != nil {
+		b.log.Error("touch user", "err", err)
+		return store.User{TgID: from.ID, Username: from.Username, FirstName: from.FirstName}
+	}
+	return u
+}
+
+// showSettings shows the main screen in place of the current menu.
+func (b *Bot) showSettings(ctx context.Context, chatID int64, from *models.User) {
+	text, kb := b.settingsView(b.user(ctx, from))
+	b.replaceMenu(ctx, chatID, text, kb)
+}
+
+// onSettingsCallback handles the buttons of both screens.
 func (b *Bot) onSettingsCallback(ctx context.Context, q *models.CallbackQuery, msg *models.Message) {
+	u := b.user(ctx, &q.From)
+	nickScreen := false
 	switch q.Data {
-	case cbNickTG:
-		if err := b.store.SetNickname(ctx, q.From.ID, "", ""); err != nil {
-			b.log.Error("reset nickname", "err", err)
-		}
 	case cbToggleTop:
-		u, err := b.store.TouchUser(ctx, q.From.ID, q.From.Username, q.From.FirstName)
-		if err == nil {
-			err = b.store.SetHideTop(ctx, q.From.ID, !u.HideTop)
-		}
-		if err != nil {
+		if err := b.store.SetHideTop(ctx, u.TgID, !u.HideTop); err != nil {
 			b.log.Error("toggle top", "err", err)
+		}
+	case cbNickMenu:
+		nickScreen = true
+	case cbNickTG:
+		nickScreen = true
+		if u.Nickname == "" {
+			b.answer(ctx, q, "", false) // already the Telegram name
+			return
+		}
+		if err := b.store.SetNickname(ctx, u.TgID, "", ""); err != nil {
+			b.log.Error("reset nickname", "err", err)
 		}
 	case cbNickOwn:
 		b.answer(ctx, q, "", false)
+		if u.Nickname != "" {
+			return // already an own nickname
+		}
 		b.startNick(ctx, q, msg)
 		return
 	}
 	b.answer(ctx, q, "", false)
-	text, kb := b.settingsView(ctx, &q.From)
-	b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
-	b.msgs.setKind(msg.Chat.ID, msg.ID, b.t.KeySettings)
+	b.showSettingsScreen(ctx, msg.Chat.ID, msg.ID, u.TgID, nickScreen)
 }
 
-// startNick asks for a nickname; the settings menu stays above.
+// showSettingsScreen edits a settings menu into one of its screens, with
+// the user's current values.
+func (b *Bot) showSettingsScreen(ctx context.Context, chatID int64, msgID int, userID int64, nickScreen bool) {
+	u, err := b.store.User(ctx, userID)
+	if err != nil {
+		b.log.Error("load user", "err", err)
+	}
+	text, kb, kind := "", (*models.InlineKeyboardMarkup)(nil), b.t.KeySettings
+	if nickScreen {
+		text, kb = b.nickView(u)
+		kind = kindNick
+	} else {
+		text, kb = b.settingsView(u)
+	}
+	if msgID != 0 {
+		b.editMenu(ctx, chatID, msgID, text, kb)
+	} else {
+		b.replaceMenu(ctx, chatID, text, kb)
+	}
+	if id := b.msgs.menu(ctx, chatID); id != 0 {
+		b.msgs.setKind(chatID, id, kind)
+	}
+}
+
+// startNick asks for a nickname; the «Ник» screen stays above.
 func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *models.Message) {
 	unlock := b.userLocks.lock(q.From.ID)
 	defer unlock()
@@ -84,7 +149,7 @@ func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *mode
 
 // onNickMessage checks a nickname. A refused one gets the reason and the
 // question again; an accepted one ends the dialog, its messages go, and
-// the settings menu shows the new name.
+// the «Ник» screen shows the new name.
 func (b *Bot) onNickMessage(ctx context.Context, d *dialog, m *models.Message) {
 	name := m.Text
 	if name == "" {
@@ -108,15 +173,7 @@ func (b *Bot) onNickMessage(ctx context.Context, d *dialog, m *models.Message) {
 	b.log.Info("nickname set", "user", m.From.ID)
 	b.endDialog(ctx, d)
 	b.dropMessages(ctx, d.chatID, d.p.Msgs)
-	text, kb := b.settingsView(ctx, m.From)
-	if d.p.OriginMsg != 0 {
-		b.editMenu(ctx, d.chatID, d.p.OriginMsg, text, kb)
-	} else {
-		b.replaceMenu(ctx, d.chatID, text, kb)
-	}
-	if id := b.msgs.menu(ctx, d.chatID); id != 0 {
-		b.msgs.setKind(d.chatID, id, b.t.KeySettings)
-	}
+	b.showSettingsScreen(ctx, d.chatID, d.p.OriginMsg, m.From.ID, true)
 }
 
 // nickProblem says why a user may not take a nickname, or "".

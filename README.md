@@ -106,12 +106,13 @@ In Telegram, `/start` sends a greeting that sets the keyboard at the
 bottom of the chat, and the subject list. The keyboard stays, two by two:
 «Предметы» opens the subject list, «Закреплённые» the user's pinned
 notes, «Аккаунт» a page with their rank, how many accepted reports the
-next rank needs («ещё 2 принятых сообщения») and which it is
+next rank needs («ещё 1 принятая правка», «ещё 2 принятые правки», «ещё 5
+принятых правок»; the UI counts accepted reports as «правки») and which it is
 («Следующий ранг: Student», with its custom emoji; at the top rank just
-«Это высший ранг»), «Принято сообщений: N» and «На рассмотрении: N»
+«Это высший ранг»), «Принято правок: N» and «На рассмотрении: N»
 (and «Уровень прав: admin» for admins), and «Настройки» (see
 [below](#settings-nickname-and-the-top)). From «Аккаунт», «Мои
-сообщения» lists their reports under «На рассмотрении», «Приняты» and
+правки» lists their reports under «На рассмотрении», «Приняты» and
 «Отклонены», separated by dividers, with the reviewer's comment on
 rejected ones; titles of notes in the vault open them. Edits and topics
 suggested through earlier versions of the bot stay in the list, but only
@@ -141,7 +142,7 @@ opened the bot gets them after the next restart).
 «Топ участников» ranks users by accepted reports; of two with the same
 count, whoever reached it first is higher. Users without accepted
 reports are not listed. A viewer outside the list gets a last line with
-their own place, «Ваше место: 25 — 3 принятых сообщения». It has
+their own place, «Ваше место: 25 — 3 принятые правки». It has
 «Назад» (to «Аккаунт») and «Закрыть». The `top:` section of
 `settings.yml` sets how it looks; a line reads, by `rank_style`:
 
@@ -159,10 +160,16 @@ read like `title`). Without `show_count` the count goes.
 
 ### Settings: nickname and the top
 
-«Настройки» shows «Ник: …» with «Имя из Telegram» and «Свой ник», and
-«Показывать меня в топе: да/нет» with a button to switch it. A user who
-hides is left out of the top for everyone else, and still sees their own
-place.
+«Настройки» has two screens in one menu message, edited in place. The
+main one shows «Ник: …» and «Показывать меня в топе: да/нет», with «Ник»,
+the toggle «Топ: показывать ✓» / «Топ: скрыт», and «Закрыть». «Ник»
+replaces it with «Сейчас: Аня (из Telegram)» or «Сейчас: Ёжик (свой)»,
+«Ник видно в топе и в приветствии.», the choice «Из Telegram» /
+«Свой ник» with a ✓ on the active one (tapping it does nothing), and
+«Назад». «Из Telegram» clears the nickname; «Свой ник» asks for one, and
+saving or «Отмена» returns to the «Ник» screen. To change an own
+nickname, go back to «Из Telegram» first. A user who hides from the top
+is left out of it for everyone else, and still sees their own place.
 
 Where the bot addresses the user (the /start greeting «Привет, …!», the
 «Аккаунт» heading, «Ник: …» in «Настройки») it uses the nickname, else
@@ -397,7 +404,7 @@ Outcomes:
 
 - An issue closed with the `accepted` label (`TERAKOYA_ACCEPTED_LABEL`)
   counts toward the user's rank, and they get a thank-you message with
-  «Принято сообщений: N», a rank-up line when they reach a new rank, and,
+  «Принято правок: N», a rank-up line when they reach a new rank, and,
   for a note, a button to open it.
 - An issue closed without the label sends the user the last review
   comment. The bot waits two minutes after the close, so closing first and

@@ -542,7 +542,7 @@ func TestReport(t *testing.T) {
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	c := to(h.tg.take(), "sendMessage", 42)
-	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ошибку в «Треугольники» исправили. Спасибо, что сообщили! Принято сообщений: 1.\n\nТеперь вы senpai!") ||
+	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ошибку в «Треугольники» исправили. Спасибо, что сообщили! Принято правок: 1.\n\nТеперь вы senpai!") ||
 		!strings.Contains(c[0].params["reply_markup"], `"o:`+h.id(triangles)+`"`) {
 		t.Errorf("late accept = %+v", c)
 	}
@@ -590,7 +590,7 @@ func TestGradeReport(t *testing.T) {
 	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7,
 		State: githost.State{Closed: true, Labels: []string{"accepted"}}})
 	c := to(h.tg.take(), "sendMessage", 42)
-	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ваше сообщение про «Геометрия · 7 класс» учли. Спасибо! Принято сообщений: 1.") ||
+	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ваше сообщение про «Геометрия · 7 класс» учли. Спасибо! Принято правок: 1.") ||
 		strings.Contains(c[0].params["reply_markup"], `"o:`) {
 		t.Errorf("accepted = %+v", c)
 	}
