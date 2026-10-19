@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -319,8 +320,14 @@ func (h *harness) noNickLimit() {
 
 func TestNicknameOncePerDay(t *testing.T) {
 	h := newHarness(t, nil)
+	// The bot and the store, which records when the name changed, share
+	// one clock, so a second ticking over in between changes nothing.
+	var mu sync.Mutex
 	now := time.Now().Truncate(time.Second)
-	h.bot.clock = func() time.Time { return now }
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	setNow := func(t time.Time) { mu.Lock(); now = t; mu.Unlock() }
+	h.bot.clock = clock
+	h.store.SetClock(clock)
 	menu, _ := h.openSettings()
 	h.tapOn(menu, cbNickMenu)
 	h.tg.take()
@@ -347,20 +354,20 @@ func TestNicknameOncePerDay(t *testing.T) {
 	}
 	// A dialog opened before is refused at the answer.
 	h.store.PutSession(h.ctx, store.Session{TgID: anya.ID, State: stateNick, Payload: `{"origin_msg":` + fmt.Sprint(menu) + `}`,
-		ExpiresAt: now.Add(time.Hour)})
+		ExpiresAt: clock().Add(time.Hour)})
 	h.say("Ёжик-2")
 	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != soon {
 		t.Errorf("dialog = %q", s)
 	}
 	// A day later it is fine.
-	now = now.Add(nickEvery)
+	setNow(clock().Add(nickEvery))
 	h.tapOn(menu, cbNickTG)
 	if u, _ := h.store.User(h.ctx, anya.ID); u.Nickname != "" {
 		t.Errorf("after a day: nickname = %q", u.Nickname)
 	}
 
 	// After an admin reset, a new name may be chosen right away.
-	now = time.Now()
+	setNow(time.Now())
 	h.store.SetNickname(h.ctx, anya.ID, "Плохой", nick.Key("Плохой"))
 	if _, _, err := h.bot.ResetNickname(h.ctx, "42", ivan.ID); err != nil {
 		t.Fatal(err)
