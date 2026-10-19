@@ -25,6 +25,7 @@ type fakeBot struct {
 	resets     []string
 	broadcasts []adminapi.BroadcastRequest
 	syncErr    string
+	backupErr  string
 }
 
 func (f *fakeBot) AdminStatus(context.Context) (bot.AdminStatus, error) {
@@ -72,6 +73,13 @@ func (f *fakeBot) SyncNow(context.Context) bot.SyncResult {
 	}
 	return bot.SyncResult{OldCommit: "aaaaaaaaa", NewCommit: "bbbbbbbbb", NotesBefore: 10, NotesAfter: 11, Errors: 1,
 		Issues: []string{"a.md:3: error: broken link"}}
+}
+
+func (f *fakeBot) BackupNow(context.Context) bot.BackupResult {
+	if f.backupErr != "" {
+		return bot.BackupResult{Err: f.backupErr}
+	}
+	return bot.BackupResult{Path: "/srv/data/backups/terakoya-20261019-030000.db", Size: 96 << 10, Count: 8, Removed: 1}
 }
 
 func (f *fakeBot) RecipientCount(context.Context) (int, error) { return 5, nil }
@@ -124,6 +132,9 @@ func TestAdminCommands(t *testing.T) {
 		{[]string{"nick-reset", "42"}, 0, []string{`Nickname "Ёжик" reset; the user is now @anya and was told.`}},
 		{[]string{"nick-reset", "@bob"}, 1, nil},
 		{[]string{"sync"}, 0, []string{"Updated aaaaaaa → bbbbbbb, notes 10 → 11, 1 errors, 0 warnings", "a.md:3: error: broken link"}},
+		{[]string{"backup"}, 0, []string{"Backup written and checked: /srv/data/backups/terakoya-20261019-030000.db (96 КБ)",
+			"Snapshots: 8 kept, 1 old ones removed"}},
+		{[]string{"server"}, 0, []string{"Backup:      none yet"}},
 		{[]string{"nope"}, 2, nil},
 		{nil, 2, nil},
 	}
@@ -145,6 +156,10 @@ func TestAdminCommands(t *testing.T) {
 	_, _, errOut := admin(t, sock, "", "user", "@nobody")
 	if !strings.Contains(errOut, "error: no such user") {
 		t.Errorf("stderr = %q", errOut)
+	}
+	f.backupErr = "vacuum into: disk full"
+	if code, out, _ := admin(t, sock, "", "backup"); code != 1 || !strings.Contains(out, "Backup failed: vacuum into: disk full") {
+		t.Errorf("failed backup = %d %q", code, out)
 	}
 	f.syncErr = "fetch: timeout"
 	if code, out, _ := admin(t, sock, "", "sync"); code != 1 || !strings.Contains(out, "Sync failed: fetch: timeout") {
