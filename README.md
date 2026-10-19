@@ -95,14 +95,23 @@ This serves the sample vault in `examples/vault`. SVG drawings need
 [resvg](https://github.com/linebender/resvg) (`cargo install resvg`) and
 the DejaVu fonts; the Docker image has both.
 
+`/admin` shows the version the binary was built with: the commit for
+images built by CI (the `REVISION` build argument), otherwise `dev`. Set
+it by hand with
+`-ldflags "-X github.com/Mimic890/terakoya/internal/bot.Version=…"`.
+
 ## Commands
 
 ```
 terakoya [serve] [-config file]     run the bot (default)
 terakoya lint [-strict] <vault>     validate a vault
+terakoya admin [--json] <command>   talk to the running bot (see below)
 ```
 
-In Telegram, `/start` sends a greeting that sets the keyboard at the
+In Telegram, `/start` sends a greeting («Привет, <name>! Это terakoya —
+школьный справочник: теоремы, аксиомы, задачи и доказательства по
+классам. Нашли ошибку или чего-то не хватает? Сообщите — за принятые
+правки растёт ранг.») that sets the keyboard at the
 bottom of the chat, and the subject list. The keyboard stays, two by two:
 «Предметы» opens the subject list, «Закреплённые» the user's pinned
 notes, «Аккаунт» a page with their rank, how many accepted reports the
@@ -129,7 +138,7 @@ vault disappear from the list. `/download` sends the whole vault as a zip
 
 The interface has no emoji of its own.
 
-Admins also have `/emoji_setup` (see
+Admins also have [`/admin`](#admin-panel), `/emoji_setup` (see
 [the settings file](#settings-file-ranks-custom-emoji-topic-list-top)),
 [`/broadcast`](#broadcasts) and `/nick_reset <id or @username>`. For
 everyone else these commands do nothing. The command menu shows
@@ -216,6 +225,68 @@ progress message, updated every 10 seconds, that ends with how many were
 sent, blocked and failed; the preview stays in their chat as a record.
 Broadcasts and their counts are stored in the database. A restart in the
 middle stops the broadcast; what was sent is in the stored counts.
+
+### Admin panel
+
+`/admin` is one menu message with a summary (users, active in 24 hours,
+open reports, the vault commit and its age, uptime) and:
+
+- **Пользователи**: totals (all, new today and in 7 days, active in 24
+  hours and 7 days, blocked the bot) and the users, most recently active
+  first, 10 a page with ‹ ›, and «Поиск» by nickname, @username, first
+  name or Telegram ID. A user's card shows their names, ID, rank,
+  accepted, open and rejected правки, when they were first and last
+  seen, whether they hide from the top and whether they blocked the bot,
+  with «Сбросить ник» (after a question; the user is told).
+- **Статистика**: правки open, accepted and rejected, in total and in
+  the last 7 days; the 10 most opened notes in 7 days and of all time,
+  whose titles open them; broadcasts and the last one's counts.
+- **Сервер**: process memory (RSS, Go heap, goroutines), uptime and the
+  image's commit; the container's network traffic since it started and
+  the Telegram API traffic (calls, bytes sent and received) today and in
+  total; disk use of the vault (notes, pictures, .git), the data
+  directory, the database and the cached file_ids; the vault commit,
+  notes and the last sync with its outcome. «Обновить» measures again;
+  directory sizes are reused for a minute.
+- **Обновить vault** syncs now, as a push webhook does, and shows the
+  old and new commit, notes before and after, and the lint errors and
+  warnings of the new content (the first five listed), or «Изменений
+  нет».
+- **Рассылка** starts `/broadcast`.
+
+Measuring and syncing run in the background, with a time limit. To keep
+these numbers, the bot records when each user was last seen (at most
+every 5 minutes per user), how often each note is opened per day, and
+the bytes of its Telegram API calls per day.
+
+### Admin CLI
+
+The running bot also answers on a unix socket, `admin.sock` in the data
+directory, readable only by the user the bot runs as. There is no token:
+whoever can open the socket file is an admin. `terakoya admin` talks to
+it; in Docker, run it in the bot's container:
+
+```sh
+docker compose exec terakoya terakoya admin status
+docker compose exec terakoya terakoya admin server
+docker compose exec terakoya terakoya admin users --search аня --page 2
+docker compose exec terakoya terakoya admin user @anya
+docker compose exec terakoya terakoya admin nick-reset 123456789
+docker compose exec terakoya terakoya admin sync
+docker compose exec -it terakoya terakoya admin broadcast --text "Завтра обновление"
+```
+
+Commands: `status`, `server`, `stats`, `users [--search q] [--page n]`,
+`user <id|@username>`, `nick-reset <id|@username>`, `sync` and
+`broadcast --text "…" [--photo path] [--yes]`. The output is plain text;
+`--json` prints JSON for scripts. Errors exit with status 1. `broadcast`
+prints the number of recipients and asks `[y/N]` first (`-it` gives it a
+terminal; `--yes` skips the question). Its text is sent as is, without
+formatting; a `--photo` (a path inside the container) is uploaded once,
+to the cache chat or the first admin's chat (and deleted there), and
+sent with it. The broadcast runs in the background like one from
+`/broadcast`. `--socket path` (or `TERAKOYA_ADMIN_SOCKET`) points to
+another socket.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks

@@ -9,7 +9,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/terakoya ./cmd/terakoya
+# REVISION is the commit the image is built from, shown in /admin.
+ARG REVISION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/Mimic890/terakoya/internal/bot.Version=${REVISION}" \
+      -o /out/terakoya ./cmd/terakoya
 
 FROM alpine:3.22
 # font-dejavu: the fonts drawings are rendered with (Latin, Greek, Cyrillic).

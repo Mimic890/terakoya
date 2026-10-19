@@ -221,3 +221,9 @@ func (c Config) Validate() error {
 func (c Config) SettingsPath() string {
 	return filepath.Join(c.DataDir, "settings.yml")
 }
+
+// AdminSocketPath is the unix socket `terakoya admin` talks to the bot
+// through.
+func (c Config) AdminSocketPath() string {
+	return filepath.Join(c.DataDir, "admin.sock")
+}

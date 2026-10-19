@@ -8,7 +8,9 @@ import (
 
 	"github.com/go-telegram/bot/models"
 
+	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/githost"
+	"github.com/Mimic890/terakoya/internal/lint"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
@@ -189,27 +191,83 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 	b.send(ctx, sg.TgID, text, kb)
 }
 
+// SyncResult is the outcome of a sync, for /admin.
+type SyncResult struct {
+	At          time.Time `json:"at"`
+	OldCommit   string    `json:"old_commit"`
+	NewCommit   string    `json:"new_commit"`
+	NotesBefore int       `json:"notes_before"`
+	NotesAfter  int       `json:"notes_after"`
+	Errors      int       `json:"errors"`
+	Warnings    int       `json:"warnings"`
+	// Issues are the first lint findings of the new content.
+	Issues []string `json:"issues,omitempty"`
+	Err    string   `json:"error,omitempty"`
+}
+
+// Changed reports whether the sync brought a new commit.
+func (r SyncResult) Changed() bool { return r.Err == "" && r.OldCommit != r.NewCommit }
+
+// maxSyncIssues is how many lint findings a sync result lists.
+const maxSyncIssues = 5
+
 // Sync pulls the content repository and reloads the catalog if it changed.
-func (b *Bot) Sync(ctx context.Context) {
-	if !b.repo.Managed() {
-		return
-	}
+func (b *Bot) Sync(ctx context.Context) { b.SyncNow(ctx) }
+
+// SyncNow syncs like a push webhook does and returns what happened; the
+// result is also kept for /admin.
+func (b *Bot) SyncNow(ctx context.Context) SyncResult {
 	b.syncMu.Lock()
 	defer b.syncMu.Unlock()
+	b.mu.RLock()
+	r := SyncResult{At: b.clock(), OldCommit: b.sha, NotesBefore: len(b.cat.Notes())}
+	b.mu.RUnlock()
+	r.NewCommit, r.NotesAfter = r.OldCommit, r.NotesBefore
+	defer func() {
+		b.mu.Lock()
+		b.lastSync = &r
+		b.mu.Unlock()
+	}()
+	if !b.repo.Managed() {
+		r.Err = "the vault checkout is not managed by the bot (TERAKOYA_REPO_URL is not set)"
+		return r
+	}
 	sha, err := b.repo.Sync(ctx)
 	if err != nil {
 		b.log.Error("sync content", "err", err)
-		return
+		r.Err = err.Error()
+		return r
+	}
+	if sha == r.OldCommit {
+		return r
+	}
+	if _, err := b.reload(ctx); err != nil {
+		b.log.Error("reload content", "err", err)
+		r.Err = err.Error()
+		return r
 	}
 	b.mu.RLock()
-	same := sha == b.sha
+	r.NewCommit, r.NotesAfter = b.sha, len(b.cat.Notes())
 	b.mu.RUnlock()
-	if same {
-		return
+	// The checks of `terakoya lint`, without rasterizing every drawing.
+	issues, err := lint.Run(ctx, b.cfg.RepoDir, nil)
+	if err != nil {
+		b.log.Warn("lint after sync", "err", err)
 	}
-	if err := b.Reload(ctx); err != nil {
-		b.log.Error("reload content", "err", err)
+	for _, i := range issues {
+		switch i.Severity {
+		case content.Error:
+			r.Errors++
+		case content.Warning:
+			r.Warnings++
+		default:
+			continue
+		}
+		if len(r.Issues) < maxSyncIssues {
+			r.Issues = append(r.Issues, i.String())
+		}
 	}
+	return r
 }
 
 // syncLoop pulls on start and then periodically as a fallback for missed

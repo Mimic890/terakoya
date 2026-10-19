@@ -188,6 +188,23 @@ var migrations = []string{
 		blocked     INTEGER NOT NULL DEFAULT 0,
 		failed      INTEGER NOT NULL DEFAULT 0
 	);`,
+	// For /admin: when each user was last seen, note opens per day and the
+	// traffic to the Telegram API per day.
+	`ALTER TABLE users ADD COLUMN last_seen_at INTEGER;
+	UPDATE users SET last_seen_at = updated_at;
+	CREATE INDEX users_last_seen ON users(last_seen_at);
+	CREATE TABLE note_opens (
+		note_id TEXT NOT NULL,
+		day     TEXT NOT NULL,
+		count   INTEGER NOT NULL,
+		PRIMARY KEY (note_id, day)
+	) WITHOUT ROWID;
+	CREATE TABLE api_traffic (
+		day      TEXT PRIMARY KEY,
+		calls    INTEGER NOT NULL DEFAULT 0,
+		sent     INTEGER NOT NULL DEFAULT 0,
+		received INTEGER NOT NULL DEFAULT 0
+	) WITHOUT ROWID;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

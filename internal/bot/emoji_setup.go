@@ -422,6 +422,7 @@ func (b *Bot) setCommands(ctx context.Context) {
 		models.BotCommand{Command: "emoji_setup", Description: b.t.CmdEmojiSetup},
 		models.BotCommand{Command: "broadcast", Description: b.t.CmdBroadcast},
 		models.BotCommand{Command: "nick_reset", Description: b.t.CmdNickReset},
+		models.BotCommand{Command: "admin", Description: b.t.CmdAdmin},
 	)
 	for _, id := range b.cfg.Admins {
 		_, err := b.api.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: admin,
@@ -433,13 +434,14 @@ func (b *Bot) setCommands(ctx context.Context) {
 	}
 }
 
-// onAdminCommand handles /emoji_setup, /broadcast and /nick_reset. It
+// onAdminCommand handles /emoji_setup, /broadcast, /nick_reset and
+// /admin. It
 // reports
 // false for other commands; users who are not admins get no answer at
 // all.
 func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg string) bool {
 	switch cmd {
-	case "/emoji_setup", "/broadcast", "/nick_reset":
+	case "/emoji_setup", "/broadcast", "/nick_reset", "/admin":
 	default:
 		return false
 	}
@@ -450,9 +452,11 @@ func (b *Bot) onAdminCommand(ctx context.Context, m *models.Message, cmd, arg st
 	case "/emoji_setup":
 		b.startEmojiSetup(ctx, m, arg)
 	case "/broadcast":
-		b.startBroadcast(ctx, m)
+		b.startBroadcast(ctx, m.Chat.ID, m.From.ID)
 	case "/nick_reset":
 		b.nickReset(ctx, m, arg)
+	case "/admin":
+		b.showAdmin(ctx, m.Chat.ID)
 	}
 	return true
 }
