@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -21,9 +23,16 @@ type Repo struct {
 	Dir    string
 	URL    string
 	Branch string
-	token  string
-	mu     sync.Mutex
+	// Log, if set, hears about stale lock files removed before a sync.
+	Log   *slog.Logger
+	token string
+	// mu is held by every command that writes to the checkout.
+	mu sync.Mutex
 }
+
+// gitGrace is how long a git command has to stop after SIGTERM, when its
+// context ends, before it is killed.
+const gitGrace = 5 * time.Second
 
 // Ensure prepares the checkout in dir. With a URL, an empty dir is cloned
 // and an existing checkout must have that URL as origin; the bot then owns
@@ -83,6 +92,7 @@ func (r *Repo) Sync(ctx context.Context) (string, error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.removeStaleLocks()
 	if _, err := r.git(ctx, "fetch", "--quiet", "origin", r.Branch); err != nil {
 		return "", err
 	}
@@ -90,6 +100,19 @@ func (r *Repo) Sync(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return r.HeadSHA(ctx), nil
+}
+
+// removeStaleLocks deletes lock files a git command left behind when it
+// was killed, such as by a restart in the middle of a sync. Every command
+// that writes to the checkout holds r.mu, so with it held, any lock left
+// is stale; one would make every later sync fail.
+func (r *Repo) removeStaleLocks() {
+	for _, name := range []string{"index.lock", "HEAD.lock", "ORIG_HEAD.lock", filepath.Join("refs", "heads", r.Branch+".lock")} {
+		p := filepath.Join(r.Dir, ".git", name)
+		if err := os.Remove(p); err == nil && r.Log != nil {
+			r.Log.Warn("removed a stale git lock", "file", p)
+		}
+	}
 }
 
 // Change is a file to write in a commit, by path relative to the
@@ -191,7 +214,16 @@ func (r *Repo) authEnv() []string {
 	)
 }
 
+// gently makes a command whose context ends get SIGTERM, and SIGKILL only
+// if it has not stopped gitGrace later: git cleans up its lock files on
+// SIGTERM.
+func gently(cmd *exec.Cmd) {
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = gitGrace
+}
+
 func output(cmd *exec.Cmd, name string) (string, error) {
+	gently(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

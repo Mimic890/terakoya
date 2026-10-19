@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -161,4 +162,44 @@ func TestSymlinksArePlainFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(old)
+}
+
+func TestSyncRemovesStaleLocks(t *testing.T) {
+	ctx := context.Background()
+	remote, upstream := setup(t)
+	dir := filepath.Join(t.TempDir(), "checkout")
+	r, err := Ensure(ctx, dir, remote, "main", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(upstream, "content", "a.md"), []byte("v2\n"), 0o644)
+	sh(t, upstream, "commit", "--quiet", "-am", "v2")
+	sh(t, upstream, "push", "--quiet", "origin", "HEAD:main")
+	// A sync killed halfway left its lock behind.
+	for _, name := range []string{"index.lock", "HEAD.lock"} {
+		os.WriteFile(filepath.Join(dir, ".git", name), nil, 0o644)
+	}
+	if _, err := r.Sync(ctx); err != nil {
+		t.Fatalf("sync with a stale lock: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "content", "a.md")); string(data) != "v2\n" {
+		t.Errorf("after sync = %q", data)
+	}
+}
+
+func TestCancelStopsGitGently(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "sleep", "10")
+	gently(cmd)
+	if cmd.WaitDelay != gitGrace {
+		t.Fatal("no grace")
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	err := cmd.Wait()
+	if ee, ok := err.(*exec.ExitError); !ok || ee.ProcessState.Sys().(syscall.WaitStatus).Signal() != syscall.SIGTERM {
+		t.Errorf("wait = %v, want ended by SIGTERM", err)
+	}
 }

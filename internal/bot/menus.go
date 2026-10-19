@@ -365,7 +365,7 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 			}
 		}
 		if err != nil {
-			b.log.Error("send rich menu", "title", title, "err", err)
+			b.sendFailed(ctx, "send rich menu", chatID, err, "title", title)
 			b.log.Debug("rejected markdown", "markdown", part.Markdown)
 			break
 		}

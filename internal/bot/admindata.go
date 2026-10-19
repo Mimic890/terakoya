@@ -344,14 +344,30 @@ type BroadcastStarted struct {
 	Recipients int   `json:"recipients"`
 }
 
+// ErrBroadcastBusy is returned while another broadcast is being sent.
+var ErrBroadcastBusy = errors.New("another broadcast is being sent; try again when it has finished")
+
 // Broadcast sends a plain text, and optionally a picture, to every
 // recipient in the background, as /broadcast does. The picture is
 // uploaded once, to the cache chat or the first admin, and sent by its
-// file_id.
+// file_id. The message first goes to the first admin, as /broadcast's
+// preview does: if Telegram refuses it, nobody else gets it either.
 func (b *Bot) Broadcast(ctx context.Context, text string, photo []byte) (BroadcastStarted, error) {
 	if strings.TrimSpace(text) == "" && len(photo) == 0 {
 		return BroadcastStarted{}, errors.New("nothing to send")
 	}
+	if len(b.cfg.Admins) == 0 {
+		return BroadcastStarted{}, errors.New("no admin to send the test copy to; set TERAKOYA_ADMIN_IDS")
+	}
+	if !b.broadcasting.TryLock() {
+		return BroadcastStarted{}, ErrBroadcastBusy
+	}
+	locked := true
+	defer func() {
+		if locked {
+			b.broadcasting.Unlock()
+		}
+	}()
 	fileID := ""
 	if len(photo) > 0 {
 		var err error
@@ -359,17 +375,17 @@ func (b *Bot) Broadcast(ctx context.Context, text string, photo []byte) (Broadca
 			return BroadcastStarted{}, fmt.Errorf("upload the picture: %w", err)
 		}
 	}
-	ids, err := b.recipients(ctx)
+	bc := &store.Broadcast{Markdown: entitiesMarkdown(text, nil), Photo: fileID}
+	if _, err := b.sendBroadcast(ctx, b.cfg.Admins[0], bc.Markdown, bc.Photo); err != nil {
+		return BroadcastStarted{}, fmt.Errorf("the test copy to the first admin failed, so nothing was sent: %w", err)
+	}
+	// launchBroadcast releases the lock from here on.
+	locked = false
+	n, err := b.launchBroadcast(ctx, bc, 0)
 	if err != nil {
 		return BroadcastStarted{}, err
 	}
-	bc := &store.Broadcast{Markdown: entitiesMarkdown(text, nil), Photo: fileID, Recipients: len(ids)}
-	if err := b.store.CreateBroadcast(ctx, bc); err != nil {
-		return BroadcastStarted{}, err
-	}
-	b.log.Info("broadcast started", "id", bc.ID, "from", "admin socket", "recipients", len(ids))
-	b.later(ctx, func(ctx context.Context) { b.runBroadcast(ctx, bc, ids, 0, nil) })
-	return BroadcastStarted{ID: bc.ID, Recipients: len(ids)}, nil
+	return BroadcastStarted{ID: bc.ID, Recipients: n}, nil
 }
 
 func (b *Bot) uploadPhoto(ctx context.Context, data []byte) (string, error) {

@@ -284,7 +284,7 @@ func (b *Bot) sendEmojiText(ctx context.Context, chatID int64, t emojiText, kb m
 		}
 	}
 	if err != nil {
-		b.log.Error("send message", "chat", chatID, "err", err)
+		b.sendFailed(ctx, "send message", chatID, err)
 		return nil
 	}
 	b.msgs.seen(ctx, chatID, msg.ID)

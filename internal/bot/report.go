@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	tg "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -42,6 +43,8 @@ const (
 const (
 	sessionTTL = time.Hour
 	maxImages  = 10
+	// maxReportText bounds a report's text, all its messages together.
+	maxReportText = 4000
 )
 
 var downloadClient = &http.Client{Timeout: time.Minute}
@@ -60,6 +63,14 @@ type sessionPayload struct {
 	// from, which is replaced when the user goes back to it.
 	Msgs      []int `json:"msgs,omitempty"`
 	OriginMsg int   `json:"origin_msg,omitempty"`
+	// What a report attempt that failed halfway already did: the issue
+	// it opened, the pictures it attached, the branch it pushed with how
+	// many pictures. A retry goes on from there.
+	Issue          int      `json:"issue,omitempty"`
+	IssueURL       string   `json:"issue_url,omitempty"`
+	Attached       []string `json:"attached,omitempty"`
+	Branch         string   `json:"branch,omitempty"`
+	BranchPictures int      `json:"branch_pictures,omitempty"`
 	// A broadcast: its rich Markdown, picture (file_id) and the album the
 	// picture came in, and the preview message.
 	Markdown   string `json:"markdown,omitempty"`
@@ -339,7 +350,12 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 			return true
 		}
 	} else {
-		d.p.Text = strings.TrimSpace(d.p.Text + "\n\n" + text)
+		joined := strings.TrimSpace(d.p.Text + "\n\n" + text)
+		if utf8.RuneCountInString(joined) > maxReportText {
+			b.note(ctx, d, fmt.Sprintf(b.t.ReportTooLong, maxReportText))
+			return true
+		}
+		d.p.Text = joined
 	}
 	d.ses.State = stateReportConfirm
 	b.prompt(ctx, d, b.t.ReportReceived, b.sendKeyboard(b.t.Send))
@@ -611,16 +627,29 @@ func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r sug
 		return err
 	}
 	r.ArticleURL, r.CurrentURL = b.host.FileURL(d.ses.BaseSHA, r.RepoPath), b.host.FileURL(b.cfg.RepoBranch, r.RepoPath)
-	issue, err := b.host.OpenIssue(ctx, r.IssueTitle(), r.IssueBody())
-	if err != nil {
-		return err
+	// A retry after a failure further down goes on with the issue it
+	// opened, instead of opening another one nobody would follow.
+	issue := githost.PR{Number: d.p.Issue, URL: d.p.IssueURL}
+	reused := issue.Number != 0
+	if reused {
+		b.log.Info("retrying a report with its issue", "user", from.ID, "issue", issue.Number)
+	} else {
+		var err error
+		if issue, err = b.host.OpenIssue(ctx, r.IssueTitle(), r.IssueBody()); err != nil {
+			return err
+		}
+		d.p.Issue, d.p.IssueURL = issue.Number, issue.URL
+		b.save(ctx, d)
 	}
 	branch := ""
 	if len(pics) > 0 {
-		branch, err = b.attachPictures(ctx, d, issue.Number, &r, pics)
-		if err != nil {
+		var err error
+		if branch, err = b.attachPictures(ctx, d, issue.Number, &r, pics); err != nil {
 			return err
 		}
+	}
+	// The text may have grown since the issue was opened.
+	if reused || len(pics) > 0 {
 		if err := b.host.EditIssue(ctx, issue.Number, r.IssueBody()); err != nil {
 			return err
 		}
@@ -666,9 +695,14 @@ func (b *Bot) pictureChanges(ctx context.Context, d *dialog, assets, about strin
 }
 
 // attachPictures uploads pictures to the issue and adds them to r. It
-// returns the branch used when the host cannot take attachments.
+// returns the branch used when the host cannot take attachments. Pictures
+// attached by an earlier, failed attempt are not uploaded again.
 func (b *Bot) attachPictures(ctx context.Context, d *dialog, number int, r *suggest.Report, pics []picture) (string, error) {
-	for _, p := range pics {
+	for i, p := range pics {
+		if i < len(d.p.Attached) {
+			r.Pictures = append(r.Pictures, suggest.Picture{Caption: p.caption, URL: d.p.Attached[i]})
+			continue
+		}
 		name := p.change.Path[strings.LastIndex(p.change.Path, "/")+1:]
 		u, err := b.host.Attach(ctx, number, name, p.change.Data)
 		if errors.Is(err, githost.ErrUnsupported) {
@@ -677,25 +711,38 @@ func (b *Bot) attachPictures(ctx context.Context, d *dialog, number int, r *sugg
 		if err != nil {
 			return "", err
 		}
+		d.p.Attached = append(d.p.Attached, u)
+		b.save(ctx, d)
 		r.Pictures = append(r.Pictures, suggest.Picture{Caption: p.caption, URL: u})
 	}
 	return "", nil
 }
 
 // picturesOnBranch commits the pictures on a report/ branch from the
-// commit the user saw.
+// commit the user saw. A branch pushed by an earlier attempt with the same
+// pictures is used as it is; with more pictures, a new one is pushed.
 func (b *Bot) picturesOnBranch(ctx context.Context, d *dialog, r *suggest.Report, pics []picture) (string, error) {
 	branch := "report/" + strings.TrimPrefix(suggest.Branch(r.By.TgID, r.RepoPath, r.ShortID), "suggest/")
+	if d.p.Branch != "" && d.p.BranchPictures != len(pics) {
+		branch += fmt.Sprintf("-%d", len(pics))
+	}
 	var changes []gitrepo.Change
 	r.Pictures = nil
 	for _, p := range pics {
 		changes = append(changes, p.change)
 		r.Pictures = append(r.Pictures, suggest.Picture{Path: p.change.Path, Caption: p.caption, URL: b.host.RawURL(branch, p.change.Path)})
 	}
+	if d.p.Branch == branch {
+		return branch, nil
+	}
 	author := gitrepo.Author{Name: r.By.Handle(), Email: fmt.Sprintf("tg-%d@users.terakoya.invalid", r.By.TgID)}
 	committer := gitrepo.Author{Name: b.cfg.GitAuthorName, Email: b.cfg.GitAuthorEmail}
-	_, err := b.repo.CommitAndPush(ctx, d.ses.BaseSHA, branch, r.CommitMessage(), author, committer, changes)
-	return branch, err
+	if _, err := b.repo.CommitAndPush(ctx, d.ses.BaseSHA, branch, r.CommitMessage(), author, committer, changes); err != nil {
+		return "", err
+	}
+	d.p.Branch, d.p.BranchPictures = branch, len(pics)
+	b.save(ctx, d)
+	return branch, nil
 }
 
 // download fetches a Telegram file, refusing anything over max bytes.

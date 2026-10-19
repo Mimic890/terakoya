@@ -4,9 +4,11 @@ package webhook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/Mimic890/terakoya/internal/githost"
@@ -48,6 +50,11 @@ func Handler(ctx context.Context, host githost.Host, handle func(context.Context
 		log.Info("webhook", "kind", ev.Kind, "pr", ev.PRNumber, "ref", ev.Ref)
 		w.WriteHeader(http.StatusAccepted)
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("panic recovered", "in", "webhook", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+				}
+			}()
 			hctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
 			handle(hctx, ev)

@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -229,4 +230,117 @@ func (b *Bot) mustDialogOf(t *testing.T, userID int64) *dialog {
 		t.Fatal("no dialog")
 	}
 	return d
+}
+
+func TestBroadcastOneAtATime(t *testing.T) {
+	h, _ := broadcastHarness(t)
+	h.bot.broadcasting.Lock() // another one is being sent
+	h.say("/broadcast")
+	h.say("Новость")
+	h.tg.take()
+	h.tap(cbBroadcastYes)
+	calls := h.tg.take()
+	if s := texts(calls, "sendMessage"); len(s) != 1 || s[0] != i18n.RU.BroadcastBusy {
+		t.Errorf("busy = %q", s)
+	}
+	if len(richTo(calls, anya.ID)) != 0 {
+		t.Error("sent while another broadcast runs")
+	}
+	if _, err := h.bot.Broadcast(h.ctx, "x", nil); !errors.Is(err, ErrBroadcastBusy) {
+		t.Errorf("socket = %v", err)
+	}
+	// The dialog stays; once the other one is done, «Да» works.
+	h.bot.broadcasting.Unlock()
+	h.tap(cbBroadcastYes)
+	if got := richTo(h.tg.take(), anya.ID); len(got) != 1 {
+		t.Errorf("after the other one: %q", got)
+	}
+}
+
+func TestBroadcastPausesAndResumes(t *testing.T) {
+	h, _ := broadcastHarness(t)
+	more := []int64{45, 46, 47}
+	for _, id := range more {
+		h.store.TouchUser(h.ctx, id, "", "Ученик")
+	}
+	// Shutdown begins after the second recipient.
+	sent := 0
+	h.bot.sleep = func(context.Context, time.Duration) {
+		if sent++; sent == 2 {
+			h.bot.stopNow()
+		}
+	}
+	h.say("/broadcast")
+	h.say("Новость")
+	h.tap(cbBroadcastYes)
+	calls := h.tg.take()
+	got := map[int64]int{}
+	for _, id := range append([]int64{anya.ID, boris.ID, 44}, more...) {
+		got[id] = len(richTo(calls, id))
+	}
+	if got[anya.ID] != 1 || got[boris.ID] != 1 || got[44]+got[45]+got[46]+got[47] != 0 {
+		t.Fatalf("before shutdown = %v", got)
+	}
+	open, _ := h.store.UnfinishedBroadcasts(h.ctx)
+	if len(open) != 1 || open[0].Sent != 2 || open[0].Recipients != 6 {
+		t.Fatalf("unfinished = %+v", open)
+	}
+	// It stopped right after Ольга was marked as being sent to, as if the
+	// process died there: she is not sent to again.
+	h.store.MarkRecipient(h.ctx, open[0].ID, 44, "sending")
+
+	// The next start.
+	h.bot.stopCtx, h.bot.stopNow = context.WithCancel(context.Background())
+	h.bot.sleep = func(context.Context, time.Duration) {}
+	h.bot.resumeBroadcasts(h.ctx)
+	calls = h.tg.take()
+	for _, id := range []int64{anya.ID, boris.ID, 44} {
+		if n := len(richTo(calls, id)); n != 0 {
+			t.Errorf("%d got a second copy", id)
+		}
+	}
+	for _, id := range more {
+		if n := len(richTo(calls, id)); n != 1 {
+			t.Errorf("%d got %d", id, n)
+		}
+	}
+	if e := to(calls, "editMessageText", ivan.ID); len(e) == 0 ||
+		e[len(e)-1].params["text"] != "Рассылка завершена. Доставлено: 5, заблокировали бота: 0, не доставлено: 1." {
+		t.Errorf("progress after resume = %+v", e)
+	}
+	if open, _ := h.store.UnfinishedBroadcasts(h.ctx); len(open) != 0 {
+		t.Errorf("still unfinished = %+v", open)
+	}
+}
+
+func TestDrain(t *testing.T) {
+	h := newHarness(t, nil)
+	release := make(chan struct{})
+	finished := false
+	h.bot.later(h.ctx, func(context.Context) {
+		<-release
+		finished = true
+	})
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+	}()
+	h.bot.drain(5 * time.Second)
+	if !finished || !h.bot.stopping() {
+		t.Errorf("drain returned before the work finished")
+	}
+	// After that, work runs right away.
+	ran := false
+	h.bot.later(h.ctx, func(context.Context) { ran = true })
+	if !ran {
+		t.Error("later after drain did not run")
+	}
+	// Work that does not finish is given up on after the grace period.
+	h2 := newHarness(t, nil)
+	h2.bot.later(h2.ctx, func(context.Context) { select {} })
+	start := time.Now()
+	h2.bot.drain(50 * time.Millisecond)
+	if time.Since(start) > 2*time.Second {
+		t.Error("drain waited too long")
+	}
 }
