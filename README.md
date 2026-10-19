@@ -311,12 +311,13 @@ docker compose exec terakoya terakoya admin users --search аня --page 2
 docker compose exec terakoya terakoya admin user @anya
 docker compose exec terakoya terakoya admin nick-reset 123456789
 docker compose exec terakoya terakoya admin sync
+docker compose exec terakoya terakoya admin backup
 docker compose exec -it terakoya terakoya admin broadcast --text "Завтра обновление"
 ```
 
 Commands: `status`, `server`, `stats`, `users [--search q] [--page n]`,
-`user <id|@username>`, `nick-reset <id|@username>`, `sync` and
-`broadcast --text "…" [--photo path] [--yes]`. The output is plain text;
+`user <id|@username>`, `nick-reset <id|@username>`, `sync`, `backup`
+(see [Backups](#backups)) and `broadcast --text "…" [--photo path] [--yes]`. The output is plain text;
 `--json` prints JSON for scripts. Errors exit with status 1. `broadcast`
 prints the number of recipients and asks `[y/N]` first (`-it` gives it a
 terminal; `--yes` skips the question). Its text is sent as is, without
@@ -325,8 +326,54 @@ to the cache chat or the first admin's chat (and deleted there), and
 sent with it. The message first goes to the first admin as a test copy;
 if Telegram refuses it, nothing is sent to anyone and the command fails.
 The broadcast then runs in the background like one from `/broadcast`;
-while another one runs, the command fails and sends nothing. `--socket path` (or `TERAKOYA_ADMIN_SOCKET`) points to
-another socket.
+while another one runs, the command fails and sends nothing.
+`--socket path` (or `TERAKOYA_ADMIN_SOCKET`) points to another socket.
+
+### Backups
+
+The bot keeps snapshots of its data in `data/backups/` (`/srv/data/backups`
+in the container); copying them somewhere else is up to you, e.g. with
+`rsync` from the host. Each snapshot is two files:
+
+- `terakoya-20261019-030000.db`: the SQLite database, written with
+  `VACUUM INTO` while the bot runs, under a temporary name, checked with
+  `PRAGMA quick_check`, flushed to disk and only then renamed, so a file
+  with this name is always complete and sound. The time is UTC.
+- `terakoya-20261019-030000.settings.yml`: `settings.yml` as it was.
+
+They have the permissions of the originals (the settings are readable by
+their owner only).
+
+- A snapshot is taken every `TERAKOYA_BACKUP_INTERVAL` (default `24h`;
+  `0` turns it off), counted from the newest one on disk, so restarts
+  neither skip one nor add more.
+- `terakoya admin backup` takes one now, e.g. before a risky change.
+- Before the database schema changes on an upgrade, the bot copies the
+  old database to `terakoya-<time>-before-v<N>.db`; the 3 newest of these
+  are kept.
+- After each snapshot, old ones are removed: `TERAKOYA_BACKUP_KEEP`
+  (default `7,4`) keeps the newest snapshot of each of the last 7 days
+  and of each of the 4 weeks before those.
+
+/admin «Сервер» and `terakoya admin server` show the last snapshot, its
+size and how many there are; a failed one is shown with its error and
+logged.
+
+To restore one:
+
+```sh
+docker compose stop terakoya
+cp data/backups/terakoya-20261019-030000.db data/terakoya.db
+rm -f data/terakoya.db-wal data/terakoya.db-shm
+cp data/backups/terakoya-20261019-030000.settings.yml data/settings.yml   # if wanted
+docker compose start terakoya
+```
+
+Removing the `-wal` and `-shm` files matters: they belong to the old
+database and must not be applied to the restored one. Keep the files'
+owner (`chown 10001:10001` or whatever `user:` is in the compose file).
+A snapshot from an older version of the bot is fine; it is migrated on
+start.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
@@ -370,6 +417,8 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_URL` | `repo_url` | — | Content repository to clone when `repo_dir` is empty. Without it, `repo_dir` is used as is. |
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
+| `TERAKOYA_BACKUP_INTERVAL` | `backup_interval` | `24h` | How often the database and `settings.yml` are snapshotted into `<data dir>/backups`; `0` turns it off. See [Backups](#backups). |
+| `TERAKOYA_BACKUP_KEEP` | `backup_keep` | `7,4` | How many snapshots to keep: the newest of each of the last N days, and of each of the M weeks before. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
 | `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They get `/emoji_setup`, `/broadcast` and `/nick_reset`. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |

@@ -27,6 +27,7 @@ commands:
   user <id|@username>                 one user
   nick-reset <id|@username>           reset a nickname and tell the user
   sync                                pull the vault now
+  backup                              snapshot the database and settings now
   broadcast --text "…" [--photo path] [--yes]
                                       send a message to every user
 
@@ -148,6 +149,16 @@ func runAdmin(args []string, in io.Reader, out, errOut io.Writer, socket string)
 			return 1
 		}
 		return code
+	case "backup":
+		r, err := c.Backup(ctx)
+		if err != nil {
+			return fail(err)
+		}
+		code := print(r, func(w io.Writer) { printBackup(w, r) })
+		if r.Err != "" {
+			return 1
+		}
+		return code
 	case "broadcast":
 		return runBroadcast(ctx, c, cmdArgs, in, out, errOut, asJSON)
 	}
@@ -265,6 +276,23 @@ func printServer(w io.Writer, s bot.AdminServer) {
 	} else {
 		fmt.Fprintln(w, "Last sync:   none since start")
 	}
+	switch b := s.LastBackup; {
+	case b == nil:
+		fmt.Fprintln(w, "Backup:      none yet")
+	case b.Err != "":
+		fmt.Fprintf(w, "Backup:      %s, failed: %s\n", when(b.At), b.Err)
+	default:
+		fmt.Fprintf(w, "Backup:      %s, %s, %d snapshots\n", when(b.At), stats.Bytes(b.Size), b.Count)
+	}
+}
+
+func printBackup(w io.Writer, r bot.BackupResult) {
+	if r.Err != "" {
+		fmt.Fprintf(w, "Backup failed: %s\n", r.Err)
+		return
+	}
+	fmt.Fprintf(w, "Backup written and checked: %s (%s)\n", r.Path, stats.Bytes(r.Size))
+	fmt.Fprintf(w, "Snapshots: %d kept, %d old ones removed\n", r.Count, r.Removed)
 }
 
 func printStats(w io.Writer, s bot.AdminStats) {

@@ -347,7 +347,18 @@ func (b *Bot) serverText(s AdminServer) string {
 		s.APITotal.Calls, B(s.APITotal.Sent), B(s.APITotal.Received),
 		B(s.Vault.Total), B(s.Vault.Markdown), B(s.Vault.Images), B(s.Vault.Git),
 		B(s.DataDir), B(s.DB), s.MediaRows,
-		short(s.Commit), b.ago(s.CommitTime), s.Notes, last)
+		short(s.Commit), b.ago(s.CommitTime), s.Notes, last) + "\n" + b.backupLine(s.LastBackup)
+}
+
+// backupLine is the last backup on the «Сервер» screen.
+func (b *Bot) backupLine(r *BackupResult) string {
+	switch {
+	case r == nil:
+		return b.t.AdminBackupNone
+	case r.Err != "":
+		return fmt.Sprintf(b.t.AdminBackupFailed, b.moment(r.At), r.Err)
+	}
+	return fmt.Sprintf(b.t.AdminBackup, b.moment(r.At), stats.Bytes(r.Size), r.Count)
 }
 
 // syncText renders the outcome of «Обновить vault».

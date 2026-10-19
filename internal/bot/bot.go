@@ -70,6 +70,8 @@ type Bot struct {
 	// broadcasting is held while a broadcast is being sent: one at a time.
 	broadcasting sync.Mutex
 	limit        *limiter // updates per user; nil allows all
+	backupMu     sync.Mutex
+	lastBackup   *BackupResult // since the start
 	userLocks    userLocks
 	syncMu       sync.Mutex
 	rejectGrace  time.Duration
@@ -154,6 +156,7 @@ func (b *Bot) Run(ctx context.Context) {
 	go b.syncLoop(ctx)
 	go b.settings.Watch(ctx, settingsCheck)
 	go b.trafficLoop(ctx)
+	go b.backupLoop(ctx)
 	go b.cleanupLoop(ctx)
 	b.setCommands(ctx)
 	b.later(ctx, b.resumeBroadcasts)

@@ -92,6 +92,8 @@ type AdminServer struct {
 	CommitTime time.Time   `json:"commit_time"`
 	Notes      int         `json:"notes"`
 	LastSync   *SyncResult `json:"last_sync,omitempty"`
+	// LastBackup is the last snapshot, or nil if there is none.
+	LastBackup *BackupResult `json:"last_backup,omitempty"`
 }
 
 // sizeCache keeps directory sizes for sizesFor.
@@ -164,6 +166,7 @@ func (b *Bot) AdminServer(ctx context.Context) (AdminServer, error) {
 	s.Commit, s.Notes, s.LastSync = b.sha, len(b.cat.Notes()), b.lastSync
 	b.mu.RUnlock()
 	s.CommitTime = b.repo.CommitTime(ctx, s.Commit)
+	s.LastBackup = b.LastBackup()
 	return s, nil
 }
 
