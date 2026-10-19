@@ -1,110 +1,128 @@
-// Package backup takes and rotates snapshots of the bot's data: the
-// SQLite database, copied with VACUUM INTO and checked, and settings.yml
-// next to it. They are kept in data/backups for the admin to copy
-// elsewhere.
+// Package backup writes backups of the bot's data: the SQLite database,
+// copied with VACUUM INTO and checked, and settings.yml with it. In the
+// folder mode the newest backup is data/backups/latest/, for tools on the
+// host to archive; in the archive mode each one is a .tar.gz of its own,
+// of which the newest few are kept.
 package backup
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
-// Keep is how many snapshots rotation keeps: the newest of each of the
-// last Daily days, and the newest of each of the Weekly ISO weeks before
-// the weeks those days fall in.
-type Keep struct {
-	Daily, Weekly int
-}
+// Modes of the backup: section of settings.yml.
+const (
+	ModeFolder  = "folder"
+	ModeArchive = "archive"
+	ModeOff     = "off"
+)
 
-// DefaultKeep keeps a week of daily snapshots and a month of weekly ones.
-var DefaultKeep = Keep{Daily: 7, Weekly: 4}
+// Latest is the folder of the folder mode.
+const Latest = "latest"
 
-// keepBefore is how many snapshots taken before a migration are kept.
-const keepBefore = 3
-
-// ParseKeep reads "7,4" (daily, weekly) or "7" (daily; 4 weekly).
-func ParseKeep(s string) (Keep, error) {
-	k := DefaultKeep
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return k, nil
-	}
-	daily, weekly, two := strings.Cut(s, ",")
-	var err error
-	if k.Daily, err = strconv.Atoi(strings.TrimSpace(daily)); err != nil || k.Daily < 1 {
-		return k, fmt.Errorf("%q: the number of daily snapshots must be at least 1", s)
-	}
-	if two {
-		if k.Weekly, err = strconv.Atoi(strings.TrimSpace(weekly)); err != nil || k.Weekly < 0 {
-			return k, fmt.Errorf("%q: the number of weekly snapshots must be 0 or more", s)
-		}
-	}
-	return k, nil
-}
-
-func (k Keep) String() string { return fmt.Sprintf("%d daily, %d weekly", k.Daily, k.Weekly) }
-
-// Snapshot is a backup on disk.
-type Snapshot struct {
+// Backup is a backup on disk.
+type Backup struct {
 	Path string    `json:"path"`
 	At   time.Time `json:"at"`
 	Size int64     `json:"size"`
-	// Before is the schema version a snapshot taken before a migration
-	// was taken for, or 0.
-	Before int `json:"before,omitempty"`
 }
 
-var (
-	regular       = regexp.MustCompile(`^terakoya-(\d{8}-\d{6})\.db$`)
-	preMigration  = regexp.MustCompile(`^terakoya-(\d{8}-\d{6})-before-v(\d+)\.db$`)
-	settingsSufix = ".settings.yml"
-)
+// archiveName matches the archives, terakoya-YYYY-MM-DD-HHMM.tar.gz, in
+// the container's local time.
+var archiveName = regexp.MustCompile(`^terakoya-(\d{4}-\d{2}-\d{2}-\d{4})\.tar\.gz$`)
 
-// Name is the file name of a regular snapshot taken at t.
-func Name(t time.Time) string {
-	return store.SnapshotPrefix + t.UTC().Format(store.SnapshotTime) + ".db"
+const archiveTime = "2006-01-02-1504"
+
+// Folder writes dir/latest/ with the database and the settings file,
+// replacing the previous one at once (see store.SnapshotFolder).
+func Folder(ctx context.Context, st *store.Store, dir, settings string, now time.Time) (Backup, error) {
+	if err := st.SnapshotFolder(ctx, dir, Latest, settings); err != nil {
+		return Backup{}, err
+	}
+	p := filepath.Join(dir, Latest)
+	return Backup{Path: p, At: now, Size: folderSize(p)}, nil
 }
 
-// settingsOf is the settings file kept with a snapshot.
-func settingsOf(dbPath string) string { return strings.TrimSuffix(dbPath, ".db") + settingsSufix }
-
-// Take writes a snapshot of the database into dir, named after now, and a
-// copy of the settings file next to it if there is one.
-func Take(ctx context.Context, st *store.Store, dir, settings string, now time.Time) (Snapshot, error) {
+// Archive writes dir/terakoya-<time>.tar.gz with the database and the
+// settings file, through a temporary file, and then removes all but the
+// newest keep archives. It returns how many were removed.
+func Archive(ctx context.Context, st *store.Store, dir, settings string, now time.Time, keep int) (Backup, int, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return Snapshot{}, err
+		return Backup{}, 0, err
 	}
-	p := filepath.Join(dir, Name(now))
-	if err := st.Snapshot(ctx, p); err != nil {
-		return Snapshot{}, err
+	work, err := os.MkdirTemp(dir, ".tmp-")
+	if err != nil {
+		return Backup{}, 0, err
 	}
-	if settings != "" {
-		if err := copyFile(settings, settingsOf(p)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return Snapshot{}, fmt.Errorf("copy settings: %w", err)
-		}
+	defer os.RemoveAll(work)
+	db := filepath.Join(work, store.DBFile)
+	if err := st.Snapshot(ctx, db); err != nil {
+		return Backup{}, 0, err
+	}
+	p := filepath.Join(dir, "terakoya-"+now.Format(archiveTime)+".tar.gz")
+	if err := writeArchive(p, db, settings); err != nil {
+		return Backup{}, 0, err
 	}
 	info, err := os.Stat(p)
 	if err != nil {
-		return Snapshot{}, err
+		return Backup{}, 0, err
 	}
-	return Snapshot{Path: p, At: now.UTC().Truncate(time.Second), Size: info.Size()}, nil
+	removed, err := prune(dir, keep)
+	return Backup{Path: p, At: now, Size: info.Size()}, removed, err
 }
 
-// copyFile copies src to dst through a temporary file, with src's
-// permissions.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+// writeArchive packs the files, those that exist, into a .tar.gz at p,
+// written under a temporary name, flushed and renamed.
+func writeArchive(p string, files ...string) (err error) {
+	tmp := p + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for _, name := range files {
+		if err := addFile(tw, name); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
+func addFile(tw *tar.Writer, name string) error {
+	in, err := os.Open(name)
 	if err != nil {
 		return err
 	}
@@ -113,30 +131,20 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	tmp := dst + ".tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	hdr, err := tar.FileInfoHeader(info, "")
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, in)
-	if err == nil {
-		err = out.Sync()
+	hdr.Name = filepath.Base(name)
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
 	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp, dst)
-	}
-	if err != nil {
-		os.Remove(tmp)
-	}
+	_, err = io.Copy(tw, in)
 	return err
 }
 
-// List returns the snapshots in dir, newest first. Unfinished ones, still
-// under a temporary name, are not listed.
-func List(dir string) ([]Snapshot, error) {
+// archives lists the archives in dir, newest first.
+func archives(dir string) ([]Backup, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -144,20 +152,13 @@ func List(dir string) ([]Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Snapshot
+	var out []Backup
 	for _, e := range entries {
-		name := e.Name()
-		var stamp string
-		before := 0
-		if m := regular.FindStringSubmatch(name); m != nil {
-			stamp = m[1]
-		} else if m := preMigration.FindStringSubmatch(name); m != nil {
-			stamp = m[1]
-			before, _ = strconv.Atoi(m[2])
-		} else {
+		m := archiveName.FindStringSubmatch(e.Name())
+		if m == nil {
 			continue
 		}
-		at, err := time.ParseInLocation(store.SnapshotTime, stamp, time.UTC)
+		at, err := time.ParseInLocation(archiveTime, m[1], time.Local)
 		if err != nil {
 			continue
 		}
@@ -165,60 +166,74 @@ func List(dir string) ([]Snapshot, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, Snapshot{Path: filepath.Join(dir, name), At: at, Size: info.Size(), Before: before})
+		out = append(out, Backup{Path: filepath.Join(dir, e.Name()), At: at, Size: info.Size()})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].At.Equal(out[j].At) {
-			return out[i].At.After(out[j].At)
-		}
-		return out[i].Path < out[j].Path
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Path > out[j].Path })
 	return out, nil
 }
 
-// Rotate deletes the snapshots keep does not cover, with their settings
-// copies, and returns them. Snapshots taken before a migration are
-// rotated on their own: the newest few stay.
-func Rotate(dir string, keep Keep) ([]Snapshot, error) {
-	all, err := List(dir)
+// prune removes all but the newest keep archives.
+func prune(dir string, keep int) (int, error) {
+	all, err := archives(dir)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	var gone []Snapshot
-	// Weeks with a daily snapshot kept are covered already; the weekly
-	// ones reach further back.
-	days, covered, weeks := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	before := 0
-	for _, s := range all {
-		if s.Before != 0 {
-			if before++; before > keepBefore {
-				gone = append(gone, s)
-			}
-			continue
-		}
-		day := s.At.Format("2006-01-02")
-		y, w := s.At.ISOWeek()
-		week := fmt.Sprintf("%d-%02d", y, w)
-		switch {
-		case days[day]:
-			// An older one of a day already kept.
-		case len(days) < keep.Daily:
-			days[day], covered[week] = true, true
-			continue
-		case !covered[week] && !weeks[week] && len(weeks) < keep.Weekly:
-			weeks[week] = true
-			continue
-		}
-		gone = append(gone, s)
-	}
+	n := 0
 	var errs []error
-	for _, s := range gone {
-		if err := os.Remove(s.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	for _, b := range all[min(len(all), keep):] {
+		if err := os.Remove(b.Path); err != nil {
 			errs = append(errs, err)
+			continue
 		}
-		if err := os.Remove(settingsOf(s.Path)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			errs = append(errs, err)
+		n++
+	}
+	return n, errors.Join(errs...)
+}
+
+// Last finds the newest backup in dir, of either mode; ok is false if
+// there is none. Copies taken before a migration do not count.
+func Last(dir string) (b Backup, ok bool, err error) {
+	if info, err := os.Stat(filepath.Join(dir, Latest, store.DBFile)); err == nil {
+		p := filepath.Join(dir, Latest)
+		b, ok = Backup{Path: p, At: info.ModTime(), Size: folderSize(p)}, true
+	}
+	all, err := archives(dir)
+	if err != nil {
+		return b, ok, err
+	}
+	if len(all) > 0 {
+		// An archive's time is in its name, to the minute.
+		info, err := os.Stat(all[0].Path)
+		if err == nil {
+			all[0].At = info.ModTime()
+		}
+		if !ok || all[0].At.After(b.At) {
+			b, ok = all[0], true
 		}
 	}
-	return gone, errors.Join(errs...)
+	return b, ok, nil
+}
+
+func folderSize(dir string) int64 {
+	var n int64
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
+			n += info.Size()
+		}
+	}
+	return n
+}
+
+// Next is the first moment after now at hhmm, in now's location.
+func Next(now time.Time, hhmm string) time.Time {
+	h, m, err := settings.ParseClock(hhmm)
+	if err != nil {
+		return time.Time{}
+	}
+	next := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, now.Location())
+	if !next.After(now) {
+		next = time.Date(now.Year(), now.Month(), now.Day()+1, h, m, 0, 0, now.Location())
+	}
+	return next
 }

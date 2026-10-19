@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	_ "time/tzdata" // TZ works even without the time zone files
 
 	"github.com/Mimic890/terakoya/internal/adminapi"
 	"github.com/Mimic890/terakoya/internal/bot"
@@ -98,6 +99,11 @@ func runServe(args []string) int {
 		return 2
 	}
 	log := newLogger(cfg.LogLevel)
+	for _, name := range config.IgnoredEnv {
+		if v, ok := os.LookupEnv(name); ok && v != "" {
+			log.Warn(name+" is ignored: backups are set in settings.yml, under backup:", "variable", name)
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

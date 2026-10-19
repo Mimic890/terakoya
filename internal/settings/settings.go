@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -49,6 +50,22 @@ type Settings struct {
 	HideFutureRanks bool
 	Top             Top
 	Emoji           Emoji
+	Backup          Backup
+}
+
+// Backup sets the daily backup of the data.
+type Backup struct {
+	// Mode is folder (data/backups/latest/), archive (a .tar.gz a day,
+	// the newest Keep kept) or off.
+	Mode string `yaml:"mode"`
+	// Time is when, "HH:MM" in the container's time zone (TZ).
+	Time string `yaml:"time"`
+	Keep int    `yaml:"keep"`
+}
+
+// DefaultBackup is the backup without a backup: section.
+func DefaultBackup() Backup {
+	return Backup{Mode: "folder", Time: "03:00", Keep: 7}
 }
 
 // file is settings.yml as written: ranks is a section with hide_future
@@ -61,6 +78,7 @@ type file struct {
 	Ranks           rankSection `yaml:"ranks"`
 	Top             Top         `yaml:"top"`
 	Emoji           Emoji       `yaml:"emoji"`
+	Backup          Backup      `yaml:"backup"`
 }
 
 type rankSection struct {
@@ -125,12 +143,12 @@ func (f file) settings() Settings {
 		style = *f.LegacyListStyle
 	}
 	return Settings{ListStyle: style, Ranks: f.Ranks.Ladder, HideFutureRanks: f.Ranks.HideFuture,
-		Top: f.Top, Emoji: f.Emoji}
+		Top: f.Top, Emoji: f.Emoji, Backup: f.Backup}
 }
 
 func toFile(s Settings) file {
 	return file{ListStyle: s.ListStyle, Ranks: rankSection{HideFuture: s.HideFutureRanks, Ladder: s.Ranks},
-		Top: s.Top, Emoji: s.Emoji}
+		Top: s.Top, Emoji: s.Emoji, Backup: s.Backup}
 }
 
 // Top configures /top.
@@ -201,7 +219,8 @@ func Default(subjects []string) Settings {
 
 // FromLadder returns settings with ladder l and no custom emoji.
 func FromLadder(l ranks.Ladder, subjects []string) Settings {
-	s := Settings{ListStyle: ListList, HideFutureRanks: true, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
+	s := Settings{ListStyle: ListList, HideFutureRanks: true, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}},
+		Backup: DefaultBackup()}
 	for _, r := range l {
 		s.Ranks = append(s.Ranks, Rank{Title: r.Title, From: r.From, Emoji: r.Emoji})
 	}
@@ -242,6 +261,17 @@ func (s Settings) Validate() error {
 	}
 	if err := s.Ladder().Validate(); err != nil {
 		return fmt.Errorf("ranks: %w", err)
+	}
+	switch s.Backup.Mode {
+	case "folder", "archive", "off":
+	default:
+		return fmt.Errorf("backup.mode: %q, want folder, archive or off", s.Backup.Mode)
+	}
+	if _, _, err := ParseClock(s.Backup.Time); err != nil {
+		return fmt.Errorf("backup.time: %w", err)
+	}
+	if k := s.Backup.Keep; k < 1 || k > 365 {
+		return fmt.Errorf("backup.keep: %d, want 1 to 365", k)
 	}
 	if t := s.Top; t.Size < 1 || t.Size > 100 {
 		return fmt.Errorf("top.size: %d, want 1 to 100", t.Size)
@@ -304,7 +334,7 @@ func load(path string) (Settings, bool, error) {
 		return Settings{}, false, err
 	}
 	// A file from before a section was added keeps its defaults.
-	f := file{Ranks: rankSection{HideFuture: true}, Top: DefaultTop()}
+	f := file{Ranks: rankSection{HideFuture: true}, Top: DefaultTop(), Backup: DefaultBackup()}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
@@ -336,6 +366,11 @@ const header = `# terakoya settings. Admin commands in the bot (/emoji_setup) re
 # top: /top. size is the number of places; the first medals places (0-5)
 # show their emoji.top custom emoji instead of the number; rank_style is
 # none, title, emoji or title_emoji; show_count shows accepted reports.
+# backup: daily backup of the database and this file. mode is folder
+# (data/backups/latest/, replaced each time, for tools on the host to
+# archive), archive (data/backups/terakoya-<date>-<time>.tar.gz, the newest
+# keep, 1-365, kept) or off; time is "HH:MM" in the container's time zone
+# (TZ). "terakoya admin backup" takes one at any time.
 # emoji: custom emoji IDs; empty means the plain emoji, or none. subjects
 # are keyed by the subject's folder name in the vault; top lists the
 # medals of the first places.
@@ -380,4 +415,17 @@ func (s Settings) SubjectNames() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ParseClock reads a time of day, "HH:MM".
+func ParseClock(s string) (hour, minute int, err error) {
+	h, m, ok := strings.Cut(s, ":")
+	if ok && len(h) == 2 && len(m) == 2 {
+		hour, err1 := strconv.Atoi(h)
+		minute, err2 := strconv.Atoi(m)
+		if err1 == nil && err2 == nil && hour >= 0 && hour < 24 && minute >= 0 && minute < 60 {
+			return hour, minute, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("%q is not a time of day like \"03:00\"", s)
 }

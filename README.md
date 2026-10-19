@@ -45,6 +45,9 @@ services:
     # from taking the server's memory.
     mem_limit: 512m
     env_file: .env
+    environment:
+      # The time zone of the daily backup time in settings.yml.
+      TZ: Europe/Minsk
     ports:
       # Git host webhooks (POST /webhooks/git); put a TLS reverse proxy in
       # front, or use "127.0.0.1:8080:8080" when it runs on the same host.
@@ -331,48 +334,66 @@ while another one runs, the command fails and sends nothing.
 
 ### Backups
 
-The bot keeps snapshots of its data in `data/backups/` (`/srv/data/backups`
-in the container); copying them somewhere else is up to you, e.g. with
-`rsync` from the host. Each snapshot is two files:
+The bot backs up its data, the SQLite database and `settings.yml`, into
+`data/backups/` (`/srv/data/backups` in the container). Copying them
+somewhere else is up to you, e.g. with `rsync` or `restic` from the host.
+The `backup:` section of `settings.yml` sets it:
 
-- `terakoya-20261019-030000.db`: the SQLite database, written with
-  `VACUUM INTO` while the bot runs, under a temporary name, checked with
-  `PRAGMA quick_check`, flushed to disk and only then renamed, so a file
-  with this name is always complete and sound. The time is UTC.
-- `terakoya-20261019-030000.settings.yml`: `settings.yml` as it was.
+```yaml
+backup:
+  mode: folder   # folder | archive | off
+  time: "03:00"  # daily, HH:MM in the container's time zone (TZ)
+  keep: 7        # archive mode only: how many archives to keep, 1–365
+```
 
-They have the permissions of the originals (the settings are readable by
-their owner only).
+- **`folder`** (the default): every day at `time` the bot writes
+  `data/backups/latest/` with `terakoya.db` and `settings.yml`, and keeps
+  nothing else, for a tool on the host to archive. The new folder is
+  built as `data/backups/.tmp-…/` and swapped in only when complete:
+  `latest/` is always a whole backup.
+- **`archive`**: every day at `time` the bot writes
+  `data/backups/terakoya-2026-10-20-0300.tar.gz` with the same two files,
+  under a temporary name renamed when complete, and keeps the newest
+  `keep` archives.
+- **`off`**: no scheduled backups.
 
-- A snapshot is taken every `TERAKOYA_BACKUP_INTERVAL` (default `24h`;
-  `0` turns it off), counted from the newest one on disk, so restarts
-  neither skip one nor add more.
-- `terakoya admin backup` takes one now, e.g. before a risky change.
+In every mode the database is copied with `VACUUM INTO` while the bot
+runs and checked with `PRAGMA quick_check` before it is used; the copies
+have the permissions of the originals (the settings are readable by
+their owner only). `time` is in the container's local time: set `TZ`
+in the compose file (see [Docker](#docker)); without it, it is UTC.
+
+- If the bot was down at `time` and the last backup is more than a day
+  old when it starts, it takes one right away.
+- `terakoya admin backup` takes one now, in the current mode (the folder
+  mode when backups are off), e.g. before a risky change.
 - Before the database schema changes on an upgrade, the bot copies the
-  old database to `terakoya-<time>-before-v<N>.db`; the 3 newest of these
-  are kept.
-- After each snapshot, old ones are removed: `TERAKOYA_BACKUP_KEEP`
-  (default `7,4`) keeps the newest snapshot of each of the last 7 days
-  and of each of the 4 weeks before those.
+  database and `settings.yml` to `data/backups/before-v<N>/`, whatever the
+  mode; the 3 newest of these are kept.
+- A change of the `backup:` section, by hand or otherwise, takes effect
+  within seconds, without a restart.
 
-/admin «Сервер» and `terakoya admin server` show the last snapshot, its
-size and how many there are; a failed one is shown with its error and
-logged.
+/admin «Сервер», `terakoya admin server` and `terakoya admin backup`
+show the mode, the last backup with its size (or its error) and when the
+next one is due. A failed backup is also logged.
 
-To restore one:
+`TERAKOYA_BACKUP_INTERVAL` and `TERAKOYA_BACKUP_KEEP` of earlier versions
+are ignored, with a warning in the log.
+
+To restore a backup:
 
 ```sh
 docker compose stop terakoya
-cp data/backups/terakoya-20261019-030000.db data/terakoya.db
+cp data/backups/latest/terakoya.db data/terakoya.db   # or unpack an archive
 rm -f data/terakoya.db-wal data/terakoya.db-shm
-cp data/backups/terakoya-20261019-030000.settings.yml data/settings.yml   # if wanted
+cp data/backups/latest/settings.yml data/settings.yml  # if wanted
 docker compose start terakoya
 ```
 
 Removing the `-wal` and `-shm` files matters: they belong to the old
 database and must not be applied to the restored one. Keep the files'
 owner (`chown 10001:10001` or whatever `user:` is in the compose file).
-A snapshot from an older version of the bot is fine; it is migrated on
+A backup from an older version of the bot is fine; it is migrated on
 start.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
@@ -417,8 +438,6 @@ file; empty variables are ignored. See
 | `TERAKOYA_REPO_URL` | `repo_url` | — | Content repository to clone when `repo_dir` is empty. Without it, `repo_dir` is used as is. |
 | `TERAKOYA_REPO_BRANCH` | `repo_branch` | `main` | Branch to clone. |
 | `TERAKOYA_DATA_DIR` | `data_dir` | `./data` (`/srv/data` in Docker) | Directory for the SQLite database. |
-| `TERAKOYA_BACKUP_INTERVAL` | `backup_interval` | `24h` | How often the database and `settings.yml` are snapshotted into `<data dir>/backups`; `0` turns it off. See [Backups](#backups). |
-| `TERAKOYA_BACKUP_KEEP` | `backup_keep` | `7,4` | How many snapshots to keep: the newest of each of the last N days, and of each of the M weeks before. |
 | `TERAKOYA_CACHE_CHAT_ID` | `cache_chat_id` | — | Chat where new images are uploaded once to get a `file_id` (see below). |
 | `TERAKOYA_ADMIN_IDS` | `admin_ids` | — | Telegram user IDs of the admins, comma-separated. They get `/emoji_setup`, `/broadcast` and `/nick_reset`. |
 | `TERAKOYA_LOG_LEVEL` | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |

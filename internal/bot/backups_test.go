@@ -9,82 +9,148 @@ import (
 	"time"
 
 	"github.com/Mimic890/terakoya/internal/backup"
+	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
-func TestBackupNow(t *testing.T) {
-	h := newHarness(t, nil)
-	if h.bot.LastBackup() != nil {
-		t.Fatal("a backup before any was taken")
-	}
-	r := h.bot.BackupNow(h.ctx)
-	if r.Err != "" || r.Size == 0 || r.Count != 1 || filepath.Dir(r.Path) != filepath.Join(h.bot.cfg.DataDir, "backups") {
-		t.Fatalf("backup = %+v", r)
-	}
-	if err := store.QuickCheck(h.ctx, r.Path); err != nil {
-		t.Error(err)
-	}
-	if _, err := os.Stat(strings.TrimSuffix(r.Path, ".db") + ".settings.yml"); err != nil {
-		t.Errorf("settings copy: %v", err)
-	}
-	// On «Сервер».
-	line := h.bot.backupLine(h.bot.LastBackup())
-	if !strings.HasPrefix(line, "Резервная копия: ") || !strings.HasSuffix(line, " · всего копий: 1") {
-		t.Errorf("line = %q", line)
-	}
-	// After a restart, the newest on disk is shown.
-	h.bot.lastBackup = nil
-	if b := h.bot.LastBackup(); b == nil || b.Path != r.Path || b.Size != r.Size {
-		t.Errorf("from disk = %+v", b)
-	}
-	// A failure is shown too.
-	failed := &BackupResult{At: time.Now(), Err: "disk full"}
-	if line := h.bot.backupLine(failed); !strings.Contains(line, "не удалась") || !strings.HasSuffix(line, ": disk full") {
-		t.Errorf("failed line = %q", line)
+func setBackup(h *harness, mode, at string, keep int) {
+	h.t.Helper()
+	if err := h.bot.settings.Update(func(s *settings.Settings) {
+		s.Backup = settings.Backup{Mode: mode, Time: at, Keep: keep}
+	}); err != nil {
+		h.t.Fatal(err)
 	}
 }
 
-func TestBackupLoopSchedule(t *testing.T) {
+func TestBackupNowFollowsTheMode(t *testing.T) {
 	h := newHarness(t, nil)
 	dir := h.bot.cfg.BackupsDir()
-	os.MkdirAll(dir, 0o755)
-	h.bot.cfg.BackupInterval = time.Hour
-	run := func(wait time.Duration) []backup.Snapshot {
-		ctx, cancel := context.WithTimeout(h.ctx, wait)
-		defer cancel()
-		h.bot.backupLoop(ctx)
-		list, _ := backup.List(dir)
-		return list
+	if r := h.bot.LastBackup(); !r.At.IsZero() || r.Mode != "folder" || r.Next.IsZero() {
+		t.Fatalf("before any = %+v", r)
 	}
-	// One taken 10 minutes ago: the next is 50 minutes away.
-	recent := time.Now().Add(-10 * time.Minute)
-	os.WriteFile(filepath.Join(dir, backup.Name(recent)), []byte("x"), 0o644)
-	if list := run(100 * time.Millisecond); len(list) != 1 {
-		t.Fatalf("took one too early: %+v", list)
+
+	// folder, the default: latest/ with the database and settings.yml.
+	r := h.bot.BackupNow(h.ctx)
+	if r.Err != "" || r.Path != filepath.Join(dir, backup.Latest) || r.Size == 0 || r.Mode != "folder" {
+		t.Fatalf("folder = %+v", r)
 	}
-	// One taken two hours ago is overdue: one is taken right away. A
-	// snapshot from before a migration does not count.
-	os.Remove(filepath.Join(dir, backup.Name(recent)))
-	os.WriteFile(filepath.Join(dir, backup.Name(time.Now().Add(-2*time.Hour))), []byte("x"), 0o644)
-	os.WriteFile(filepath.Join(dir, store.PreMigrationName(time.Now(), 99)), []byte("x"), 0o644)
-	list := run(2 * time.Second)
-	var newest *backup.Snapshot
-	for i := range list {
-		if list[i].Before == 0 {
-			newest = &list[i]
-			break
+	if err := store.QuickCheck(h.ctx, filepath.Join(r.Path, store.DBFile)); err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Stat(filepath.Join(r.Path, store.SettingsFile)); err != nil {
+		t.Errorf("settings copy: %v", err)
+	}
+
+	// archive: a .tar.gz, the newest keep kept.
+	setBackup(h, "archive", "03:00", 1)
+	r = h.bot.BackupNow(h.ctx)
+	if r.Err != "" || !strings.HasSuffix(r.Path, ".tar.gz") || r.Mode != "archive" {
+		t.Fatalf("archive = %+v", r)
+	}
+
+	// off: no schedule, but a backup by hand is still a folder one.
+	setBackup(h, "off", "03:00", 7)
+	r = h.bot.BackupNow(h.ctx)
+	if r.Err != "" || r.Path != filepath.Join(dir, backup.Latest) || r.Mode != "off" || !r.Next.IsZero() {
+		t.Errorf("off = %+v", r)
+	}
+
+	// After a restart, the newest on disk is shown.
+	h.bot.lastBackup = nil
+	if got := h.bot.LastBackup(); got.At.IsZero() || got.Path == "" {
+		t.Errorf("from disk = %+v", got)
+	}
+}
+
+func TestBackupLine(t *testing.T) {
+	h := newHarness(t, nil)
+	at := time.Date(2026, 10, 19, 3, 0, 0, 0, time.Local)
+	next := at.Add(24 * time.Hour)
+	for _, c := range []struct {
+		r    BackupResult
+		want string
+	}{
+		{BackupResult{Mode: "folder", Next: next}, "Резервные копии: папка latest\nПоследняя: ещё не было\nСледующая: 20 октября, 03:00"},
+		{BackupResult{Mode: "archive", At: at, Size: 112 << 10, Next: next}, "Резервные копии: архивы\nПоследняя: 19 октября, 03:00, 112 КБ\nСледующая: 20 октября, 03:00"},
+		{BackupResult{Mode: "off", At: at, Err: "disk full"}, "Резервные копии: выключены\nПоследняя: не удалась (19 октября, 03:00): disk full\nСледующая: по расписанию не делаются"},
+	} {
+		if got := h.bot.backupLine(c.r); got != c.want {
+			t.Errorf("line =\n%s\nwant\n%s", got, c.want)
 		}
 	}
-	if newest == nil || !newest.At.After(time.Now().Add(-time.Minute)) {
-		t.Errorf("overdue: %+v", list)
-	}
-	// Turned off.
-	h.bot.cfg.BackupInterval = 0
+}
+
+// soonClock makes the backup time due in about d.
+func soonClock(h *harness, at string, d time.Duration) {
+	offset := backup.Next(time.Now(), at).Sub(time.Now()) - d
+	h.bot.clock = func() time.Time { return time.Now().Add(offset) }
+}
+
+// runLoop runs backupLoop until stop is called.
+func runLoop(h *harness) (stop func()) {
+	ctx, cancel := context.WithCancel(h.ctx)
 	done := make(chan struct{})
-	go func() { h.bot.backupLoop(h.ctx); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Error("loop runs with the interval 0")
+	go func() { h.bot.backupLoop(ctx); close(done) }()
+	return func() { cancel(); <-done }
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for i := 0; i < 300; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestBackupLoop(t *testing.T) {
+	h := newHarness(t, nil)
+	latest := filepath.Join(h.bot.cfg.BackupsDir(), backup.Latest, store.DBFile)
+	exists := func() bool { _, err := os.Stat(latest); return err == nil }
+
+	// No backup yet: one is taken at start, as a missed run.
+	stop := runLoop(h)
+	waitFor(t, "the missed backup", exists)
+	stop()
+
+	// A recent one is enough at start; the next is at the set time, far
+	// off here.
+	info, _ := os.Stat(latest)
+	stop = runLoop(h)
+	time.Sleep(150 * time.Millisecond)
+	stop()
+	if again, _ := os.Stat(latest); !again.ModTime().Equal(info.ModTime()) {
+		t.Error("a backup at start although the last one is recent")
+	}
+
+	// With mode off, nothing is taken, not even a missed run.
+	os.RemoveAll(filepath.Dir(latest))
+	setBackup(h, "off", "03:00", 7)
+	stop = runLoop(h)
+	time.Sleep(100 * time.Millisecond)
+	if exists() {
+		t.Error("a backup with mode off")
+	}
+
+	// Turning it on reschedules without a restart.
+	soonClock(h, "03:00", 150*time.Millisecond)
+	setBackup(h, "folder", "03:00", 7)
+	waitFor(t, "the scheduled backup", exists)
+	stop()
+}
+
+func TestOldLastBackupIsAMissedRun(t *testing.T) {
+	h := newHarness(t, nil)
+	h.bot.BackupNow(h.ctx)
+	latest := filepath.Join(h.bot.cfg.BackupsDir(), backup.Latest, store.DBFile)
+	old := time.Now().Add(-25 * time.Hour)
+	os.Chtimes(latest, old, old)
+	stop := runLoop(h)
+	waitFor(t, "a new backup", func() bool {
+		info, err := os.Stat(latest)
+		return err == nil && info.ModTime().After(old.Add(time.Hour))
+	})
+	stop()
 }

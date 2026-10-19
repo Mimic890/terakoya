@@ -15,9 +15,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Mimic890/terakoya/internal/backup"
 	"github.com/Mimic890/terakoya/internal/store"
 )
+
+// IgnoredEnv are environment variables of earlier versions that no
+// longer do anything; the backup is set in settings.yml now.
+var IgnoredEnv = []string{"TERAKOYA_BACKUP_INTERVAL", "TERAKOYA_BACKUP_KEEP"}
 
 // Config holds every option. The env tag names the environment variable,
 // the yaml tag the key in the config file.
@@ -54,14 +57,9 @@ type Config struct {
 	Resvg    string `yaml:"resvg" env:"TERAKOYA_RESVG"`
 	FontsDir string `yaml:"fonts_dir" env:"TERAKOYA_FONTS_DIR"`
 
-	DataDir string `yaml:"data_dir" env:"TERAKOYA_DATA_DIR"`
-	// BackupInterval is how often the data is snapshotted into
-	// data/backups; 0 turns it off. BackupKeep is "daily,weekly", how
-	// many snapshots rotation keeps.
-	BackupInterval time.Duration `yaml:"backup_interval" env:"TERAKOYA_BACKUP_INTERVAL"`
-	BackupKeep     string        `yaml:"backup_keep" env:"TERAKOYA_BACKUP_KEEP"`
-	CacheChatID    int64         `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
-	LogLevel       string        `yaml:"log_level" env:"TERAKOYA_LOG_LEVEL"`
+	DataDir     string `yaml:"data_dir" env:"TERAKOYA_DATA_DIR"`
+	CacheChatID int64  `yaml:"cache_chat_id" env:"TERAKOYA_CACHE_CHAT_ID"`
+	LogLevel    string `yaml:"log_level" env:"TERAKOYA_LOG_LEVEL"`
 
 	// AdminIDs lists the Telegram user IDs, comma-separated, of the admins,
 	// who set up custom emoji and see the ranks.
@@ -77,8 +75,6 @@ func Default() Config {
 		RepoDir:         "./content",
 		RepoBranch:      "main",
 		DataDir:         "./data",
-		BackupInterval:  24 * time.Hour,
-		BackupKeep:      "7,4",
 		GitAuthorName:   "terakoya",
 		GitAuthorEmail:  "terakoya@localhost",
 		AcceptedLabel:   "accepted",
@@ -188,9 +184,6 @@ func (c Config) Validate() error {
 	if c.BotToken == "" {
 		return fmt.Errorf("TERAKOYA_BOT_TOKEN is required")
 	}
-	if _, err := backup.ParseKeep(c.BackupKeep); err != nil {
-		return fmt.Errorf("TERAKOYA_BACKUP_KEEP: %w", err)
-	}
 	if !c.Suggestions() {
 		return nil
 	}
@@ -228,7 +221,7 @@ func (c Config) SettingsPath() string {
 	return filepath.Join(c.DataDir, "settings.yml")
 }
 
-// BackupsDir is where snapshots of the data are kept.
+// BackupsDir is where backups of the data are kept.
 func (c Config) BackupsDir() string {
 	return filepath.Join(c.DataDir, store.BackupsDir)
 }
