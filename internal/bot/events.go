@@ -41,27 +41,17 @@ func (b *Bot) HandleGitEvent(ctx context.Context, ev githost.Event) {
 		if ev.Ref == "refs/heads/"+b.cfg.RepoBranch {
 			b.Sync(ctx)
 		}
-	case githost.PRMerged, githost.PRClosed:
-		sg, ok := b.suggestionFor(ctx, ev.PRNumber)
-		if !ok || sg.Kind == store.KindReport {
-			return
-		}
-		if ev.HeadBranch != "" && ev.HeadBranch != sg.Branch {
-			b.log.Warn("pull request branch does not match the suggestion", "pr", ev.PRNumber, "branch", ev.HeadBranch)
-			return
-		}
-		b.resolve(ctx, sg, ev.Kind == githost.PRMerged)
 	case githost.IssueChanged:
-		sg, ok := b.suggestionFor(ctx, ev.PRNumber)
-		if !ok || sg.Kind != store.KindReport {
+		sg, ok := b.suggestionFor(ctx, ev.Number)
+		if !ok {
 			return
 		}
 		// The delivery only says that something changed; the host says
 		// what. A replayed or late delivery cannot change the outcome.
-		st, err := b.host.State(ctx, sg.PRNumber, false)
+		st, err := b.host.State(ctx, sg.Issue)
 		if err != nil {
 			// The next reconcile asks again.
-			b.log.Warn("read report state", "number", sg.PRNumber, "err", err)
+			b.log.Warn("read report state", "number", sg.Issue, "err", err)
 			return
 		}
 		if !st.Closed {
@@ -73,7 +63,7 @@ func (b *Bot) HandleGitEvent(ctx context.Context, ev githost.Event) {
 		}
 		if sg.Status == store.StatusOpen {
 			// Decide later, in case the label follows the close.
-			id := sg.PRNumber
+			id := sg.Issue
 			time.AfterFunc(b.rejectGrace, func() {
 				defer b.recovered("report check")
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -117,18 +107,15 @@ func (b *Bot) reconcile(ctx context.Context) {
 	}
 }
 
-// check resolves one open suggestion from its state on the host.
+// check resolves one open report from its state on the host.
 func (b *Bot) check(ctx context.Context, sg store.Suggestion) {
-	isPR := sg.Kind != store.KindReport
-	st, err := b.host.State(ctx, sg.PRNumber, isPR)
+	st, err := b.host.State(ctx, sg.Issue)
 	if err != nil {
-		b.log.Warn("read suggestion state", "number", sg.PRNumber, "err", err)
+		b.log.Warn("read report state", "number", sg.Issue, "err", err)
 		return
 	}
 	switch {
 	case !st.Closed:
-	case isPR:
-		b.resolve(ctx, sg, st.Merged)
 	case st.HasLabel(b.cfg.AcceptedLabel):
 		b.resolve(ctx, sg, true)
 	case time.Since(st.ClosedAt) >= b.rejectGrace:
@@ -144,60 +131,48 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		status = store.StatusMerged
 	}
 	changed, err := b.store.ResolveSuggestion(ctx, sg.ID, status)
-	if err == nil && !changed && accepted && sg.Kind == store.KindReport {
+	if err == nil && !changed && accepted {
 		changed, err = b.store.AcceptLate(ctx, sg.ID)
 	}
 	if err != nil {
-		b.log.Error("resolve suggestion", "number", sg.PRNumber, "err", err)
+		b.log.Error("resolve suggestion", "number", sg.Issue, "err", err)
 		return
 	}
 	if !changed {
 		return // repeated delivery
 	}
-	b.log.Info("suggestion resolved", "number", sg.PRNumber, "kind", sg.Kind, "status", status, "user", sg.TgID)
+	b.log.Info("suggestion resolved", "number", sg.Issue, "kind", sg.Kind, "status", status, "user", sg.TgID)
 
 	var text string
 	var rankUp emojiText
 	var kb *models.InlineKeyboardMarkup
 	if accepted {
-		// An edit from an earlier version: show the new content right
-		// away, before the push webhook or the next sync.
-		if sg.Kind != store.KindReport {
-			b.Sync(ctx)
-		}
-		text = fmt.Sprintf(map[string]string{
-			store.KindEdit: b.t.AcceptedEdit, store.KindNew: b.t.AcceptedNew, store.KindReport: b.t.AcceptedReport,
-		}[sg.Kind], sg.Title)
+		text = fmt.Sprintf(b.t.AcceptedReport, sg.Title)
 		if isGradeReport(sg) {
 			text = fmt.Sprintf(b.t.AcceptedGradeReport, sg.Title)
 		}
-		// Only reports count toward the rank.
-		if sg.Kind == store.KindReport {
-			u, err := b.store.User(ctx, sg.TgID)
-			if err != nil {
-				b.log.Error("load user", "err", err)
-				return
-			}
-			text += " " + fmt.Sprintf(b.t.AcceptedCount, u.Accepted)
-			if l := b.ladder(); l.For(u.Accepted) != l.For(u.Accepted-1) {
-				rank := l.For(u.Accepted)
-				rankUp = emojiText{"\n\n" + b.t.RankUpPrefix, emojiAt{id: b.emoji.Rank(rank.Title), alt: "🏅", after: " "},
-					fmt.Sprintf(b.t.RankUp, rank.Title)}
-			}
+		u, err := b.store.User(ctx, sg.TgID)
+		if err != nil {
+			b.log.Error("load user", "err", err)
+			return
+		}
+		text += " " + fmt.Sprintf(b.t.AcceptedCount, u.Accepted)
+		if l := b.ladder(); l.For(u.Accepted) != l.For(u.Accepted-1) {
+			rank := l.For(u.Accepted)
+			rankUp = emojiText{"\n\n" + b.t.RankUpPrefix, emojiAt{id: b.emoji.Rank(rank.Title), alt: "🏅", after: " "},
+				fmt.Sprintf(b.t.RankUp, rank.Title)}
 		}
 		if a := b.catalog().NoteByPath(sg.ArticlePath); a != nil {
 			kb = keyboard(row(button(b.t.OpenTopic, cbOpen+a.ID)))
 		}
 	} else {
-		text = fmt.Sprintf(map[string]string{
-			store.KindEdit: b.t.RejectedEdit, store.KindNew: b.t.RejectedNew, store.KindReport: b.t.RejectedReport,
-		}[sg.Kind], sg.Title)
+		text = fmt.Sprintf(b.t.RejectedReport, sg.Title)
 		if isGradeReport(sg) {
 			text = fmt.Sprintf(b.t.RejectedGradeReport, sg.Title)
 		}
-		comment, err := b.host.LastReviewComment(ctx, sg.PRNumber)
+		comment, err := b.host.LastComment(ctx, sg.Issue)
 		if err != nil {
-			b.log.Warn("read review comments", "number", sg.PRNumber, "err", err)
+			b.log.Warn("read review comments", "number", sg.Issue, "err", err)
 		}
 		// A long comment would make the message too long to send, and
 		// the user would never hear the outcome.

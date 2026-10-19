@@ -117,6 +117,11 @@ Admins are not limited. A user who blocked the bot is noticed whenever a
 message to them fails with 403, and broadcasts skip them until they come
 back.
 
+Once a day the bot removes rows it has no use for: the message groups of
+notes sent more than 7 days ago (the bot can no longer delete such
+messages anyway), dialogs that expired over a day ago, and note opens
+older than 180 days.
+
 `/admin` shows the version the binary was built with: the commit for
 images built by CI (the `REVISION` build argument), otherwise `dev`. Set
 it by hand with
@@ -145,9 +150,8 @@ next rank needs («ещё 1 принятая правка», «ещё 2 прин
 [below](#settings-nickname-and-the-top)). From «Аккаунт», «Мои
 правки» lists their reports under «На рассмотрении», «Приняты» and
 «Отклонены», separated by dividers, with the reviewer's comment on
-rejected ones; titles of notes in the vault open them. Edits and topics
-suggested through earlier versions of the bot stay in the list, but only
-reports count toward the rank. «Топ» there, or `/top`, shows the
+rejected ones; titles of notes in the vault open them. Accepted reports
+count toward the rank. «Топ» there, or `/top`, shows the
 [leaderboard](#top), and «Ранги», or `/ranks`, [the ladder](#ranks). These pages are rich messages, split like long notes. A tap on
 the keyboard shows the new menu first; the tap itself and the previous
 menu are deleted afterwards, in the background, so the chat does not fill
@@ -209,7 +213,12 @@ replaces it with «Сейчас: Аня (из Telegram)» or «Сейчас: Ё�
 «Свой ник» with a ✓ on the active one, and «Назад». «Из Telegram» clears
 the nickname (tapped while active, it does nothing); «Свой ник» asks for
 one, and while active asks for a new one («Сейчас: Ёжик. Пришлите новый
-ник.»). Saving or «Отмена» returns to the «Ник» screen. A user who hides from the top
+ник.»). Saving or «Отмена» returns to the «Ник» screen. The name may
+change once a day: the first nickname is free, and after any change,
+to a nickname or back to the Telegram name, both buttons answer «Имя
+можно менять раз в сутки. В следующий раз — через 23 ч 5 мин.» until a
+day has passed. After an admin's `/nick_reset` a new one may be chosen
+right away. A user who hides from the top
 is left out of it for everyone else, and still sees their own place.
 
 Where the bot addresses the user (the /start greeting «Привет, …!», the
@@ -268,7 +277,7 @@ open reports, the vault commit and its age, uptime) and:
   seen, whether they hide from the top and whether they blocked the bot,
   with «Сбросить ник» (after a question; the user is told).
 - **Статистика**: правки open, accepted and rejected, in total and in
-  the last 7 days; the 10 most opened notes in 7 days and of all time,
+  the last 7 days; the 10 most opened notes in 7 and in 180 days (older counts are removed),
   whose titles open them; broadcasts and the last one's counts.
 - **Сервер**: process memory (RSS, Go heap, goroutines), uptime and the
   image's commit; the container's network traffic since it started and
@@ -475,10 +484,6 @@ emoji:
   top: ["", "", ""]  # medals of the first places
 ```
 
-`TERAKOYA_RANKS` is no longer a setting. If it is still set when the file
-is created, its ranks seed the file once and the bot logs a warning;
-after that it is ignored (with a warning) and can be removed.
-
 Custom emoji need a bot owner with Telegram Premium. They show as icons on
 buttons, in the greeting and rank-up messages, before the rank in
 «Аккаунт», and as ranks and medals in the top; where none is set, there is no emoji at all. The bot checks
@@ -630,11 +635,9 @@ Outcomes:
 - Every `TERAKOYA_SYNC_INTERVAL`, the bot also asks the host about each open
   report, so outcomes are noticed even when a webhook delivery is lost.
 
-The bot no longer edits notes or opens pull requests; edit those in the
-vault yourself. Pull requests it opened in earlier versions are still
-followed: their authors are told when they are merged or closed, without
-counting toward the rank. On notes and topic lists those versions sent,
-«Предложить правку» and «Добавить тему» now start a report; their other
+The bot does not edit notes or open pull requests; fixes are made in the
+vault by hand. On notes and topic lists sent by early versions,
+«Предложить правку» and «Добавить тему» start a report; their other
 buttons still on users' screens, such as «Исправить текст», lose their
 keyboard when tapped.
 
@@ -647,13 +650,11 @@ issues are built from it.
 
 - Token: a fine-grained personal access token for the content repository
   with **Contents** and **Issues: read and write** (contents for the
-  pictures' `report/…` branches), and **Pull requests: read** for pull
-  requests opened by earlier versions.
+  pictures' `report/…` branches).
 - Webhook (repository → Settings → Webhooks): payload URL
   `https://<your host>/webhooks/git`, content type `application/json`,
   secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, events **Pushes** and
-  **Issues** (and **Pull requests** while pull requests from earlier
-  versions are open).
+  **Issues**.
 
 ### Forgejo
 
@@ -663,8 +664,7 @@ issues are built from it.
 - Webhook (repository → Settings → Webhooks → Forgejo): target URL
   `https://<your host>/webhooks/git`, content type `application/json`,
   secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, custom events **Push**,
-  **Issues** and **Issue label** (and **Pull request** while pull requests
-  from earlier versions are open).
+  **Issues** and **Issue label**.
 
 The webhook server listens on `TERAKOYA_HTTP_ADDR`; put it behind a
 reverse proxy with TLS. Without working webhooks, everything still

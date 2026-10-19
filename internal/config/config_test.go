@@ -15,7 +15,6 @@ func TestFileThenEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TERAKOYA_BOT_TOKEN", "from-env")
-	t.Setenv("TERAKOYA_RANKS", "a:0,b:1")
 	t.Setenv("TERAKOYA_RESVG", "") // empty variables are ignored
 	cfg, err := Load(path)
 	if err != nil {
@@ -26,9 +25,6 @@ func TestFileThenEnv(t *testing.T) {
 	}
 	if cfg.RepoBranch != "main" || cfg.RepoDir != "./content" || cfg.Resvg != "resvg" {
 		t.Errorf("defaults not applied: %+v", cfg)
-	}
-	if cfg.LegacyRanks != "a:0,b:1" {
-		t.Errorf("legacy ranks = %q", cfg.LegacyRanks)
 	}
 }
 
@@ -71,7 +67,7 @@ func TestExampleFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	def := Default()
-	if cfg.RepoDir != def.RepoDir || cfg.LegacyRanks != "" || cfg.DataDir != def.DataDir {
+	if cfg.RepoDir != def.RepoDir || cfg.DataDir != def.DataDir {
 		t.Errorf("example file differs from defaults: %+v", cfg)
 	}
 }

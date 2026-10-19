@@ -21,7 +21,7 @@ func logger(buf *bytes.Buffer) *slog.Logger {
 
 func TestCreatedWithDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	f, err := Open(path, []string{"Геометрия"}, "", logger(nil))
+	f, err := Open(path, []string{"Геометрия"}, logger(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,34 +43,10 @@ func TestCreatedWithDefaults(t *testing.T) {
 	}
 }
 
-func TestLegacyRanks(t *testing.T) {
-	var log bytes.Buffer
-	path := filepath.Join(t.TempDir(), FileName)
-	f, err := Open(path, nil, "a:0,b:2", logger(&log))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if l := f.Get().Ladder(); len(l) != 2 || l[1].Title != "b" || l[1].From != 2 {
-		t.Errorf("ladder = %+v", l)
-	}
-	if !strings.Contains(log.String(), "TERAKOYA_RANKS is deprecated") {
-		t.Errorf("log = %s", log.String())
-	}
-	// Only once: an existing file wins.
-	log.Reset()
-	f, _ = Open(path, nil, "x:0", logger(&log))
-	if f.Get().Ranks[0].Title != "a" || !strings.Contains(log.String(), "TERAKOYA_RANKS is ignored") {
-		t.Errorf("second start: %+v, log %s", f.Get().Ranks, log.String())
-	}
-	if _, err := Open(filepath.Join(t.TempDir(), FileName), nil, "a:1", logger(nil)); err == nil {
-		t.Error("an invalid TERAKOYA_RANKS was migrated")
-	}
-}
-
 func TestUpdateAndReload(t *testing.T) {
 	var log bytes.Buffer
 	path := filepath.Join(t.TempDir(), FileName)
-	f, _ := Open(path, nil, "", logger(&log))
+	f, _ := Open(path, nil, logger(&log))
 	var got []Settings
 	f.OnChange = func(s Settings) { got = append(got, s) }
 
@@ -127,7 +103,7 @@ func TestInvalidFileOnStart(t *testing.T) {
 	var log bytes.Buffer
 	path := filepath.Join(t.TempDir(), FileName)
 	os.WriteFile(path, []byte("ranks: []\n"), 0o644)
-	f, err := Open(path, nil, "", logger(&log))
+	f, err := Open(path, nil, logger(&log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +117,7 @@ func TestInvalidFileOnStart(t *testing.T) {
 
 func TestListStyle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	f, _ := Open(path, nil, "", logger(nil))
+	f, _ := Open(path, nil, logger(nil))
 	if got := f.Get().List(); got != ListList {
 		t.Errorf("default = %q", got)
 	}
@@ -167,7 +143,7 @@ func TestLegacyListStyleKey(t *testing.T) {
 		path := filepath.Join(t.TempDir(), FileName)
 		os.WriteFile(path, []byte("topic_list_style: "+c.old+"\nranks:\n  - {title: a, from: 0}\n"), 0o644)
 		var log bytes.Buffer
-		f, err := Open(path, nil, "", logger(&log))
+		f, err := Open(path, nil, logger(&log))
 		if err != nil || f.Get().List() != c.want {
 			t.Fatalf("%s: style %q, %v", c.old, f.Get().List(), err)
 		}
@@ -187,7 +163,7 @@ func TestLegacyListStyleKey(t *testing.T) {
 
 func TestTopSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	f, _ := Open(path, nil, "", logger(nil))
+	f, _ := Open(path, nil, logger(nil))
 	if got := f.Get().Top; got != DefaultTop() {
 		t.Errorf("default = %+v", got)
 	}
@@ -226,7 +202,7 @@ func TestTopSettings(t *testing.T) {
 
 func TestRanksSection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	f, _ := Open(path, nil, "", logger(nil))
+	f, _ := Open(path, nil, logger(nil))
 	if !f.Get().HideFutureRanks {
 		t.Error("hide_future off by default")
 	}

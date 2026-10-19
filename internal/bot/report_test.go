@@ -182,7 +182,7 @@ func (h *fakeHost) nextNumber() int {
 	return h.number
 }
 
-func (h *fakeHost) OpenIssue(_ context.Context, title, body string) (githost.PR, error) {
+func (h *fakeHost) OpenIssue(_ context.Context, title, body string) (githost.Issue, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.issues = append(h.issues, title)
@@ -191,7 +191,7 @@ func (h *fakeHost) OpenIssue(_ context.Context, title, body string) (githost.PR,
 		h.bodies = map[int]string{}
 	}
 	h.bodies[n] = body
-	return githost.PR{Number: n, URL: "https://host/issues"}, nil
+	return githost.Issue{Number: n, URL: "https://host/issues"}, nil
 }
 func (h *fakeHost) EditIssue(_ context.Context, number int, body string) error {
 	h.mu.Lock()
@@ -213,7 +213,7 @@ func (h *fakeHost) Attach(_ context.Context, number int, name string, data []byt
 	return fmt.Sprintf("https://host/attachments/%d/%s", number, name), nil
 }
 func (h *fakeHost) EnsureLabel(context.Context, string, string, string) error { return nil }
-func (h *fakeHost) State(_ context.Context, number int, _ bool) (githost.State, error) {
+func (h *fakeHost) State(_ context.Context, number int) (githost.State, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.states[number], nil
@@ -226,7 +226,7 @@ func (h *fakeHost) setState(number int, st githost.State) {
 	}
 	h.states[number] = st
 }
-func (h *fakeHost) LastReviewComment(context.Context, int) (string, error) {
+func (h *fakeHost) LastComment(context.Context, int) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.comment != "" {
@@ -552,7 +552,7 @@ func TestReport(t *testing.T) {
 	// Closed without the label: the user hears about it only after the
 	// grace period, from the host's state.
 	h.host.setState(7, githost.State{Closed: true, ClosedAt: time.Now().Add(-time.Hour)})
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, Number: 7})
 	var got []string
 	for i := 0; i < 100 && len(got) == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
@@ -565,7 +565,7 @@ func TestReport(t *testing.T) {
 	// The label added afterwards turns it into an accepted report, once,
 	// and the rank goes up.
 	h.host.setState(7, githost.State{Closed: true, Labels: []string{"Accepted"}})
-	labeled := githost.Event{Kind: githost.IssueChanged, PRNumber: 7}
+	labeled := githost.Event{Kind: githost.IssueChanged, Number: 7}
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	c := to(h.tg.take(), "sendMessage", 42)
@@ -615,7 +615,7 @@ func TestGradeReport(t *testing.T) {
 	}
 
 	// A delivery alone changes nothing: the issue is still open on the host.
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, Number: 7})
 	if c := to(h.tg.take(), "sendMessage", 42); len(c) != 0 {
 		t.Errorf("an open issue resolved: %+v", c)
 	}
@@ -623,7 +623,7 @@ func TestGradeReport(t *testing.T) {
 		t.Errorf("status = %s", sg.Status)
 	}
 	h.host.setState(7, githost.State{Closed: true, Labels: []string{"accepted"}})
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, Number: 7})
 	c := to(h.tg.take(), "sendMessage", 42)
 	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ваше сообщение про «Геометрия · 7 класс» учли. Спасибо! Принято правок: 1.") ||
 		strings.Contains(c[0].params["reply_markup"], `"o:`) {
@@ -738,8 +738,9 @@ func TestDialogEdges(t *testing.T) {
 	}
 }
 
-// Buttons and dialogs of earlier versions, still on users' screens.
-func TestEarlierVersions(t *testing.T) {
+// Buttons and dialogs the bot no longer knows, such as those of earlier
+// versions still on users' screens.
+func TestStaleButtonsAndDialogs(t *testing.T) {
 	h := newHarness(t, nil)
 
 	// «Исправить текст» of an old menu loses its keyboard.
@@ -757,24 +758,6 @@ func TestEarlierVersions(t *testing.T) {
 	}
 	if d, _ := h.bot.loadDialog(h.ctx, 42, 42); d != nil {
 		t.Error("old dialog survived")
-	}
-
-	// An edit's pull request merged after the update: the user hears about
-	// it, and it stays out of the rank.
-	h.store.TouchUser(h.ctx, 42, "anya", "Аня")
-	edit := &store.Suggestion{ShortID: "e1", TgID: 42, Kind: store.KindEdit, ArticlePath: triangles, Title: "Треугольники",
-		Branch: "suggest/42-treugolniki-e1", PRNumber: 30}
-	h.store.CreateSuggestion(h.ctx, edit)
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.PRMerged, PRNumber: 30, HeadBranch: edit.Branch})
-	c := to(h.tg.take(), "sendMessage", 42)
-	if len(c) != 1 || c[0].params["text"] != "Ваша правка в «Треугольники» принята. Спасибо!" {
-		t.Errorf("merge notification = %+v", c)
-	}
-	if u, _ := h.store.User(h.ctx, 42); u.Accepted != 0 {
-		t.Errorf("accepted = %d", u.Accepted)
-	}
-	if got := h.bot.historyMarkdown(h.ctx, 42); !strings.Contains(got, "— правка, ") {
-		t.Errorf("history:\n%s", got)
 	}
 }
 

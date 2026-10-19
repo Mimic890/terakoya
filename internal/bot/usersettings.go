@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"time"
+
 	"github.com/go-telegram/bot/models"
 
 	"github.com/Mimic890/terakoya/internal/nick"
@@ -95,17 +97,52 @@ func (b *Bot) onSettingsCallback(ctx context.Context, q *models.CallbackQuery, m
 			b.answer(ctx, q, "", false) // already the Telegram name
 			return
 		}
+		if wait := b.nickWait(u); wait > 0 {
+			b.answer(ctx, q, fmt.Sprintf(b.t.NickTooSoon, b.hoursMinutes(wait)), true)
+			return
+		}
 		if err := b.store.SetNickname(ctx, u.TgID, "", ""); err != nil {
 			b.log.Error("reset nickname", "err", err)
 		}
 	case cbNickOwn:
 		// Also when it is the active choice: the user types a new one.
+		if wait := b.nickWait(u); wait > 0 {
+			b.answer(ctx, q, fmt.Sprintf(b.t.NickTooSoon, b.hoursMinutes(wait)), true)
+			return
+		}
 		b.answer(ctx, q, "", false)
 		b.startNick(ctx, q, msg, u)
 		return
 	}
 	b.answer(ctx, q, "", false)
 	b.showSettingsScreen(ctx, msg.Chat.ID, msg.ID, u.TgID, nickScreen)
+}
+
+// nickEvery is how often a user may change their name: often enough to
+// fix a typo the next day, not so often that names in the top keep
+// changing hands.
+const nickEvery = 24 * time.Hour
+
+// nickWait is how long the user has to wait before they may change their
+// name again, or 0. A nickname reset by an admin does not count.
+func (b *Bot) nickWait(u store.User) time.Duration {
+	if u.NickChanged.IsZero() {
+		return 0
+	}
+	wait := u.NickChanged.Add(nickEvery).Sub(b.clock())
+	if wait <= 0 {
+		return 0
+	}
+	// Whole minutes, rounded up, so that it never says «0 мин».
+	return (wait + time.Minute - 1).Truncate(time.Minute)
+}
+
+// hoursMinutes formats a wait of at most a day: «23 ч 5 мин», «40 мин».
+func (b *Bot) hoursMinutes(d time.Duration) string {
+	if d >= time.Hour {
+		return fmt.Sprintf(b.t.AdminHours, int(d/time.Hour), int(d%time.Hour/time.Minute))
+	}
+	return fmt.Sprintf(b.t.AdminMinutes, int(d/time.Minute))
 }
 
 // showSettingsScreen edits a settings menu into one of its screens, with
@@ -154,6 +191,13 @@ func (b *Bot) startNick(ctx context.Context, q *models.CallbackQuery, menu *mode
 // the «Ник» screen shows the new name.
 func (b *Bot) onNickMessage(ctx context.Context, d *dialog, m *models.Message) {
 	name := m.Text
+	// «Из Telegram» may have been pressed since the question was asked.
+	if u, err := b.store.User(ctx, m.From.ID); err == nil {
+		if wait := b.nickWait(u); wait > 0 {
+			b.cancel(ctx, d, fmt.Sprintf(b.t.NickTooSoon, b.hoursMinutes(wait)))
+			return
+		}
+	}
 	if name == "" {
 		b.prompt(ctx, d, b.t.NickChars+" "+b.t.NickAgain, keyboard(cancelRow(b.t.Cancel)))
 		return

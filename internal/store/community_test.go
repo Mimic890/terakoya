@@ -56,7 +56,7 @@ func TestLeaderboard(t *testing.T) {
 		s.TouchUser(ctx, user, "", "")
 		for i := 0; i < n; i++ {
 			now++
-			sg := &Suggestion{ShortID: time.Unix(now, 0).String(), TgID: user, Kind: KindReport, PRNumber: int(now)}
+			sg := &Suggestion{ShortID: time.Unix(now, 0).String(), TgID: user, Kind: KindReport, Issue: int(now)}
 			s.CreateSuggestion(ctx, sg)
 			s.ResolveSuggestion(ctx, sg.ID, StatusMerged)
 		}
@@ -65,7 +65,7 @@ func TestLeaderboard(t *testing.T) {
 	accept(2, 3)
 	accept(3, 2) // reaches 2 after user 1
 	s.TouchUser(ctx, 4, "", "")
-	edit := &Suggestion{ShortID: "e", TgID: 4, Kind: KindEdit, PRNumber: 1}
+	edit := &Suggestion{ShortID: "e", TgID: 4, Kind: "edit", Issue: 1}
 	s.CreateSuggestion(ctx, edit)
 	s.ResolveSuggestion(ctx, edit.ID, StatusMerged)
 	s.SetHideTop(ctx, 3, true)
