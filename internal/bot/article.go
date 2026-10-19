@@ -165,7 +165,7 @@ func (b *Bot) sendDocument(ctx context.Context, chatID int64, doc models.InputFi
 }
 
 // zipVault packs every file of the vault except hidden ones (.git,
-// .obsidian, .trash, .gitignore).
+// .obsidian, .trash, .gitignore) and symbolic links.
 func zipVault(root string) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -182,7 +182,7 @@ func zipVault(root string) ([]byte, error) {
 			}
 			return nil
 		}
-		if d.IsDir() {
+		if d.IsDir() || content.Symlink(d) || !d.Type().IsRegular() {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)

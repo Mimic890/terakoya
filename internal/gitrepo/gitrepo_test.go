@@ -122,3 +122,43 @@ func TestAuthEnv(t *testing.T) {
 		t.Error("token sent to a non-HTTPS remote")
 	}
 }
+
+func TestSymlinksArePlainFiles(t *testing.T) {
+	ctx := context.Background()
+	remote, upstream := setup(t)
+	os.Symlink("/etc/hostname", filepath.Join(upstream, "content", "link.md"))
+	sh(t, upstream, "add", ".")
+	sh(t, upstream, "commit", "--quiet", "-m", "link")
+	sh(t, upstream, "push", "--quiet", "origin", "HEAD:main")
+
+	check := func(dir string) {
+		t.Helper()
+		p := filepath.Join(dir, "content", "link.md")
+		info, err := os.Lstat(p)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("link.md = %v, %v; want a plain file", info, err)
+		}
+		if data, _ := os.ReadFile(p); string(data) != "/etc/hostname" {
+			t.Errorf("link.md holds %q", data)
+		}
+	}
+	// A fresh clone.
+	dir := filepath.Join(t.TempDir(), "checkout")
+	if _, err := Ensure(ctx, dir, remote, "main", ""); err != nil {
+		t.Fatal(err)
+	}
+	check(dir)
+	// A checkout from before, which had links on: Ensure turns them off,
+	// so the next sync writes plain files.
+	old := filepath.Join(t.TempDir(), "old")
+	sh(t, filepath.Dir(old), "clone", "--quiet", remote, old)
+	sh(t, old, "reset", "--quiet", "--hard", "HEAD~1")
+	r, err := Ensure(ctx, old, remote, "main", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	check(old)
+}

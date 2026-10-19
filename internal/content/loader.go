@@ -16,6 +16,11 @@ var FileExts = map[string]bool{".md": true, ".svg": true, ".png": true, ".jpg": 
 // AssetsDir is the folder with a topic's pictures.
 const AssetsDir = "_assets"
 
+// Symlink reports whether a directory entry is a symbolic link. The bot
+// never follows one: a link could point anywhere on the server, such as
+// at the file holding its tokens.
+func Symlink(d os.DirEntry) bool { return d.Type()&os.ModeSymlink != 0 }
+
 // Hidden reports whether a file or folder is ignored because its name
 // starts with a dot: .obsidian, .trash, .git, .gitignore.
 func Hidden(name string) bool { return strings.HasPrefix(name, ".") }
@@ -25,6 +30,10 @@ func Hidden(name string) bool { return strings.HasPrefix(name, ".") }
 func Load(root string) (*Catalog, []Issue, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
+		return nil, nil, err
+	}
+	// The vault folder itself may be a link, as in local setups.
+	if abs, err = filepath.EvalSymlinks(abs); err != nil {
 		return nil, nil, err
 	}
 	l := &loader{cat: &Catalog{Root: abs, byID: map[string]*Note{}, byPath: map[string]*Note{}, groups: map[string]any{},
@@ -67,7 +76,8 @@ func (l *loader) issue(p string, line int, sev Severity, format string, args ...
 
 func (l *loader) unexpected(p, why string) { l.issue(p, 0, Warning, "unexpected %s", why) }
 
-// readDir lists a vault folder without hidden entries.
+// readDir lists a vault folder without hidden entries and symbolic links,
+// which indexFiles reports.
 func (l *loader) readDir(rel string) ([]os.DirEntry, error) {
 	entries, err := os.ReadDir(filepath.Join(l.cat.Root, filepath.FromSlash(rel)))
 	if err != nil {
@@ -75,7 +85,7 @@ func (l *loader) readDir(rel string) ([]os.DirEntry, error) {
 	}
 	var out []os.DirEntry
 	for _, e := range entries {
-		if !Hidden(e.Name()) {
+		if !Hidden(e.Name()) && !Symlink(e) {
 			out = append(out, e)
 		}
 	}
@@ -83,7 +93,7 @@ func (l *loader) readDir(rel string) ([]os.DirEntry, error) {
 }
 
 // indexFiles records every usable file for link resolution, and reports
-// files of other types.
+// files of other types and symbolic links.
 func (l *loader) indexFiles() error {
 	return filepath.WalkDir(l.cat.Root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -103,6 +113,10 @@ func (l *loader) indexFiles() error {
 		}
 		rel, _ := filepath.Rel(l.cat.Root, p)
 		rel = filepath.ToSlash(rel)
+		if Symlink(d) {
+			l.issue(rel, 0, Error, "symbolic link; the bot ignores links, put the file or folder itself into the vault")
+			return nil
+		}
 		if !FileExts[strings.ToLower(path.Ext(rel))] {
 			l.unexpected(rel, "file type; only .md, .svg, .png, .jpg and .jpeg are used")
 			return nil

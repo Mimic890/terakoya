@@ -296,3 +296,50 @@ func TestSplitBacklink(t *testing.T) {
 		}
 	}
 }
+
+func TestSymlinksIgnored(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "secret")
+	os.WriteFile(secret, []byte("TOKEN=x\n"), 0o644)
+	os.MkdirAll(filepath.Join(filepath.Dir(secret), "dir"), 0o755)
+	os.WriteFile(filepath.Join(filepath.Dir(secret), "dir", "Чужая.md"), []byte("# Чужая\n"), 0o644)
+	root := vault(t, map[string]string{
+		"Г/7 класс/01 А/А.md":         "# А\n\n[[Секрет]] ![](рис.png)\n",
+		"Г/7 класс/01 А/теоремы/Т.md": "# Т\n",
+	})
+	topic := filepath.Join(root, "Г", "7 класс", "01 А")
+	os.Symlink(secret, filepath.Join(topic, "теоремы", "Секрет.md"))
+	os.MkdirAll(filepath.Join(topic, "_assets"), 0o755)
+	os.Symlink(secret, filepath.Join(topic, "_assets", "рис.png"))
+	os.Symlink(filepath.Join(filepath.Dir(secret), "dir"), filepath.Join(root, "Г", "7 класс", "02 Б"))
+
+	// The vault folder itself may be a link.
+	linked := filepath.Join(t.TempDir(), "vault")
+	os.Symlink(root, linked)
+	cat, issues, err := Load(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, n := range cat.Notes() {
+		paths = append(paths, n.Path)
+		if strings.Contains(string(n.Raw), "TOKEN") {
+			t.Errorf("%s holds the secret", n.Path)
+		}
+	}
+	if strings.Join(paths, ",") != "Г/7 класс/01 А/А.md,Г/7 класс/01 А/теоремы/Т.md" {
+		t.Errorf("notes = %v", paths)
+	}
+	got := issueText(issues)
+	for _, want := range []string{
+		"Г/7 класс/01 А/теоремы/Секрет.md: error: symbolic link",
+		"Г/7 класс/01 А/_assets/рис.png: error: symbolic link",
+		"Г/7 класс/02 Б: error: symbolic link",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	if _, err := cat.ResolveFile("Г/7 класс/01 А/А.md", "рис.png", "Г/7 класс/01 А/_assets"); err == nil {
+		t.Error("a linked picture resolves")
+	}
+}
