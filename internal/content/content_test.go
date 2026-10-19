@@ -127,7 +127,8 @@ func TestNumberPrefixes(t *testing.T) {
 		t.Errorf("hidden files reported:\n%s", msgs)
 	}
 	// Renumbering a topic keeps its IDs.
-	if ID("А/7 класс/05 Тема/Тема.md") != ID("А/7 класс/6 Тема/Тема.md") || ID("А/x.md") == ID("А/y.md") {
+	if ID("А/7 класс/05 Тема/Тема.md") != ID("А/7 класс/6 Тема/Тема.md") || ID("А/x.md") == ID("А/y.md") ||
+		ID("А/7 класс") == ID("А/10 класс") || ID("А/7 класс/05 Тема/Тема.md") == ID("А/10 класс/05 Тема/Тема.md") {
 		t.Error("IDs depend on numbers or ignore names")
 	}
 }
@@ -341,5 +342,31 @@ func TestSymlinksIgnored(t *testing.T) {
 	}
 	if _, err := cat.ResolveFile("Г/7 класс/01 А/А.md", "рис.png", "Г/7 класс/01 А/_assets"); err == nil {
 		t.Error("a linked picture resolves")
+	}
+}
+
+func TestTwoGradesInOneSubject(t *testing.T) {
+	root := vault(t, map[string]string{
+		"Г/7 класс/01 Углы/Углы.md":    "# Углы\n",
+		"Г/10 класс/01 Углы/Углы.md":   "# Углы в пространстве\n",
+		"Г/10 класс/02 Объём/Объём.md": "# Объём\n",
+	})
+	cat, issues, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range issues {
+		if i.Severity == Error {
+			t.Errorf("issue: %s", i)
+		}
+	}
+	g7, g10 := cat.Subjects[0].Grades[0], cat.Subjects[0].Grades[1]
+	if g7.ID == g10.ID || cat.Grade(g7.ID) != g7 || cat.Grade(g10.ID) != g10 {
+		t.Errorf("grades: 7 = %s, 10 = %s; lookups %v %v", g7.ID, g10.ID, cat.Grade(g7.ID).Title(), cat.Grade(g10.ID).Title())
+	}
+	// Same topic and note names in both grades are different notes.
+	a, b := g7.Topics[0].Main, g10.Topics[0].Main
+	if a.ID == b.ID || cat.Note(a.ID) != a || cat.Note(b.ID) != b {
+		t.Errorf("notes: %s %s", a.ID, b.ID)
 	}
 }

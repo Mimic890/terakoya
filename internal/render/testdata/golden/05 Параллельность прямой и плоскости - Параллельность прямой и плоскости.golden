@@ -12,13 +12,13 @@
 
 ## Теоремы
 
-- <tg-button type="callback_data" style="link" data="a:zde7G5B6jOT">Признак параллельности прямой и плоскости</tg-button>: $a \not\subset \alpha,\ a \parallel b,\ b \subset \alpha \Rightarrow a \parallel \alpha$
-- <tg-button type="callback_data" style="link" data="a:_yoHnKVjnIE">Прямая пересечения плоскостей</tg-button>: $a \parallel \alpha,\ a \subset \beta,\ \beta \cap \alpha = b \Rightarrow a \parallel b$
-	- <tg-button type="callback_data" style="link" data="a:pOVCAewTQnr">Следствие о прямой в плоскости</tg-button>: $a \parallel \alpha \Rightarrow \exists\, b \subset \alpha:\ b \parallel a$
+- <tg-button type="callback_data" style="link" data="a:nWscK8uuGqI">Признак параллельности прямой и плоскости</tg-button>: $a \not\subset \alpha,\ a \parallel b,\ b \subset \alpha \Rightarrow a \parallel \alpha$
+- <tg-button type="callback_data" style="link" data="a:DV2Yldvp6uZ">Прямая пересечения плоскостей</tg-button>: $a \parallel \alpha,\ a \subset \beta,\ \beta \cap \alpha = b \Rightarrow a \parallel b$
+	- <tg-button type="callback_data" style="link" data="a:R8UNODevFay">Следствие о прямой в плоскости</tg-button>: $a \parallel \alpha \Rightarrow \exists\, b \subset \alpha:\ b \parallel a$
 
 ## Задачи
 
-- <tg-button type="callback_data" style="link" data="a:vt-5_DLfZXw">Сечение призмы через ребро и точку</tg-button>: через ребро $AC$ и точку $M \in A_1B_1$
+- <tg-button type="callback_data" style="link" data="a:__fxU7ndHOR">Сечение призмы через ребро и точку</tg-button>: через ребро $AC$ и точку $M \in A_1B_1$
 ==== media ====
 ==== stats ====
 {Chars:733 Blocks:25 Media:0 Nesting:6 Columns:0}

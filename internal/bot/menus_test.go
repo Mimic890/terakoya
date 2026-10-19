@@ -11,6 +11,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/content"
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/render"
+	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/store"
 	"github.com/Mimic890/terakoya/internal/suggest"
 )
@@ -60,17 +61,18 @@ func TestStartSetsKeyboard(t *testing.T) {
 				}
 			}
 		}
-		if sent == 2 && c.params["text"] != i18n.RU.ChooseSubject {
-			t.Errorf("menu = %q", c.params["text"])
-		}
 	}
-	if sent != 2 {
-		t.Errorf("sent %d messages", sent)
+	// Then the subject list.
+	if sent != 1 || len(richs(calls)) != 1 || !strings.HasPrefix(richs(calls)[0], "# Предметы\n\n") {
+		t.Errorf("sent %d messages, rich %q", sent, richs(calls))
 	}
 }
 
+// TestKeyButtons checks text menus, which are edited in place; the
+// subject list is one in the button style.
 func TestKeyButtons(t *testing.T) {
 	h := newHarness(t, nil)
+	h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListButtons })
 	h.say("/start")
 	h.tg.take()
 	menu := h.bot.msgs.lastMenu(h.ctx, 42)
@@ -267,10 +269,10 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 
 	// A text menu never edits a rich one: it replaces it.
 	accID = h.tg.lastID("sendRichMessage")
-	h.say(i18n.RU.KeySubjects)
+	h.say(i18n.RU.KeyPinned)
 	calls = h.tg.take()
 	if len(to(calls, "editMessageText", 42)) != 0 || len(texts(calls, "sendMessage")) != 1 {
-		t.Errorf("subjects = %+v", calls)
+		t.Errorf("pinned = %+v", calls)
 	}
 	if got := ids(calls, "deleteMessage"); len(got) != 2 || got[1] != fmt.Sprint(accID) {
 		t.Errorf("deleted %v, want the tap and the account %d", got, accID)

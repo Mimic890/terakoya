@@ -262,6 +262,13 @@ func (b *Bot) reload(ctx context.Context) ([]content.Issue, error) {
 	b.cat, b.sha = cat, sha
 	b.mu.Unlock()
 	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha)
+	// Pins of notes that are gone, or whose ID changed, would count toward
+	// the limit of pins without being shown.
+	if n, err := b.store.PrunePins(ctx, func(id string) bool { return cat.Note(id) != nil }); err != nil {
+		b.log.Error("prune pins", "err", err)
+	} else if n > 0 {
+		b.log.Info("pins of notes no longer in the vault removed", "pins", n)
+	}
 	return issues, nil
 }
 
@@ -367,7 +374,15 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 			}
 			b.send(ctx, m.Chat.ID, b.t.NotFound, nil)
 		}
-		text, kb := b.homeView(ctx, m.From)
+		if b.richLists() {
+			b.showSubjects(ctx, m.Chat.ID, nil, m.From)
+			return
+		}
+		// Under the greeting, a new menu; the one above stays.
+		if _, err := b.store.TouchUser(ctx, m.From.ID, m.From.Username, m.From.FirstName); err != nil {
+			b.log.Error("touch user", "err", err)
+		}
+		text, kb := homeView(b.t, b.catalog(), b.emoji.Subject)
 		b.sendMenu(ctx, m.Chat.ID, text, kb)
 	default:
 		b.send(ctx, m.Chat.ID, b.t.UnknownCommand, nil)

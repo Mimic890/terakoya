@@ -103,9 +103,17 @@ func TestEmojiInUse(t *testing.T) {
 			t.Errorf("keyboard has no %s: %s", want, kb)
 		}
 	}
-	if menu := last(t, calls); !strings.Contains(menu.params["reply_markup"], `{"text":"Геометрия","icon_custom_emoji_id":"301","callback_data":"s:`) {
-		t.Errorf("subjects = %s", menu.params["reply_markup"])
+	// The subject's emoji goes before its line in the list, and on its
+	// button in the button style.
+	if r := richs(calls); len(r) != 1 || !strings.Contains(r[0], "\n![⭐](tg://emoji?id=301) <tg-button type=\"callback_data\" style=\"link\" data=\"s:") {
+		t.Errorf("subjects = %q", r)
 	}
+	h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListButtons })
+	h.say(i18n.RU.KeySubjects)
+	if menu := last(t, h.tg.take()); !strings.Contains(menu.params["reply_markup"], `{"text":"Геометрия","icon_custom_emoji_id":"301","callback_data":"s:`) {
+		t.Errorf("subject buttons = %s", menu.params["reply_markup"])
+	}
+	h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListList })
 
 	// Taps of the new and of old keyboards both work.
 	for _, text := range []string{"Закреплённые", "📌 Закреплённые"} {

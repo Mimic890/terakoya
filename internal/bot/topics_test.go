@@ -66,11 +66,11 @@ func TestTopicListRich(t *testing.T) {
 		t.Errorf("back = %q", s)
 	}
 
-	// «Назад» under the list goes to the grades, as a text menu.
+	// «Назад» under the list goes to the grades, which replace it.
 	list = h.tg.lastID("sendRichMessage")
 	h.tapOn(list, cbSubject+g.Subject.ID)
 	calls = h.tg.take()
-	if s := texts(calls, "sendMessage"); len(s) != 1 || !strings.HasPrefix(s[0], "Геометрия") {
+	if s := richs(calls); len(s) != 1 || !strings.HasPrefix(s[0], "# Геометрия\n\n") || len(to(calls, "editMessageText", 42)) != 0 {
 		t.Errorf("grades = %q", s)
 	}
 	if got := ids(calls, "deleteMessage"); len(got) != 1 || got[0] != itoa(list) {
@@ -89,7 +89,7 @@ func TestTopicListEmojiAndButtons(t *testing.T) {
 	}
 
 	// The button style keeps buttons, with the same labels.
-	h.bot.settings.Update(func(s *settings.Settings) { s.TopicListStyle = settings.TopicListButtons })
+	h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListButtons })
 	h.tapOn(700, cbGrade+g.ID)
 	calls := h.tg.take()
 	e := to(calls, "editMessageText", 42)

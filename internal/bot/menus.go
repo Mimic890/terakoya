@@ -106,8 +106,7 @@ func (b *Bot) onKeyButton(ctx context.Context, m *models.Message) bool {
 	}
 	switch key {
 	case b.t.KeySubjects:
-		text, kb := b.homeView(ctx, m.From)
-		b.replaceMenu(ctx, chatID, text, kb)
+		b.showSubjects(ctx, chatID, nil, m.From)
 	case b.t.KeyPinned:
 		text, kb := b.pinsView(ctx, m.From.ID)
 		b.replaceMenu(ctx, chatID, text, kb)
@@ -329,7 +328,7 @@ func (b *Bot) kindLabel(sg store.Suggestion) string {
 func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *models.InlineKeyboardMarkup) {
 	old := b.msgs.menu(ctx, chatID)
 	n := &content.Note{Title: title, Body: md}
-	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued})
+	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued, Callbacks: true})
 	var sent []int
 	for i, part := range res.Parts {
 		p := &tg.SendRichMessageParams{ChatID: chatID, RichMessage: models.InputRichMessage{Markdown: part.Markdown}}

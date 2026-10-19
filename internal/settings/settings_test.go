@@ -115,23 +115,49 @@ func TestInvalidFileOnStart(t *testing.T) {
 	}
 }
 
-func TestTopicListStyle(t *testing.T) {
+func TestListStyle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
 	f, _ := Open(path, nil, logger(nil))
-	if got := f.Get().TopicList(); got != TopicListList {
+	if got := f.Get().List(); got != ListList {
 		t.Errorf("default = %q", got)
 	}
-	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "topic_list_style: list") {
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "\nlist_style: list\n") {
 		t.Errorf("file:\n%s", data)
 	}
 	// Files from before the setting keep working, as lists.
 	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\n"), 0o644)
 	s, err := Load(path)
-	if err != nil || s.TopicList() != TopicListList {
-		t.Errorf("old file = %q, %v", s.TopicList(), err)
+	if err != nil || s.List() != ListList {
+		t.Errorf("old file = %q, %v", s.List(), err)
 	}
-	if err := f.Update(func(s *Settings) { s.TopicListStyle = TopicListButtons }); err != nil || f.Get().TopicList() != TopicListButtons {
-		t.Errorf("buttons = %q, %v", f.Get().TopicList(), err)
+	if err := f.Update(func(s *Settings) { s.ListStyle = ListButtons }); err != nil || f.Get().List() != ListButtons {
+		t.Errorf("buttons = %q, %v", f.Get().List(), err)
+	}
+	if err := (Settings{ListStyle: "grid", Top: DefaultTop()}).Validate(); err == nil || !strings.Contains(err.Error(), "list_style") {
+		t.Errorf("bad style: %v", err)
+	}
+}
+
+func TestLegacyListStyleKey(t *testing.T) {
+	for _, c := range []struct{ old, want string }{{"buttons", ListButtons}, {"list", ListList}, {`""`, ListList}} {
+		path := filepath.Join(t.TempDir(), FileName)
+		os.WriteFile(path, []byte("topic_list_style: "+c.old+"\nranks:\n  - {title: a, from: 0}\n"), 0o644)
+		var log bytes.Buffer
+		f, err := Open(path, nil, logger(&log))
+		if err != nil || f.Get().List() != c.want {
+			t.Fatalf("%s: style %q, %v", c.old, f.Get().List(), err)
+		}
+		// The file now has the new key only, with the same value.
+		data, _ := os.ReadFile(path)
+		if strings.Contains(string(data), "topic_list_style") || !strings.Contains(string(data), "\nlist_style: "+strings.Trim(c.old, `"`)) ||
+			!strings.Contains(log.String(), "topic_list_style is now list_style") {
+			t.Errorf("%s: file:\n%s\nlog: %s", c.old, data, log.String())
+		}
+		// The new key wins when a hand edit has both.
+		os.WriteFile(path, []byte("list_style: buttons\ntopic_list_style: list\nranks:\n  - {title: a, from: 0}\n"), 0o644)
+		if s, err := Load(path); err != nil || s.List() != ListButtons {
+			t.Errorf("both keys = %q, %v", s.List(), err)
+		}
 	}
 }
 

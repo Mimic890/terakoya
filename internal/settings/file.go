@@ -42,7 +42,7 @@ func stampOf(path string) stamp {
 // load leaves the defaults in use, and is not overwritten.
 func Open(path string, subjects []string, log *slog.Logger) (*File, error) {
 	f := &File{path: path, log: log}
-	s, err := Load(path)
+	s, legacy, err := load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		s = Default(subjects)
@@ -53,6 +53,11 @@ func Open(path string, subjects []string, log *slog.Logger) (*File, error) {
 	case err != nil:
 		log.Error("settings file is invalid; using defaults until it is fixed", "err", err)
 		s = Default(subjects)
+	case legacy:
+		if err := Save(path, s); err != nil {
+			return nil, err
+		}
+		log.Info("settings: topic_list_style is now list_style; the file was updated", "path", path)
 	}
 	f.cur, f.stamp = s, stampOf(path)
 	return f, nil

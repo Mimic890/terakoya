@@ -27,6 +27,8 @@ const (
 	// n:<grade id>, «Сообщить об ошибке» under a topic list, for something
 	// missing in the grade; earlier versions had «Добавить тему» here.
 	cbReportGrade = "n:"
+	// m:<subject id>, «Сообщить об ошибке» under a subject's grade list.
+	cbReportSubject = "m:"
 )
 
 func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
@@ -41,8 +43,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 	switch {
 	case data == cbHome:
 		b.answer(ctx, q, "", false)
-		text, kb := b.homeView(ctx, &q.From)
-		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+		b.showSubjects(ctx, msg.Chat.ID, msg, &q.From)
 
 	case strings.HasPrefix(data, cbSubject):
 		s := cat.Subject(strings.TrimPrefix(data, cbSubject))
@@ -51,8 +52,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		text, kb := subjectView(b.t, s)
-		b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+		b.showSubject(ctx, msg.Chat.ID, msg, s)
 
 	case strings.HasPrefix(data, cbGrade):
 		g := cat.Grade(strings.TrimPrefix(data, cbGrade))
@@ -100,8 +100,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			b.showGrade(ctx, msg.Chat.ID, nil, n.Grade())
 		default:
 			b.retire(ctx, msg)
-			text, kb := b.homeView(ctx, &q.From)
-			b.showMenu(ctx, msg.Chat.ID, text, kb)
+			b.showSubjects(ctx, msg.Chat.ID, nil, &q.From)
 		}
 
 	case strings.HasPrefix(data, cbDownload):
@@ -120,6 +119,14 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.startReport(ctx, q, msg.Chat.ID, n)
+
+	case strings.HasPrefix(data, cbReportSubject):
+		sub := cat.Subject(strings.TrimPrefix(data, cbReportSubject))
+		if sub == nil {
+			b.answer(ctx, q, b.t.NotFound, true)
+			return
+		}
+		b.startSubjectReport(ctx, q, msg.Chat.ID, sub)
 
 	case strings.HasPrefix(data, cbReportGrade):
 		g := cat.Grade(strings.TrimPrefix(data, cbReportGrade))
@@ -211,23 +218,60 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 
 func (b *Bot) notFound(ctx context.Context, q *models.CallbackQuery, msg *models.Message) {
 	b.answer(ctx, q, b.t.NotFound, true)
-	text, kb := b.homeView(ctx, &q.From)
-	b.editMenu(ctx, msg.Chat.ID, msg.ID, text, kb)
+	b.showSubjects(ctx, msg.Chat.ID, msg, &q.From)
 }
 
-func (b *Bot) homeView(ctx context.Context, from *models.User) (string, *models.InlineKeyboardMarkup) {
-	if _, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName); err != nil {
-		b.log.Error("touch user", "err", err)
+// richLists reports whether subjects, grades and topics are listed as
+// rich messages, a line per item, rather than as buttons (list_style in
+// settings.yml).
+func (b *Bot) richLists() bool { return b.settings.Get().List() != settings.ListButtons }
+
+// showSubjects shows the subject list. In the button style, msg is the
+// menu to edit, or nil to replace the current menu; a rich list always
+// replaces it. from, if known, is recorded as a user.
+func (b *Bot) showSubjects(ctx context.Context, chatID int64, msg *models.Message, from *models.User) {
+	if from != nil {
+		if _, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName); err != nil {
+			b.log.Error("touch user", "err", err)
+		}
 	}
-	return homeView(b.t, b.catalog(), b.emoji.Subject)
+	cat := b.catalog()
+	if b.richLists() {
+		b.showRich(ctx, chatID, b.t.SubjectsTitle, b.subjectsMarkdown(cat), keyboard(row(button(b.t.Close, cbClose))))
+		return
+	}
+	text, kb := homeView(b.t, cat, b.emoji.Subject)
+	b.showButtons(ctx, chatID, msg, text, kb)
 }
 
-// homeView is the subject list; icon gives a subject's custom emoji. The
-// greeting and the rank are elsewhere: in the /start message and under
-// «Аккаунт».
+// showSubject shows a subject's grade list, like showSubjects.
+func (b *Bot) showSubject(ctx context.Context, chatID int64, msg *models.Message, s *content.Subject) {
+	report := b.host != nil
+	if b.richLists() {
+		b.showRich(ctx, chatID, s.Name, b.gradesMarkdown(s), subjectKeyboard(b.t, s, report))
+		return
+	}
+	text, kb := subjectView(b.t, s, report)
+	b.showButtons(ctx, chatID, msg, text, kb)
+}
+
+// showButtons shows a button menu in place of msg, or of the current menu
+// when msg is nil.
+func (b *Bot) showButtons(ctx context.Context, chatID int64, msg *models.Message, text string, kb *models.InlineKeyboardMarkup) {
+	if msg != nil {
+		b.editMenu(ctx, chatID, msg.ID, text, kb)
+		return
+	}
+	b.replaceMenu(ctx, chatID, text, kb)
+}
+
+// homeView is the button style of the subject list, with each subject's
+// custom emoji (icon) on its button. The greeting and the rank are
+// elsewhere: in the /start message and under «Аккаунт».
 func homeView(t i18n.Strings, cat *content.Catalog, icon func(subject string) string) (string, *models.InlineKeyboardMarkup) {
+	closeRow := row(button(t.Close, cbClose))
 	if len(cat.Subjects) == 0 {
-		return t.NoSubjects, keyboard()
+		return t.NoSubjects, keyboard(closeRow)
 	}
 	var rows [][]models.InlineKeyboardButton
 	for _, s := range cat.Subjects {
@@ -235,10 +279,61 @@ func homeView(t i18n.Strings, cat *content.Catalog, icon func(subject string) st
 		btn.IconCustomEmojiID = icon(s.Name)
 		rows = append(rows, row(btn))
 	}
-	return t.ChooseSubject, keyboard(rows...)
+	return t.ChooseSubject, keyboard(append(rows, closeRow)...)
 }
 
-func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyboardMarkup) {
+// subjectsMarkdown is the list style of the subject list: «Предметы» and
+// a line per subject with its emoji, if any, and its number of grades,
+// which opens it.
+func (b *Bot) subjectsMarkdown(cat *content.Catalog) string {
+	var sb strings.Builder
+	sb.WriteString("# " + escapeMarkdown(b.t.SubjectsTitle) + "\n\n")
+	if len(cat.Subjects) == 0 {
+		sb.WriteString(escapeMarkdown(b.t.NoSubjects) + "\n")
+	}
+	for _, s := range cat.Subjects {
+		n := len(s.Grades)
+		label := fmt.Sprintf("%s · %d %s", s.Name, n, plural(n, b.t.GradeForms))
+		sb.WriteString(richEmojiRef(b.emoji.Subject(s.Name), placeholder) + menuLink(label, cbSubject+s.ID) + "\n")
+	}
+	return sb.String()
+}
+
+// gradesMarkdown is the list style of a subject's grades: the subject
+// with its emoji, if any, and a line per grade with its number of topics,
+// which opens it.
+func (b *Bot) gradesMarkdown(s *content.Subject) string {
+	var sb strings.Builder
+	sb.WriteString("# " + richEmojiRef(b.emoji.Subject(s.Name), placeholder) + escapeMarkdown(s.Name) + "\n\n")
+	if len(s.Grades) == 0 {
+		sb.WriteString(escapeMarkdown(b.t.NoGrades) + "\n")
+	}
+	for _, g := range s.Grades {
+		n := len(g.Topics)
+		label := fmt.Sprintf("%s · %d %s", g.Title(), n, plural(n, b.t.TopicForms))
+		sb.WriteString(menuLink(label, cbGrade+g.ID) + "\n")
+	}
+	return sb.String()
+}
+
+// menuLink is a line of a rich menu that sends data when tapped.
+func menuLink(label, data string) string {
+	return "[" + strings.NewReplacer("[", "", "]", "").Replace(label) + "](" + render.CallbackLink(data) + ")"
+}
+
+// subjectKeyboard goes under a subject's grade list: «Сообщить об ошибке»
+// when reports are on, for something wrong or missing in the subject, and
+// «Назад» to the subjects.
+func subjectKeyboard(t i18n.Strings, s *content.Subject, report bool) *models.InlineKeyboardMarkup {
+	r := row(button(t.Back, cbHome))
+	if report {
+		r = row(button(t.ReportError, cbReportSubject+s.ID), button(t.Back, cbHome))
+	}
+	return keyboard(r)
+}
+
+// subjectView is the button style of a subject's grade list.
+func subjectView(t i18n.Strings, s *content.Subject, report bool) (string, *models.InlineKeyboardMarkup) {
 	var rows [][]models.InlineKeyboardButton
 	var cur []models.InlineKeyboardButton
 	for _, g := range s.Grades {
@@ -250,7 +345,7 @@ func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyb
 	if len(cur) > 0 {
 		rows = append(rows, cur)
 	}
-	rows = append(rows, row(button(t.Back, cbHome)))
+	rows = append(rows, subjectKeyboard(t, s, report).InlineKeyboard...)
 	return fmt.Sprintf(t.ChooseGrade, s.Name), keyboard(rows...)
 }
 
@@ -260,7 +355,7 @@ func subjectView(t i18n.Strings, s *content.Subject) (string, *models.InlineKeyb
 // A topic opens in place of the list either way.
 func (b *Bot) showGrade(ctx context.Context, chatID int64, msg *models.Message, g *content.Grade) {
 	report := b.host != nil
-	if b.settings.Get().TopicList() == settings.TopicListButtons {
+	if !b.richLists() {
 		text, kb := gradeView(b.t, g, report)
 		if msg != nil {
 			b.editMenu(ctx, chatID, msg.ID, text, kb)

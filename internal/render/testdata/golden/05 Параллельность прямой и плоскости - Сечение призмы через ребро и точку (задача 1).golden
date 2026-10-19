@@ -6,8 +6,8 @@
 
 **Решение:**
 
-1) $AC \parallel A_1C_1 \Rightarrow AC \parallel (A_1B_1C_1)$ (по <tg-button type="callback_data" style="link" data="a:zde7G5B6jOT">признаку параллельности прямой и плоскости</tg-button>)
-2) Плоскость сечения пересекает $(A_1B_1C_1)$ по прямой $MN \parallel AC$ (по <tg-button type="callback_data" style="link" data="a:_yoHnKVjnIE">теореме о прямой пересечения</tg-button>)
+1) $AC \parallel A_1C_1 \Rightarrow AC \parallel (A_1B_1C_1)$ (по <tg-button type="callback_data" style="link" data="a:nWscK8uuGqI">признаку параллельности прямой и плоскости</tg-button>)
+2) Плоскость сечения пересекает $(A_1B_1C_1)$ по прямой $MN \parallel AC$ (по <tg-button type="callback_data" style="link" data="a:DV2Yldvp6uZ">теореме о прямой пересечения</tg-button>)
 3) $AMNC$ — сечение
 
 **Ответ:** $AMNC$.

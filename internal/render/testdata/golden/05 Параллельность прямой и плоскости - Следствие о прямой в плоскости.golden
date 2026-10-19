@@ -4,7 +4,7 @@
 
 **Доказательство:**
 
-Через $a$ и точку $M \in \alpha$ проведём плоскость $\beta$; она пересекает $\alpha$ по прямой $b$, и $b \parallel a$ (по <tg-button type="callback_data" style="link" data="a:_yoHnKVjnIE">теореме о прямой пересечения плоскостей</tg-button>).
+Через $a$ и точку $M \in \alpha$ проведём плоскость $\beta$; она пересекает $\alpha$ по прямой $b$, и $b \parallel a$ (по <tg-button type="callback_data" style="link" data="a:DV2Yldvp6uZ">теореме о прямой пересечения плоскостей</tg-button>).
 ==== media ====
 ==== stats ====
 {Chars:296 Blocks:5 Media:0 Nesting:2 Columns:0}

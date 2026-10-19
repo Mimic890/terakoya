@@ -106,3 +106,18 @@ func TestArchives(t *testing.T) {
 		t.Errorf("id = %q, %v", id, err)
 	}
 }
+
+func TestPrunePins(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	s.Pin(ctx, 1, "keep", 10)
+	s.Pin(ctx, 1, "old", 10)
+	s.Pin(ctx, 2, "old", 10)
+	n, err := s.PrunePins(ctx, func(id string) bool { return id == "keep" })
+	if err != nil || n != 2 {
+		t.Fatalf("pruned %d, %v", n, err)
+	}
+	if ids, _ := s.Pins(ctx, 1); len(ids) != 1 || ids[0] != "keep" {
+		t.Errorf("pins = %v", ids)
+	}
+}
