@@ -30,6 +30,7 @@ type Service interface {
 	AdminUser(ctx context.Context, ref string) (bot.AdminUser, error)
 	ResetNickname(ctx context.Context, ref string, by int64) (string, bot.AdminUser, error)
 	SyncNow(ctx context.Context) bot.SyncResult
+	BackupNow(ctx context.Context) bot.BackupResult
 	RecipientCount(ctx context.Context) (int, error)
 	Broadcast(ctx context.Context, text string, photo []byte) (bot.BroadcastStarted, error)
 }
@@ -157,6 +158,7 @@ func Handler(svc Service, log *slog.Logger) http.Handler {
 		return NickReset{Old: old, User: u}, err
 	})
 	handle("POST /sync", func(ctx context.Context, _ *http.Request) (any, error) { return svc.SyncNow(ctx), nil })
+	handle("POST /backup", func(ctx context.Context, _ *http.Request) (any, error) { return svc.BackupNow(ctx), nil })
 	handle("GET /recipients", func(ctx context.Context, _ *http.Request) (any, error) {
 		n, err := svc.RecipientCount(ctx)
 		return map[string]int{"recipients": n}, err
@@ -258,6 +260,10 @@ func (c *Client) NickReset(ctx context.Context, ref string) (r NickReset, err er
 
 func (c *Client) Sync(ctx context.Context) (r bot.SyncResult, err error) {
 	return r, c.call(ctx, http.MethodPost, "/sync", nil, struct{}{}, &r)
+}
+
+func (c *Client) Backup(ctx context.Context) (r bot.BackupResult, err error) {
+	return r, c.call(ctx, http.MethodPost, "/backup", nil, struct{}{}, &r)
 }
 
 func (c *Client) Recipients(ctx context.Context) (int, error) {

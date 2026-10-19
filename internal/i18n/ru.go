@@ -234,6 +234,9 @@ type Strings struct {
 	AdminServerFailed string // %s
 	AdminLastSync     string // %s time, %s outcome
 	AdminSyncNever    string
+	AdminBackup       string // %s time, %s size, %d snapshots
+	AdminBackupFailed string // %s time, %s error
+	AdminBackupNone   string
 	AdminSyncSame     string
 	AdminAgo          string // %s
 	AdminStatsTitle   string
@@ -493,6 +496,9 @@ var RU = Strings{
 	AdminServerFailed: "Не удалось посчитать: %s",
 	AdminLastSync:     "Последняя синхронизация: %s — %s",
 	AdminSyncNever:    "Синхронизаций с запуска не было",
+	AdminBackup:       "Резервная копия: %s, %s · всего копий: %d",
+	AdminBackupFailed: "Резервная копия не удалась (%s): %s",
+	AdminBackupNone:   "Резервных копий пока нет",
 	AdminSyncSame:     "без изменений",
 	AdminAgo:          "%s назад",
 	AdminStatsTitle:   "Статистика",
