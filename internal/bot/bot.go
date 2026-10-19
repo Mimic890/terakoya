@@ -173,7 +173,7 @@ func (b *Bot) storeTraffic(ctx context.Context) {
 }
 
 // markSeen records that a user did something, at most once per
-// seenEvery.
+// seenEvery, in the background: the user waits for the answer only.
 func (b *Bot) markSeen(ctx context.Context, u *models.User) {
 	if u == nil || u.IsBot {
 		return
@@ -189,9 +189,12 @@ func (b *Bot) markSeen(ctx context.Context, u *models.User) {
 	if !due {
 		return
 	}
-	if err := b.store.Seen(ctx, u.ID, u.Username, u.FirstName); err != nil {
-		b.log.Error("record last seen", "err", err)
-	}
+	id, username, first := u.ID, u.Username, u.FirstName
+	b.later(ctx, func(ctx context.Context) {
+		if err := b.store.Seen(ctx, id, username, first); err != nil {
+			b.log.Error("record last seen", "err", err)
+		}
+	})
 }
 
 // Reload reads the catalog from disk and swaps it in.
