@@ -189,60 +189,64 @@ type Strings struct {
 	NickResetNotice  string
 
 	// /admin.
-	AdminTitle        string
-	AdminSummary      string // %d users, %d active 24h, %d open, %s commit, %s age, %s uptime
-	AdminUsers        string
-	AdminStats        string
-	AdminServer       string
-	AdminSync         string
-	AdminBroadcast    string
-	AdminUsersText    string // %d all, %d new today, %d new 7d, %d active 24h, %d active 7d, %d blocked
-	AdminFound        string // %s query, %d found
-	AdminNobody       string
-	AdminSearch       string
-	AdminSearchClear  string
-	AdminSearchAsk    string
-	AdminCard         string // name, ids line, nickname, rank, accepted, open, rejected, first seen, last seen, top, blocked
-	AdminCardID       string // %d
-	AdminCardUserID   string // %s @username, %d
-	AdminNone         string
-	AdminNoData       string
-	AdminShown        string
-	AdminHidden       string
-	AdminResetNick    string
-	AdminResetAsk     string // %s nickname, %s user
-	AdminResetYes     string
-	AdminResetDone    string
-	AdminRefresh      string
-	AdminComputing    string
-	AdminSyncing      string
-	AdminSyncFailed   string // %s
-	AdminSyncNone     string // %s commit
-	AdminSyncDone     string // %s → %s, %d → %d notes, %d errors, %d warnings
-	AdminServerText   string // see adminServerText
-	AdminServerFailed string // %s
-	AdminLastSync     string // %s time, %s outcome
-	AdminSyncNever    string
-	AdminBackup       string // %s time, %s size, %d snapshots
-	AdminBackupFailed string // %s time, %s error
-	AdminBackupNone   string
-	AdminSyncSame     string
-	AdminAgo          string // %s
-	AdminStatsTitle   string
-	AdminReportsTitle string
-	AdminReportsLine  string // %s period, %d open, %d accepted, %d rejected
-	AdminAllTime      string
-	AdminWeek         string
-	AdminTopWeek      string
-	AdminTopAll       string
-	AdminNoteGone     string // %s id
-	AdminNoOpens      string
-	AdminBroadcasts   string // %d
-	AdminLastBcast    string // %s date, %d recipients, %d sent, %d blocked, %d failed
-	AdminDays         string // %d d, %d h
-	AdminHours        string // %d h, %d min
-	AdminMinutes      string // %d
-	AdminSeconds      string // %d
+	AdminTitle             string
+	AdminSummary           string // %d users, %d active 24h, %d open, %s commit, %s age, %s uptime
+	AdminUsers             string
+	AdminStats             string
+	AdminServer            string
+	AdminSync              string
+	AdminBroadcast         string
+	AdminUsersText         string // %d all, %d new today, %d new 7d, %d active 24h, %d active 7d, %d blocked
+	AdminFound             string // %s query, %d found
+	AdminNobody            string
+	AdminSearch            string
+	AdminSearchClear       string
+	AdminSearchAsk         string
+	AdminCard              string // name, ids line, nickname, rank, accepted, open, rejected, first seen, last seen, top, blocked
+	AdminCardID            string // %d
+	AdminCardUserID        string // %s @username, %d
+	AdminNone              string
+	AdminNoData            string
+	AdminShown             string
+	AdminHidden            string
+	AdminResetNick         string
+	AdminResetAsk          string // %s nickname, %s user
+	AdminResetYes          string
+	AdminResetDone         string
+	AdminRefresh           string
+	AdminComputing         string
+	AdminSyncing           string
+	AdminSyncFailed        string // %s
+	AdminSyncNone          string // %s commit
+	AdminSyncDone          string // %s → %s, %d → %d notes, %d errors, %d warnings
+	AdminServerText        string // see adminServerText
+	AdminServerFailed      string // %s
+	AdminLastSync          string // %s time, %s outcome
+	AdminSyncNever         string
+	AdminBackup            string // %s mode, %s last, %s next
+	AdminBackupFailed      string // %s time, %s error
+	AdminBackupNone        string
+	AdminBackupUnscheduled string
+	AdminBackupFolder      string
+	AdminBackupArchive     string
+	AdminBackupOff         string
+	AdminSyncSame          string
+	AdminAgo               string // %s
+	AdminStatsTitle        string
+	AdminReportsTitle      string
+	AdminReportsLine       string // %s period, %d open, %d accepted, %d rejected
+	AdminAllTime           string
+	AdminWeek              string
+	AdminTopWeek           string
+	AdminTopAll            string
+	AdminNoteGone          string // %s id
+	AdminNoOpens           string
+	AdminBroadcasts        string // %d
+	AdminLastBcast         string // %s date, %d recipients, %d sent, %d blocked, %d failed
+	AdminDays              string // %d d, %d h
+	AdminHours             string // %d h, %d min
+	AdminMinutes           string // %d
+	AdminSeconds           string // %d
 
 	// The command menu.
 	CmdStart      string
@@ -473,29 +477,33 @@ var RU = Strings{
 		"Vault на диске: %s (заметки %s, картинки %s, .git %s)\n" +
 		"Данные: %s, база %s, file_id в кэше: %d\n\n" +
 		"Vault: коммит %s (%s), заметок %d\n%s",
-	AdminServerFailed: "Не удалось посчитать: %s",
-	AdminLastSync:     "Последняя синхронизация: %s — %s",
-	AdminSyncNever:    "Синхронизаций с запуска не было",
-	AdminBackup:       "Резервная копия: %s, %s · всего копий: %d",
-	AdminBackupFailed: "Резервная копия не удалась (%s): %s",
-	AdminBackupNone:   "Резервных копий пока нет",
-	AdminSyncSame:     "без изменений",
-	AdminAgo:          "%s назад",
-	AdminStatsTitle:   "Статистика",
-	AdminReportsTitle: "Правки",
-	AdminReportsLine:  "%s: на рассмотрении %d · принято %d · отклонено %d",
-	AdminAllTime:      "Всего",
-	AdminWeek:         "За 7 дней",
-	AdminTopWeek:      "Чаще всего открывают — 7 дней",
-	AdminTopAll:       "Чаще всего открывают — 180 дней",
-	AdminNoteGone:     "%s (удалена)",
-	AdminNoOpens:      "Пока нет",
-	AdminBroadcasts:   "Рассылок: %d",
-	AdminLastBcast:    "Последняя: %s — получателей %d, доставлено %d, заблокировали бота %d, не доставлено %d",
-	AdminDays:         "%d д %d ч",
-	AdminHours:        "%d ч %d мин",
-	AdminMinutes:      "%d мин",
-	AdminSeconds:      "%d с",
+	AdminServerFailed:      "Не удалось посчитать: %s",
+	AdminLastSync:          "Последняя синхронизация: %s — %s",
+	AdminSyncNever:         "Синхронизаций с запуска не было",
+	AdminBackup:            "Резервные копии: %s\nПоследняя: %s\nСледующая: %s",
+	AdminBackupFailed:      "не удалась (%s): %s",
+	AdminBackupNone:        "ещё не было",
+	AdminBackupUnscheduled: "по расписанию не делаются",
+	AdminBackupFolder:      "папка latest",
+	AdminBackupArchive:     "архивы",
+	AdminBackupOff:         "выключены",
+	AdminSyncSame:          "без изменений",
+	AdminAgo:               "%s назад",
+	AdminStatsTitle:        "Статистика",
+	AdminReportsTitle:      "Правки",
+	AdminReportsLine:       "%s: на рассмотрении %d · принято %d · отклонено %d",
+	AdminAllTime:           "Всего",
+	AdminWeek:              "За 7 дней",
+	AdminTopWeek:           "Чаще всего открывают — 7 дней",
+	AdminTopAll:            "Чаще всего открывают — 180 дней",
+	AdminNoteGone:          "%s (удалена)",
+	AdminNoOpens:           "Пока нет",
+	AdminBroadcasts:        "Рассылок: %d",
+	AdminLastBcast:         "Последняя: %s — получателей %d, доставлено %d, заблокировали бота %d, не доставлено %d",
+	AdminDays:              "%d д %d ч",
+	AdminHours:             "%d ч %d мин",
+	AdminMinutes:           "%d мин",
+	AdminSeconds:           "%d с",
 
 	CmdStart:      "Открыть каталог",
 	CmdDownload:   "Скачать все материалы",

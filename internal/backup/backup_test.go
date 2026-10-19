@@ -1,7 +1,10 @@
 package backup
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,126 +14,154 @@ import (
 	"github.com/Mimic890/terakoya/internal/store"
 )
 
-func TestParseKeep(t *testing.T) {
-	for in, want := range map[string]Keep{"": {7, 4}, "7,4": {7, 4}, "3": {3, 4}, " 10 , 0 ": {10, 0}} {
-		if got, err := ParseKeep(in); err != nil || got != want {
-			t.Errorf("ParseKeep(%q) = %v, %v", in, got, err)
-		}
+// data opens a database with a user and a settings file next to it.
+func data(t *testing.T) (*store.Store, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, store.DBFile))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, bad := range []string{"0", "x", "7,-1", "7,x"} {
-		if _, err := ParseKeep(bad); err == nil {
-			t.Errorf("ParseKeep(%q) accepted", bad)
-		}
-	}
+	t.Cleanup(func() { st.Close() })
+	st.TouchUser(context.Background(), 42, "anya", "Аня")
+	settings := filepath.Join(dir, store.SettingsFile)
+	os.WriteFile(settings, []byte("backup:\n  mode: folder\n"), 0o600)
+	return st, filepath.Join(dir, store.BackupsDir), settings
 }
 
-func TestTake(t *testing.T) {
+func TestFolder(t *testing.T) {
 	ctx := context.Background()
-	data := t.TempDir()
-	st, err := store.Open(ctx, filepath.Join(data, "terakoya.db"))
+	st, dir, settings := data(t)
+	now := time.Date(2026, 10, 20, 3, 0, 0, 0, time.Local)
+	b, err := Folder(ctx, st, dir, settings, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	st.TouchUser(ctx, 42, "anya", "Аня")
-	settings := filepath.Join(data, "settings.yml")
-	os.WriteFile(settings, []byte("top:\n  size: 10\n"), 0o600)
-	dir := filepath.Join(data, store.BackupsDir)
-	now := time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC)
-
-	s, err := Take(ctx, st, dir, settings, now)
-	if err != nil {
-		t.Fatal(err)
+	if b.Path != filepath.Join(dir, Latest) || b.Size == 0 || !b.At.Equal(now) {
+		t.Errorf("backup = %+v", b)
 	}
-	if filepath.Base(s.Path) != "terakoya-20261019-030000.db" || s.Size == 0 || !s.At.Equal(now) {
-		t.Errorf("snapshot = %+v", s)
-	}
-	copied := filepath.Join(dir, "terakoya-20261019-030000.settings.yml")
-	if data, _ := os.ReadFile(copied); string(data) != "top:\n  size: 10\n" {
-		t.Errorf("settings copy = %q", data)
-	}
-	if info, _ := os.Stat(copied); info.Mode().Perm() != 0o600 {
-		t.Errorf("settings copy mode = %v", info.Mode())
-	}
-	if err := store.QuickCheck(ctx, s.Path); err != nil {
+	if err := store.QuickCheck(ctx, filepath.Join(dir, Latest, store.DBFile)); err != nil {
 		t.Error(err)
 	}
-	// Without a settings file there is just the database.
-	os.Remove(settings)
-	if _, err := Take(ctx, st, dir, settings, now.Add(time.Hour)); err != nil {
+	if got, _ := os.ReadFile(filepath.Join(dir, Latest, store.SettingsFile)); string(got) != "backup:\n  mode: folder\n" {
+		t.Errorf("settings = %q", got)
+	}
+	// Again: still only latest/, nothing else kept.
+	if _, err := Folder(ctx, st, dir, settings, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "terakoya-20261019-040000.settings.yml")); !os.IsNotExist(err) {
-		t.Errorf("settings copy without settings: %v", err)
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 || entries[0].Name() != Latest {
+		t.Errorf("backups = %v", entries)
 	}
-	list, _ := List(dir)
-	if len(list) != 2 || !list[0].At.Equal(now.Add(time.Hour)) {
-		t.Errorf("list = %+v", list)
+	if last, ok, err := Last(dir); err != nil || !ok || last.Path != filepath.Join(dir, Latest) {
+		t.Errorf("last = %+v %v %v", last, ok, err)
 	}
 }
 
-// touch creates an empty snapshot file, with its settings copy.
-func touch(t *testing.T, dir, name string) {
+// unpack lists an archive's files and their contents.
+func unpack(t *testing.T, p string) map[string]string {
 	t.Helper()
-	os.WriteFile(filepath.Join(dir, name), []byte("db"), 0o644)
-	if strings.HasSuffix(name, ".db") && !strings.Contains(name, "before") {
-		os.WriteFile(filepath.Join(dir, strings.TrimSuffix(name, ".db")+".settings.yml"), []byte("s"), 0o600)
+	f, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	out := map[string]string{}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return out
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(tr)
+		out[h.Name] = string(data)
 	}
 }
 
-func TestRotate(t *testing.T) {
-	dir := t.TempDir()
-	start := time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC) // a Monday
-	// 60 days of daily snapshots, and on the newest day two more by hand.
-	for d := 0; d < 60; d++ {
-		touch(t, dir, Name(start.AddDate(0, 0, -d)))
-	}
-	touch(t, dir, Name(start.Add(5*time.Hour)))
-	touch(t, dir, Name(start.Add(9*time.Hour)))
-	for v := 8; v <= 12; v++ {
-		touch(t, dir, store.PreMigrationName(start.AddDate(0, 0, v-20), v))
-	}
-	touch(t, dir, Name(start)+".tmp") // being written
-	touch(t, dir, "notes.txt")
-
-	if _, err := Rotate(dir, Keep{Daily: 7, Weekly: 4}); err != nil {
-		t.Fatal(err)
-	}
-	var left []string
-	for _, s := range must(List(dir)) {
-		left = append(left, s.At.Format("01-02 15h")+map[bool]string{true: " before", false: ""}[s.Before != 0])
-	}
-	want := []string{
-		// The newest of each of the last 7 days: Monday 10-19 and the
-		// week of 10-12 from Tuesday on.
-		"10-19 12h", "10-18 03h", "10-17 03h", "10-16 03h", "10-15 03h", "10-14 03h", "10-13 03h",
-		// Then the newest of each of the 4 weeks before (their Sundays),
-		// and the 3 newest taken before a migration.
-		"10-11 03h before", "10-11 03h", "10-10 03h before", "10-09 03h before",
-		"10-04 03h", "09-27 03h", "09-20 03h",
-	}
-	if strings.Join(left, ", ") != strings.Join(want, ", ") {
-		t.Errorf("kept:\n%s\nwant:\n%s", strings.Join(left, ", "), strings.Join(want, ", "))
-	}
-	// Settings copies go with their snapshots; other files stay.
-	names, _ := filepath.Glob(filepath.Join(dir, "*.settings.yml"))
-	if len(names) != 11 {
-		t.Errorf("%d settings copies: %v", len(names), names)
-	}
-	for _, f := range []string{"notes.txt", Name(start) + ".tmp"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
-			t.Errorf("%s: %v", f, err)
+func TestArchive(t *testing.T) {
+	ctx := context.Background()
+	st, dir, settings := data(t)
+	start := time.Date(2026, 10, 1, 3, 0, 0, 0, time.Local)
+	for d := 0; d < 5; d++ {
+		if _, _, err := Archive(ctx, st, dir, settings, start.AddDate(0, 0, d), 3); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// Rotating again changes nothing.
-	if gone, _ := Rotate(dir, Keep{Daily: 7, Weekly: 4}); len(gone) != 0 {
-		t.Errorf("second rotation removed %v", gone)
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	// The newest 3, nothing temporary left.
+	if strings.Join(names, " ") != "terakoya-2026-10-03-0300.tar.gz terakoya-2026-10-04-0300.tar.gz terakoya-2026-10-05-0300.tar.gz" {
+		t.Errorf("archives = %v", names)
+	}
+	files := unpack(t, filepath.Join(dir, "terakoya-2026-10-05-0300.tar.gz"))
+	if len(files) != 2 || files[store.SettingsFile] != "backup:\n  mode: folder\n" || !strings.HasPrefix(files[store.DBFile], "SQLite format 3") {
+		t.Errorf("archive has %d files", len(files))
+	}
+	// Removes report how many went.
+	if _, n, err := Archive(ctx, st, dir, settings, start.AddDate(0, 0, 9), 1); err != nil || n != 3 {
+		t.Errorf("removed %d, %v", n, err)
+	}
+	last, ok, _ := Last(dir)
+	if !ok || filepath.Base(last.Path) != "terakoya-2026-10-10-0300.tar.gz" {
+		t.Errorf("last = %+v", last)
+	}
+	// Without a settings file the archive has the database only.
+	os.Remove(settings)
+	b, _, _ := Archive(ctx, st, dir, settings, start.AddDate(0, 0, 10), 5)
+	if files := unpack(t, b.Path); len(files) != 1 {
+		t.Errorf("without settings: %d files", len(files))
 	}
 }
 
-func must[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
+func TestLastPicksTheNewest(t *testing.T) {
+	ctx := context.Background()
+	st, dir, settings := data(t)
+	if _, ok, err := Last(dir); ok || err != nil {
+		t.Fatalf("empty: %v %v", ok, err)
 	}
-	return v
+	// A copy taken before a migration does not count.
+	os.MkdirAll(filepath.Join(dir, "before-v12"), 0o755)
+	os.WriteFile(filepath.Join(dir, "before-v12", store.DBFile), []byte("x"), 0o644)
+	if _, ok, _ := Last(dir); ok {
+		t.Error("before-v12 counted")
+	}
+	Archive(ctx, st, dir, settings, time.Now(), 3)
+	old := time.Now().Add(-48 * time.Hour)
+	Folder(ctx, st, dir, settings, old)
+	os.Chtimes(filepath.Join(dir, Latest, store.DBFile), old, old)
+	if last, _, _ := Last(dir); !strings.HasSuffix(last.Path, ".tar.gz") {
+		t.Errorf("last = %s, want the newer archive", last.Path)
+	}
+}
+
+func TestNext(t *testing.T) {
+	loc := time.FixedZone("MSK", 3*3600)
+	cases := []struct {
+		now  time.Time
+		at   string
+		want time.Time
+	}{
+		{time.Date(2026, 10, 19, 2, 0, 0, 0, loc), "03:00", time.Date(2026, 10, 19, 3, 0, 0, 0, loc)},
+		{time.Date(2026, 10, 19, 3, 0, 0, 0, loc), "03:00", time.Date(2026, 10, 20, 3, 0, 0, 0, loc)},
+		{time.Date(2026, 10, 19, 23, 59, 0, 0, loc), "00:00", time.Date(2026, 10, 20, 0, 0, 0, 0, loc)},
+		{time.Date(2026, 12, 31, 22, 0, 0, 0, loc), "21:30", time.Date(2027, 1, 1, 21, 30, 0, 0, loc)},
+	}
+	for _, c := range cases {
+		if got := Next(c.now, c.at); !got.Equal(c.want) {
+			t.Errorf("Next(%v, %s) = %v, want %v", c.now, c.at, got, c.want)
+		}
+	}
+	if !Next(time.Now(), "25:00").IsZero() {
+		t.Error("bad time scheduled")
+	}
 }

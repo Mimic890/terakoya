@@ -8,6 +8,9 @@ services:
     # from taking the server's memory.
     mem_limit: 512m
     env_file: .env
+    environment:
+      # The time zone of the daily backup time in settings.yml.
+      TZ: Europe/Minsk
     ports:
       # Git host webhooks; put a TLS reverse proxy in front.
       - "127.0.0.1:8080:8080"

@@ -276,23 +276,35 @@ func printServer(w io.Writer, s bot.AdminServer) {
 	} else {
 		fmt.Fprintln(w, "Last sync:   none since start")
 	}
-	switch b := s.LastBackup; {
-	case b == nil:
-		fmt.Fprintln(w, "Backup:      none yet")
-	case b.Err != "":
-		fmt.Fprintf(w, "Backup:      %s, failed: %s\n", when(b.At), b.Err)
-	default:
-		fmt.Fprintf(w, "Backup:      %s, %s, %d snapshots\n", when(b.At), stats.Bytes(b.Size), b.Count)
-	}
+	printBackupState(w, s.Backup)
 }
 
 func printBackup(w io.Writer, r bot.BackupResult) {
 	if r.Err != "" {
 		fmt.Fprintf(w, "Backup failed: %s\n", r.Err)
-		return
+	} else {
+		fmt.Fprintf(w, "Backup written and checked: %s (%s)\n", r.Path, stats.Bytes(r.Size))
+		if r.Removed > 0 {
+			fmt.Fprintf(w, "Old archives removed: %d\n", r.Removed)
+		}
 	}
-	fmt.Fprintf(w, "Backup written and checked: %s (%s)\n", r.Path, stats.Bytes(r.Size))
-	fmt.Fprintf(w, "Snapshots: %d kept, %d old ones removed\n", r.Count, r.Removed)
+	printBackupState(w, r)
+}
+
+// printBackupState prints the mode, the last backup and the next run.
+func printBackupState(w io.Writer, r bot.BackupResult) {
+	last := "none yet"
+	switch {
+	case r.Err != "":
+		last = when(r.At) + ", failed: " + r.Err
+	case !r.At.IsZero():
+		last = when(r.At) + ", " + stats.Bytes(r.Size)
+	}
+	next := "not scheduled"
+	if !r.Next.IsZero() {
+		next = when(r.Next)
+	}
+	fmt.Fprintf(w, "Backup:      mode %s; last %s; next %s\n", r.Mode, last, next)
 }
 
 func printStats(w io.Writer, s bot.AdminStats) {

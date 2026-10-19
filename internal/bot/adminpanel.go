@@ -347,18 +347,35 @@ func (b *Bot) serverText(s AdminServer) string {
 		s.APITotal.Calls, B(s.APITotal.Sent), B(s.APITotal.Received),
 		B(s.Vault.Total), B(s.Vault.Markdown), B(s.Vault.Images), B(s.Vault.Git),
 		B(s.DataDir), B(s.DB), s.MediaRows,
-		short(s.Commit), b.ago(s.CommitTime), s.Notes, last) + "\n" + b.backupLine(s.LastBackup)
+		short(s.Commit), b.ago(s.CommitTime), s.Notes, last) + "\n" + b.backupLine(s.Backup)
 }
 
-// backupLine is the last backup on the «Сервер» screen.
-func (b *Bot) backupLine(r *BackupResult) string {
+// backupLine is the backups on the «Сервер» screen: the mode, the last
+// one and the next run.
+func (b *Bot) backupLine(r BackupResult) string {
+	last := b.t.AdminBackupNone
 	switch {
-	case r == nil:
-		return b.t.AdminBackupNone
 	case r.Err != "":
-		return fmt.Sprintf(b.t.AdminBackupFailed, b.moment(r.At), r.Err)
+		last = fmt.Sprintf(b.t.AdminBackupFailed, b.moment(r.At), r.Err)
+	case !r.At.IsZero():
+		last = b.moment(r.At) + ", " + stats.Bytes(r.Size)
 	}
-	return fmt.Sprintf(b.t.AdminBackup, b.moment(r.At), stats.Bytes(r.Size), r.Count)
+	next := b.t.AdminBackupUnscheduled
+	if !r.Next.IsZero() {
+		next = b.moment(r.Next)
+	}
+	return fmt.Sprintf(b.t.AdminBackup, b.backupMode(r.Mode), last, next)
+}
+
+// backupMode names a backup mode for /admin.
+func (b *Bot) backupMode(mode string) string {
+	switch mode {
+	case "archive":
+		return b.t.AdminBackupArchive
+	case "off":
+		return b.t.AdminBackupOff
+	}
+	return b.t.AdminBackupFolder
 }
 
 // syncText renders the outcome of «Обновить vault».

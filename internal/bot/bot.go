@@ -72,6 +72,7 @@ type Bot struct {
 	limit        *limiter // updates per user; nil allows all
 	backupMu     sync.Mutex
 	lastBackup   *BackupResult // since the start
+	backupWake   chan struct{} // settings.yml changed: reschedule
 	userLocks    userLocks
 	syncMu       sync.Mutex
 	rejectGrace  time.Duration
@@ -102,7 +103,7 @@ type Bot struct {
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
 	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
 		rejectGrace: rejectGrace, broadcastGap: broadcastGap, progressEvery: progressEvery, sleep: sleep,
-		clock: time.Now, traffic: &stats.Counter{}, seen: map[int64]time.Time{}, views: map[int64]adminView{},
+		clock: time.Now, traffic: &stats.Counter{}, backupWake: make(chan struct{}, 1), seen: map[int64]time.Time{}, views: map[int64]adminView{},
 		procRoot: "/proc", sysRoot: "/sys"}
 	b.started = b.clock()
 	b.stopCtx, b.stopNow = context.WithCancel(context.Background())
@@ -140,6 +141,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 		return nil, fmt.Errorf("settings: %w", err)
 	}
 	b.settings.OnChange = func(s settings.Settings) {
+		b.rescheduleBackups()
 		b.emoji.set(s)
 		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

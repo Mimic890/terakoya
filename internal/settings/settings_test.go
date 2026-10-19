@@ -242,3 +242,39 @@ func TestRanksSection(t *testing.T) {
 		t.Errorf("after update = %+v, %v", s.HideFutureRanks, err)
 	}
 }
+
+func TestBackupSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	f, _ := Open(path, nil, logger(nil))
+	if got := f.Get().Backup; got != DefaultBackup() || got != (Backup{Mode: "folder", Time: "03:00", Keep: 7}) {
+		t.Errorf("default = %+v", got)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "backup:\n  mode: folder\n  time: \"03:00\"\n  keep: 7\n") {
+		t.Errorf("file:\n%s", data)
+	}
+	// A file without the section gets the defaults; a partial one keeps
+	// the rest of them.
+	os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\nbackup:\n  mode: archive\n"), 0o644)
+	if s, err := Load(path); err != nil || s.Backup != (Backup{Mode: "archive", Time: "03:00", Keep: 7}) {
+		t.Errorf("partial = %+v, %v", s.Backup, err)
+	}
+	for _, c := range []struct{ yaml, err string }{
+		{"mode: weekly", "backup.mode"},
+		{"time: \"3:00\"", "backup.time"},
+		{"time: \"24:00\"", "backup.time"},
+		{"time: \"03:60\"", "backup.time"},
+		{"keep: 0", "backup.keep"},
+		{"keep: 366", "backup.keep"},
+		{"every: 2h", "field every not found"},
+	} {
+		os.WriteFile(path, []byte("ranks:\n  - {title: a, from: 0}\nbackup:\n  "+c.yaml+"\n"), 0o644)
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%s: err = %v, want %s", c.yaml, err, c.err)
+		}
+	}
+	for _, ok := range []string{"00:00", "23:59", "03:00"} {
+		if _, _, err := ParseClock(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+}

@@ -37,7 +37,8 @@ func (f *fakeBot) AdminServer(context.Context) (bot.AdminServer, error) {
 	return bot.AdminServer{RSS: 20 << 20, Heap: 5 << 20, Goroutines: 12, Version: "abcdef1234567",
 		NetRx: 3 << 30, NetTx: 1 << 20, APIToday: store.Traffic{Calls: 10, Sent: 1024, Received: 2048},
 		APITotal: store.Traffic{Calls: 100}, Vault: stats.Vault{Total: 50 << 20, Markdown: 1 << 20, Images: 20 << 20, Git: 29 << 20},
-		Notes: 10, Commit: "abcdef1234567"}, nil
+		Notes: 10, Commit: "abcdef1234567", Backup: bot.BackupResult{Mode: "folder",
+			Next: time.Date(2026, 10, 20, 3, 0, 0, 0, time.UTC)}}, nil
 }
 
 func (f *fakeBot) AdminStats(context.Context) (bot.AdminStats, error) {
@@ -79,7 +80,8 @@ func (f *fakeBot) BackupNow(context.Context) bot.BackupResult {
 	if f.backupErr != "" {
 		return bot.BackupResult{Err: f.backupErr}
 	}
-	return bot.BackupResult{Path: "/srv/data/backups/terakoya-20261019-030000.db", Size: 96 << 10, Count: 8, Removed: 1}
+	return bot.BackupResult{Mode: "archive", Path: "/srv/data/backups/terakoya-2026-10-19-0300.tar.gz", Size: 96 << 10, Removed: 1,
+		At: time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC), Next: time.Date(2026, 10, 20, 3, 0, 0, 0, time.UTC)}
 }
 
 func (f *fakeBot) RecipientCount(context.Context) (int, error) { return 5, nil }
@@ -132,9 +134,9 @@ func TestAdminCommands(t *testing.T) {
 		{[]string{"nick-reset", "42"}, 0, []string{`Nickname "Ёжик" reset; the user is now @anya and was told.`}},
 		{[]string{"nick-reset", "@bob"}, 1, nil},
 		{[]string{"sync"}, 0, []string{"Updated aaaaaaa → bbbbbbb, notes 10 → 11, 1 errors, 0 warnings", "a.md:3: error: broken link"}},
-		{[]string{"backup"}, 0, []string{"Backup written and checked: /srv/data/backups/terakoya-20261019-030000.db (96 КБ)",
-			"Snapshots: 8 kept, 1 old ones removed"}},
-		{[]string{"server"}, 0, []string{"Backup:      none yet"}},
+		{[]string{"backup"}, 0, []string{"Backup written and checked: /srv/data/backups/terakoya-2026-10-19-0300.tar.gz (96 КБ)",
+			"Old archives removed: 1", "Backup:      mode archive; last 2026-10-19 03:00, 96 КБ; next 2026-10-20 03:00"}},
+		{[]string{"server"}, 0, []string{"Backup:      mode folder; last none yet; next 2026-10-20 03:00"}},
 		{[]string{"nope"}, 2, nil},
 		{nil, 2, nil},
 	}

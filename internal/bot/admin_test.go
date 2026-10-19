@@ -298,7 +298,7 @@ func TestAdminServer(t *testing.T) {
 	}
 	for _, want := range []string{"Сервер\n\nПамять: RSS 20 МБ, Go heap ", "Работает: ", "версия dev",
 		"Сеть контейнера: получено 1 МБ, отправлено 1 МБ", "Telegram API сегодня: запросов ", "Vault на диске: ",
-		"Данные: ", "file_id в кэше: 0", "Vault: коммит ", "Синхронизаций с запуска не было\nРезервных копий пока нет"} {
+		"Данные: ", "file_id в кэше: 0", "Vault: коммит ", "Синхронизаций с запуска не было\nРезервные копии: папка latest\nПоследняя: ещё не было\nСледующая: "} {
 		if !strings.Contains(edits[1], want) {
 			t.Errorf("server misses %q:\n%s", want, edits[1])
 		}

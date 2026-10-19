@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -233,7 +231,7 @@ var migrations = []string{
 }
 
 // migrate brings the schema to version to. An existing database is
-// copied to the backups folder first (see PreMigrationSnapshot), so a
+// copied to backups/before-v<to>/ first, with the settings file, so a
 // migration gone wrong loses nothing.
 func (s *Store) migrate(ctx context.Context, to int) error {
 	var version int
@@ -241,12 +239,8 @@ func (s *Store) migrate(ctx context.Context, to int) error {
 		return err
 	}
 	if version > 0 && version < to {
-		p := filepath.Join(filepath.Dir(s.path), BackupsDir, PreMigrationName(s.now(), to))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
-		if err := s.Snapshot(ctx, p); err != nil {
-			return fmt.Errorf("snapshot before migrating to version %d: %w", to, err)
+		if err := s.beforeMigration(ctx, to); err != nil {
+			return fmt.Errorf("backup before migrating to version %d: %w", to, err)
 		}
 	}
 	for i := version; i < to; i++ {
