@@ -10,7 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -208,5 +211,79 @@ func TestSVGFailureLeavesImageOut(t *testing.T) {
 	}
 	if got := p.Strip(part.Markdown); got != "a\n\nb\n" {
 		t.Errorf("stripped = %q", got)
+	}
+}
+
+// slowRaster blocks until released and counts conversions.
+type slowRaster struct {
+	calls   atomic.Int32
+	release chan struct{}
+}
+
+func (f *slowRaster) Tag() string { return "slow" }
+func (f *slowRaster) Rasterize(context.Context, string) ([]byte, error) {
+	f.calls.Add(1)
+	<-f.release
+	return []byte("\x89PNG"), nil
+}
+
+type lockedCache struct {
+	mu      sync.Mutex
+	m       memCache
+	lookups atomic.Int32
+}
+
+func (c *lockedCache) MediaFileID(ctx context.Context, sha string) (string, error) {
+	c.lookups.Add(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.m.MediaFileID(ctx, sha)
+}
+func (c *lockedCache) PutMediaFileID(ctx context.Context, sha, id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.m.PutMediaFileID(ctx, sha, id)
+}
+func (c *lockedCache) DeleteMediaFileID(ctx context.Context, sha string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.m.DeleteMediaFileID(ctx, sha)
+}
+
+func TestConcurrentOpensConvertOnce(t *testing.T) {
+	ras := &slowRaster{release: make(chan struct{})}
+	cache := &lockedCache{m: memCache{}}
+	r := &Resolver{Cache: cache, Raster: ras, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	part := svgPart(t, t.TempDir(), "рис.svg", "<svg/>")
+	const users = 8
+	var wg sync.WaitGroup
+	results := make(chan *Prepared, users)
+	for i := 0; i < users; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p, err := r.Prepare(context.Background(), part)
+			if err != nil {
+				t.Error(err)
+			}
+			results <- p
+		}()
+	}
+	// Every user has missed the cache and is about to wait for the
+	// conversion before it finishes.
+	for cache.lookups.Load() < users || ras.calls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(ras.release)
+	wg.Wait()
+	close(results)
+	if n := ras.calls.Load(); n != 1 {
+		t.Errorf("converted %d times", n)
+	}
+	for p := range results {
+		if len(p.Entries) != 1 || len(p.Failed) != 0 {
+			t.Errorf("prepared = %+v", p)
+		}
 	}
 }

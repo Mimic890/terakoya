@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     # Run as the owner of the bind-mounted directories.
     user: "${UID:-1000}:${GID:-1000}"
+    # The bot needs about 30 MB; the cap keeps a runaway SVG conversion
+    # from taking the server's memory.
+    mem_limit: 512m
     env_file: .env
     ports:
       # Git host webhooks; put a TLS reverse proxy in front.

@@ -51,19 +51,21 @@ func writeTree(t *testing.T, files map[string]string) string {
 func TestFindsProblems(t *testing.T) {
 	long := "# Длинная\n\n" + strings.Repeat("## Раздел\n\n"+strings.Repeat("слово ", 2000)+"\n\n", 4)
 	root := writeTree(t, map[string]string{
-		"Г/7 класс/01 А/А.md":               "# А\n\n[битая](Нет.md), [общая](Общая.md), [[Общая]], [по пути](теоремы/Общая.md)\n\n![](рис.svg)\n\n![](плохой.svg)\n",
-		"Г/7 класс/01 А/теоремы/Общая.md":   "Без заголовка.\n",
-		"Г/7 класс/01 А/_assets/рис.svg":    "<svg/>",
-		"Г/7 класс/01 А/_assets/плохой.svg": "<svg broken",
-		"Г/7 класс/01 А/_assets/лишний.png": "png",
-		"Г/7 класс/01 Б/Б.md":               "# Б\n",
-		"Г/7 класс/01 Б/теоремы/Общая.md":   "# Общая Б\n",
-		"Г/7 класс/02 Пустая/_assets/x.png": "png",
-		"Г/7 класс/03 Две/Одна.md":          "# Одна\n",
-		"Г/7 класс/03 Две/Другая.md":        "# Другая\n",
-		"Г/7 класс/04 Длинная/Длинная.md":   long,
-		"Г/7 класс/notes.docx":              "x",
-		".obsidian/app.json":                "{}",
+		"Г/7 класс/01 А/А.md":                "# А\n\n[битая](Нет.md), [общая](Общая.md), [[Общая]], [по пути](теоремы/Общая.md)\n\n![](рис.svg)\n\n![](плохой.svg)\n",
+		"Г/7 класс/01 А/теоремы/Общая.md":    "Без заголовка.\n",
+		"Г/7 класс/01 А/_assets/рис.svg":     "<svg/>",
+		"Г/7 класс/01 А/_assets/плохой.svg":  "<svg><desc>broken</desc></svg>",
+		"Г/7 класс/01 А/_assets/кривой.svg":  "<svg",
+		"Г/7 класс/01 А/_assets/внешний.svg": `<svg><image href="/etc/passwd"/></svg>`,
+		"Г/7 класс/01 А/_assets/лишний.png":  "png",
+		"Г/7 класс/01 Б/Б.md":                "# Б\n",
+		"Г/7 класс/01 Б/теоремы/Общая.md":    "# Общая Б\n",
+		"Г/7 класс/02 Пустая/_assets/x.png":  "png",
+		"Г/7 класс/03 Две/Одна.md":           "# Одна\n",
+		"Г/7 класс/03 Две/Другая.md":         "# Другая\n",
+		"Г/7 класс/04 Длинная/Длинная.md":    long,
+		"Г/7 класс/notes.docx":               "x",
+		".obsidian/app.json":                 "{}",
 	})
 	issues, err := Run(context.Background(), root, fakeRaster{})
 	if err != nil {
@@ -78,6 +80,8 @@ func TestFindsProblems(t *testing.T) {
 		"Г/7 класс/01 А/А.md:3: error: link to Нет.md: not found",
 		"Г/7 класс/01 А/А.md:3: error: link to Общая.md: ambiguous",
 		"Г/7 класс/01 А/_assets/плохой.svg: error: cannot rasterize: resvg: unexpected end of stream",
+		"Г/7 класс/01 А/_assets/кривой.svg: error: cannot rasterize: not a valid SVG",
+		"Г/7 класс/01 А/_assets/внешний.svg: error: cannot rasterize: refers to \"/etc/passwd\"",
 		"Г/7 класс/01 А/_assets/лишний.png: warning: picture is not shown by any note",
 		"Г/7 класс/01 А/теоремы/Общая.md: warning: note has no title line",
 		"Г/7 класс/01 Б: error: topic number 1 is also used by «01 А»",
@@ -102,9 +106,12 @@ func TestFindsProblems(t *testing.T) {
 }
 
 func TestSkipsSVGWithoutRasterizer(t *testing.T) {
-	root := writeTree(t, map[string]string{"Г/7 класс/01 А/А.md": "# А\n\n![](a.svg)\n", "Г/7 класс/01 А/_assets/a.svg": "<svg/>"})
+	root := writeTree(t, map[string]string{"Г/7 класс/01 А/А.md": "# А\n\n![](a.svg)\n\n![](b.svg)\n",
+		"Г/7 класс/01 А/_assets/a.svg": "<svg/>", "Г/7 класс/01 А/_assets/b.svg": `<svg width="5000" height="10"/>`})
 	issues, _ := Run(context.Background(), root, nil)
-	if len(issues) != 1 || issues[0].Severity != content.Info || !strings.Contains(issues[0].Msg, "not checked") {
+	// The size is checked without resvg; rendering is not.
+	if len(issues) != 2 || issues[0].Severity != content.Info || !strings.Contains(issues[0].Msg, "not rendered") ||
+		!strings.Contains(issues[1].String(), "b.svg: error: cannot rasterize: drawing is 5000×10 px") {
 		t.Errorf("issues = %v", issues)
 	}
 }

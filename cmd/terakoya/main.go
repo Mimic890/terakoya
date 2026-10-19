@@ -58,7 +58,7 @@ func runLint(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	ras := raster.New(os.Getenv("TERAKOYA_RESVG"), os.Getenv("TERAKOYA_FONTS_DIR"))
+	ras := raster.New(os.Getenv("TERAKOYA_RESVG"), os.Getenv("TERAKOYA_FONTS_DIR"), fs.Arg(0))
 	issues, err := lint.Run(context.Background(), fs.Arg(0), ras)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

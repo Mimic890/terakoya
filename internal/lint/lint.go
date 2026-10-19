@@ -41,7 +41,8 @@ func Run(ctx context.Context, dir string, ras raster.Rasterizer) ([]content.Issu
 }
 
 // images warns about pictures no note shows and reports SVGs that fail to
-// rasterize.
+// rasterize: too big, referring to files outside the vault, or rejected
+// by resvg.
 func images(ctx context.Context, cat *content.Catalog, used map[string]bool, ras raster.Rasterizer) []content.Issue {
 	var out []content.Issue
 	var svgs []string
@@ -57,14 +58,23 @@ func images(ctx context.Context, cat *content.Catalog, used map[string]bool, ras
 			svgs = append(svgs, rel)
 		}
 	}
-	if len(svgs) == 0 {
+	// Size and the files a drawing refers to are checked without resvg.
+	var ok []string
+	for _, rel := range svgs {
+		if _, err := raster.Check(cat.Root+"/"+rel, cat.Root); err != nil {
+			out = append(out, content.Issue{Path: rel, Severity: content.Error, Msg: "cannot rasterize: " + err.Error()})
+			continue
+		}
+		ok = append(ok, rel)
+	}
+	if len(ok) == 0 {
 		return out
 	}
-	if r, ok := ras.(*raster.Resvg); ras == nil || ok && !r.Available() {
+	if r, isResvg := ras.(*raster.Resvg); ras == nil || isResvg && !r.Available() {
 		return append(out, content.Issue{Path: ".", Severity: content.Info,
-			Msg: "SVG drawings were not checked: " + raster.ErrNoResvg.Error()})
+			Msg: "SVG drawings were not rendered: " + raster.ErrNoResvg.Error()})
 	}
-	for _, rel := range svgs {
+	for _, rel := range ok {
 		if _, err := ras.Rasterize(ctx, cat.Root+"/"+rel); err != nil {
 			out = append(out, content.Issue{Path: rel, Severity: content.Error, Msg: "cannot rasterize: " + err.Error()})
 		}
