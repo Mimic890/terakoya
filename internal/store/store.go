@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,8 +23,9 @@ var ErrExpired = errors.New("session expired")
 
 // Store wraps the database.
 type Store struct {
-	db  *sql.DB
-	now func() time.Time
+	db   *sql.DB
+	path string
+	now  func() time.Time
 }
 
 // Open opens (and migrates) the database at path.
@@ -34,8 +37,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	// SQLite allows one writer; a single connection avoids SQLITE_BUSY.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db, now: time.Now}
-	if err := s.migrate(ctx); err != nil {
+	s := &Store{db: db, path: path, now: time.Now}
+	if err := s.migrate(ctx, len(migrations)); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -220,12 +223,24 @@ var migrations = []string{
 	UPDATE broadcasts SET finished_at = created_at WHERE finished_at IS NULL;`,
 }
 
-func (s *Store) migrate(ctx context.Context) error {
+// migrate brings the schema to version to. An existing database is
+// copied to the backups folder first (see PreMigrationSnapshot), so a
+// migration gone wrong loses nothing.
+func (s *Store) migrate(ctx context.Context, to int) error {
 	var version int
 	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	for i := version; i < len(migrations); i++ {
+	if version > 0 && version < to {
+		p := filepath.Join(filepath.Dir(s.path), BackupsDir, PreMigrationName(s.now(), to))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := s.Snapshot(ctx, p); err != nil {
+			return fmt.Errorf("snapshot before migrating to version %d: %w", to, err)
+		}
+	}
+	for i := version; i < to; i++ {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
