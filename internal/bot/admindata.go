@@ -265,17 +265,24 @@ func (b *Bot) AdminUsers(ctx context.Context, query string, page int) (AdminUser
 	if r.Counts, err = b.store.CountUsers(ctx, startOfDay(b.clock())); err != nil {
 		return r, err
 	}
-	all, err := b.store.FindUsers(ctx, query)
-	if err != nil {
-		return r, err
+	// A page past the end shows the last one: the list may have
+	// shrunk since it was opened.
+	r.Query, r.Page = query, max(page, 0)
+	for {
+		users, found, err := b.store.FindUsers(ctx, query, usersPerPage, r.Page*usersPerPage)
+		if err != nil {
+			return r, err
+		}
+		r.Found, r.Pages = found, max(1, (found+usersPerPage-1)/usersPerPage)
+		if r.Page >= r.Pages {
+			r.Page = r.Pages - 1
+			continue
+		}
+		for _, u := range users {
+			r.Users = append(r.Users, b.adminUser(u))
+		}
+		return r, nil
 	}
-	r.Query, r.Found = query, len(all)
-	r.Pages = max(1, (len(all)+usersPerPage-1)/usersPerPage)
-	r.Page = min(max(page, 0), r.Pages-1)
-	for _, u := range all[min(r.Page*usersPerPage, len(all)):min((r.Page+1)*usersPerPage, len(all))] {
-		r.Users = append(r.Users, b.adminUser(u))
-	}
-	return r, nil
 }
 
 // ErrNoUser is returned for a user the bot does not know.
@@ -323,7 +330,8 @@ func (b *Bot) ResetNickname(ctx context.Context, ref string, by int64) (string, 
 	if u.Nickname == "" {
 		return "", AdminUser{}, ErrNoNickname
 	}
-	if err := b.store.SetNickname(ctx, u.TgID, "", ""); err != nil {
+	// The user may choose a new name right away.
+	if err := b.store.ResetNickname(ctx, u.TgID); err != nil {
 		return "", AdminUser{}, err
 	}
 	b.log.Info("nickname reset", "user", u.TgID, "by", by)

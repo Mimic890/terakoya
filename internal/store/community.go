@@ -11,17 +11,27 @@ import (
 // ErrNicknameTaken is returned when another user has the nickname.
 var ErrNicknameTaken = errors.New("nickname taken")
 
-// SetNickname sets the user's nickname, or clears it with "". key is the
-// folded form that must be unique among users.
+// SetNickname sets the user's nickname, or clears it with "", as their
+// own choice, which starts the time until they may change it again. key
+// is the folded form that must be unique among users.
 func (s *Store) SetNickname(ctx context.Context, tgID int64, nick, key string) error {
 	var k any = key
 	if nick == "" {
 		k = nil
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET nickname = ?, nickname_key = ? WHERE tg_id = ?`, nick, k, tgID)
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET nickname = ?, nickname_key = ?, nickname_changed_at = ? WHERE tg_id = ?`,
+		nick, k, s.now().Unix(), tgID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return ErrNicknameTaken
 	}
+	return err
+}
+
+// ResetNickname clears a nickname an admin found unfit. The user may
+// choose another one right away.
+func (s *Store) ResetNickname(ctx context.Context, tgID int64) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users SET nickname = '', nickname_key = NULL, nickname_changed_at = NULL WHERE tg_id = ?`, tgID)
 	return err
 }
 

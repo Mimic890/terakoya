@@ -273,7 +273,7 @@ func printStats(w io.Writer, s bot.AdminStats) {
 	for _, top := range []struct {
 		title string
 		notes []bot.NoteStat
-	}{{"Most opened, 7 days", s.TopWeek}, {"Most opened, all time", s.TopAll}} {
+	}{{"Most opened, 7 days", s.TopWeek}, {"Most opened, 180 days", s.TopAll}} {
 		fmt.Fprintf(w, "\n%s:\n", top.title)
 		if len(top.notes) == 0 {
 			fmt.Fprintln(w, "  none yet")

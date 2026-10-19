@@ -103,9 +103,9 @@ func (s *Store) SetMessageGroup(ctx context.Context, chatID int64, msgIDs []int)
 	defer tx.Rollback()
 	for _, id := range msgIDs {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO message_parts (chat_id, msg_id, group_id) VALUES (?, ?, ?)
-			ON CONFLICT (chat_id, msg_id) DO UPDATE SET group_id = excluded.group_id`,
-			chatID, id, msgIDs[0]); err != nil {
+			INSERT INTO message_parts (chat_id, msg_id, group_id, created_at) VALUES (?, ?, ?, ?)
+			ON CONFLICT (chat_id, msg_id) DO UPDATE SET group_id = excluded.group_id, created_at = excluded.created_at`,
+			chatID, id, msgIDs[0], s.now().Unix()); err != nil {
 			return err
 		}
 	}

@@ -196,10 +196,10 @@ func TestAccount(t *testing.T) {
 		t.Errorf("account =\n%s\nwant\n%s", got, want)
 	}
 
-	// Accepted reports count; an accepted edit of an earlier version does
-	// not.
-	for n, kind := range []string{store.KindReport, store.KindReport, store.KindEdit} {
-		h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, PRNumber: n + 1})
+	// Accepted reports count; a row of another kind, which early versions
+	// wrote, does not.
+	for n, kind := range []string{store.KindReport, store.KindReport, "edit"} {
+		h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, Issue: n + 1})
 	}
 	for _, n := range []int{1, 3} {
 		sg, _ := h.store.SuggestionByNumber(h.ctx, n)
@@ -246,7 +246,7 @@ func TestAccountAndHistoryMessages(t *testing.T) {
 	accID := h.tg.lastID("sendRichMessage")
 
 	// The list replaces it; «Назад» brings it back.
-	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "a", TgID: 42, Kind: store.KindEdit, PRNumber: 1,
+	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "a", TgID: 42, Kind: store.KindReport, Issue: 1,
 		ArticlePath: triangles, Title: "Треугольники"})
 	h.tapOn(accID, cbHistory)
 	calls = h.tg.take()
@@ -283,7 +283,7 @@ func TestHistory(t *testing.T) {
 		t.Errorf("empty = %q", got)
 	}
 	add := func(n int, kind, p, title, status, comment string) {
-		sg := &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, PRNumber: n, ArticlePath: p, Title: title}
+		sg := &store.Suggestion{ShortID: fmt.Sprint(n), TgID: 42, Kind: kind, Issue: n, ArticlePath: p, Title: title}
 		h.store.CreateSuggestion(h.ctx, sg)
 		if status != store.StatusOpen {
 			h.store.ResolveSuggestion(h.ctx, sg.ID, status)
@@ -292,19 +292,19 @@ func TestHistory(t *testing.T) {
 			h.store.SetSuggestionComment(h.ctx, sg.ID, comment)
 		}
 	}
-	add(1, store.KindEdit, triangles, "Треугольники", store.StatusMerged, "")
-	add(2, store.KindNew, "Геометрия/7 класс/02 Углы/Углы.md", "Углы", store.StatusOpen, "")
-	add(3, store.KindNew, vtopic+"/задачи/Новая [задача].md", "Новая [задача]", store.StatusClosed, "Нужен\nчертёж $")
+	add(1, store.KindReport, triangles, "Треугольники", store.StatusMerged, "")
+	add(2, store.KindReport, "Геометрия/10 класс", "Геометрия · 10 класс", store.StatusOpen, "")
+	add(3, store.KindReport, vtopic+"/задачи/Новая [задача].md", "Новая [задача]", store.StatusClosed, "Нужен\nчертёж $")
 	add(4, store.KindReport, vmain, "Параллельность прямой и плоскости", store.StatusOpen, "")
 	add(5, store.KindReport, "Геометрия/7 класс", "Геометрия · 7 класс", store.StatusMerged, "")
 	got := h.bot.historyMarkdown(h.ctx, 42)
 	today := h.bot.date(time.Now())
 	for _, want := range []string{
 		"## На рассмотрении\n\n- [Параллельность прямой и плоскости](" + suggest.LinkTarget(vmain) + ") — ошибка, " + today +
-			"\n- Углы — новая тема, " + today + "\n\n---\n\n## Приняты",
+			"\n- Геометрия · 10 класс — не хватает материала, " + today + "\n\n---\n\n## Приняты",
 		"## Приняты\n\n- Геометрия · 7 класс — не хватает материала, " + today +
-			"\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — правка, " + today + "\n",
-		"## Отклонены\n\n- Новая \\[задача\\] — новая запись, " + today + "\n  Комментарий: «Нужен чертёж \\$»\n",
+			"\n- [Треугольники](" + suggest.LinkTarget(triangles) + ") — ошибка, " + today + "\n",
+		"## Отклонены\n\n- Новая \\[задача\\] — ошибка, " + today + "\n  Комментарий: «Нужен чертёж \\$»\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("history has no\n%s\n---\n%s", want, got)

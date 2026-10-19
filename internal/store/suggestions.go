@@ -7,21 +7,19 @@ import (
 	"time"
 )
 
-// Suggestion kinds and statuses.
+// Suggestion kinds and statuses. Reports are the only kind left; the
+// edits and new topics of early versions, which were pull requests, were
+// never used in production.
 const (
-	KindEdit   = "edit"
-	KindNew    = "new"
-	KindReport = "report" // an issue rather than a pull request
+	KindReport = "report"
 
 	StatusOpen   = "open"
 	StatusMerged = "merged"
 	StatusClosed = "closed"
 )
 
-// Suggestion is an error report, submitted as an issue. Edits and new
-// topics, submitted as pull requests by earlier versions, stay in the
-// user's history. PRNumber holds the issue number for reports; both hosts
-// number issues and pull requests together.
+// Suggestion is an error report, submitted as an issue. The columns
+// keep their pull request era names: pr_number is the issue number.
 type Suggestion struct {
 	ID          int64
 	ShortID     string
@@ -31,8 +29,8 @@ type Suggestion struct {
 	Title       string
 	BaseSHA     string
 	Branch      string
-	PRNumber    int
-	PRURL       string
+	Issue       int
+	IssueURL    string
 	Status      string
 	CreatedAt   time.Time
 	ResolvedAt  time.Time // zero while open
@@ -52,7 +50,7 @@ func (s *Store) CreateSuggestion(ctx context.Context, sg *Suggestion) error {
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO suggestions (short_id, tg_id, kind, article_path, title, base_sha, branch, pr_number, pr_url, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-		sg.ShortID, sg.TgID, sg.Kind, sg.ArticlePath, sg.Title, sg.BaseSHA, sg.Branch, sg.PRNumber, sg.PRURL, now.Unix())
+		sg.ShortID, sg.TgID, sg.Kind, sg.ArticlePath, sg.Title, sg.BaseSHA, sg.Branch, sg.Issue, sg.IssueURL, now.Unix())
 	if err != nil {
 		return err
 	}
@@ -75,7 +73,7 @@ func scanSuggestion(row interface{ Scan(...any) error }) (Suggestion, error) {
 	var created int64
 	var resolved sql.NullInt64
 	err := row.Scan(&sg.ID, &sg.ShortID, &sg.TgID, &sg.Kind, &sg.ArticlePath, &sg.Title, &sg.BaseSHA, &sg.Branch,
-		&sg.PRNumber, &sg.PRURL, &sg.Status, &created, &resolved, &sg.Comment)
+		&sg.Issue, &sg.IssueURL, &sg.Status, &created, &resolved, &sg.Comment)
 	sg.CreatedAt = time.Unix(created, 0)
 	if resolved.Valid {
 		sg.ResolvedAt = time.Unix(resolved.Int64, 0)

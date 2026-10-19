@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -52,15 +53,15 @@ func TestFindUsers(t *testing.T) {
 	s.Seen(ctx, 30, "", "Борис")
 	s.SetNickname(ctx, 30, "Звезда", "звезда")
 	s.Seen(ctx, 10, "olga", "Ольга") // the most recent
-	sg := &Suggestion{ShortID: "a", TgID: 20, Kind: KindReport, PRNumber: 1}
+	sg := &Suggestion{ShortID: "a", TgID: 20, Kind: KindReport, Issue: 1}
 	s.CreateSuggestion(ctx, sg)
 	s.ResolveSuggestion(ctx, sg.ID, StatusMerged)
-	s.CreateSuggestion(ctx, &Suggestion{ShortID: "b", TgID: 20, Kind: KindReport, PRNumber: 2})
+	s.CreateSuggestion(ctx, &Suggestion{ShortID: "b", TgID: 20, Kind: KindReport, Issue: 2})
 
 	ids := func(q string) []int64 {
-		all, err := s.FindUsers(ctx, q)
-		if err != nil {
-			t.Fatal(err)
+		all, total, err := s.FindUsers(ctx, q, 10, 0)
+		if err != nil || total != len(all) {
+			t.Fatalf("%q: %d of %d, %v", q, len(all), total, err)
 		}
 		var out []int64
 		for _, u := range all {
@@ -77,10 +78,51 @@ func TestFindUsers(t *testing.T) {
 			t.Errorf("%q = %v, want %d", q, got, want)
 		}
 	}
-	all, _ := s.FindUsers(ctx, "anya")
+	all, _, _ := s.FindUsers(ctx, "anya", 10, 0)
 	if all[0].Accepted != 1 || all[0].Open != 1 || all[0].Rejected != 0 {
 		t.Errorf("counts = %+v", all[0])
 	}
+	// LIKE's wildcards are plain characters here.
+	for _, q := range []string{"%", "_", "о_ьга"} {
+		if got := ids(q); len(got) != 0 {
+			t.Errorf("%q = %v", q, got)
+		}
+	}
+	// A user never seen comes last.
+	s.TouchUser(ctx, 40, "", "Новенький")
+	s.db.Exec(`UPDATE users SET last_seen_at = NULL WHERE tg_id = 40`)
+	if got := ids(""); len(got) != 4 || got[3] != 40 {
+		t.Errorf("with one never seen = %v", got)
+	}
+	// Pages.
+	page, total, _ := s.FindUsers(ctx, "", 2, 2)
+	if total != 4 || len(page) != 2 || page[0].TgID != 20 || page[1].TgID != 40 {
+		t.Errorf("page 2 = %+v of %d", page, total)
+	}
+	if page, total, _ := s.FindUsers(ctx, "", 2, 4); total != 4 || len(page) != 0 {
+		t.Errorf("past the end = %+v of %d", page, total)
+	}
+}
+
+func TestFindUsersAtScale(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	tx, _ := s.db.Begin()
+	for i := 1; i <= 20000; i++ {
+		tx.Exec(`INSERT INTO users (tg_id, username, first_name, created_at, updated_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			i, fmt.Sprintf("user%d", i), "Пользователь", i, i, i)
+	}
+	tx.Commit()
+	start := time.Now()
+	page, total, err := s.FindUsers(ctx, "", 10, 100)
+	took := time.Since(start)
+	if err != nil || total != 20000 || len(page) != 10 || page[0].TgID != 19900 {
+		t.Fatalf("page = %d of %d, first %+v, %v", len(page), total, page, err)
+	}
+	if found, n, _ := s.FindUsers(ctx, "USER1999", 10, 0); n != 11 || found[0].TgID != 19999 {
+		t.Errorf("search = %d", n)
+	}
+	t.Logf("a page of 20000 users took %v", took)
 }
 
 func TestNoteOpensAndTraffic(t *testing.T) {
@@ -122,7 +164,7 @@ func TestCountSuggestions(t *testing.T) {
 	s.TouchUser(ctx, 1, "", "")
 	add := func(n int, status string, age time.Duration) {
 		s.now = func() time.Time { return now.Add(-age) }
-		sg := &Suggestion{ShortID: string(rune('a' + n)), TgID: 1, Kind: KindReport, PRNumber: n}
+		sg := &Suggestion{ShortID: string(rune('a' + n)), TgID: 1, Kind: KindReport, Issue: n}
 		s.CreateSuggestion(ctx, sg)
 		if status != StatusOpen {
 			s.ResolveSuggestion(ctx, sg.ID, status)
@@ -142,5 +184,47 @@ func TestCountSuggestions(t *testing.T) {
 	}
 	if n, _ := s.OpenCount(ctx); n != 2 {
 		t.Errorf("open = %d", n)
+	}
+}
+
+func TestCleanup(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	now := time.Now()
+	s.SetClock(func() time.Time { return now.Add(-8 * 24 * time.Hour) })
+	s.SetMessageGroup(ctx, 42, []int{1, 2, 3})
+	s.SetClock(func() time.Time { return now })
+	s.SetMessageGroup(ctx, 42, []int{10, 11})
+	for _, ses := range []Session{
+		{TgID: 1, State: "a", ExpiresAt: now.Add(-48 * time.Hour)},
+		{TgID: 2, State: "a", ExpiresAt: now.Add(-time.Hour)}, // still told once
+		{TgID: 3, State: "a", ExpiresAt: now.Add(time.Hour)},
+	} {
+		s.PutSession(ctx, ses)
+	}
+	for _, days := range []int{200, 181, 179, 0} {
+		s.SetClock(func() time.Time { return now.AddDate(0, 0, -days) })
+		s.NoteOpened(ctx, "n")
+	}
+	s.SetClock(func() time.Time { return now })
+
+	c, err := s.Cleanup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != (Cleaned{MessageParts: 3, Sessions: 1, NoteOpens: 2}) {
+		t.Errorf("cleaned = %+v", c)
+	}
+	if g, _ := s.MessageGroup(ctx, 42, 2); len(g) != 1 {
+		t.Errorf("old group = %v", g)
+	}
+	if g, _ := s.MessageGroup(ctx, 42, 11); len(g) != 2 {
+		t.Errorf("new group = %v", g)
+	}
+	if _, err := s.Session(ctx, 2); err != ErrExpired {
+		t.Errorf("recently expired session: %v", err)
+	}
+	if top, _ := s.TopNotes(ctx, "", 1); len(top) != 1 || top[0].Opens != 2 {
+		t.Errorf("opens = %+v", top)
 	}
 }

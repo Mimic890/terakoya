@@ -8,8 +8,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/Mimic890/terakoya/internal/ranks"
 )
 
 // File is the settings file and the settings in use. They change through
@@ -40,24 +38,14 @@ func stampOf(path string) stamp {
 }
 
 // Open loads the settings file at path, creating it with defaults (and an
-// entry for each of subjects) if it does not exist. legacyRanks is the old
-// TERAKOYA_RANKS setting: it seeds a new file once, and is otherwise
-// ignored with a warning. A file that does not load leaves the defaults in
-// use, and is not overwritten.
-func Open(path string, subjects []string, legacyRanks string, log *slog.Logger) (*File, error) {
+// entry for each of subjects) if it does not exist. A file that does not
+// load leaves the defaults in use, and is not overwritten.
+func Open(path string, subjects []string, log *slog.Logger) (*File, error) {
 	f := &File{path: path, log: log}
 	s, err := Load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		s = Default(subjects)
-		if legacyRanks != "" {
-			l, err := ranks.Parse(legacyRanks)
-			if err != nil {
-				return nil, err
-			}
-			s = FromLadder(l, subjects)
-			log.Warn("TERAKOYA_RANKS is deprecated: its ranks were moved into " + FileName + "; remove the variable")
-		}
 		if err := Save(path, s); err != nil {
 			return nil, err
 		}
@@ -65,10 +53,6 @@ func Open(path string, subjects []string, legacyRanks string, log *slog.Logger) 
 	case err != nil:
 		log.Error("settings file is invalid; using defaults until it is fixed", "err", err)
 		s = Default(subjects)
-	default:
-		if legacyRanks != "" {
-			log.Warn("TERAKOYA_RANKS is ignored: ranks are in " + FileName + "; remove the variable")
-		}
 	}
 	f.cur, f.stamp = s, stampOf(path)
 	return f, nil

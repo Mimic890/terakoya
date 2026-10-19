@@ -22,7 +22,7 @@ func TestSuggestionLifecycle(t *testing.T) {
 	}
 
 	sg := &Suggestion{ShortID: "abc123", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/a.md", Title: "A",
-		BaseSHA: "deadbeef", Branch: "report/42-a-abc123", PRNumber: 7, PRURL: "https://host/issues/7"}
+		BaseSHA: "deadbeef", Branch: "report/42-a-abc123", Issue: 7, IssueURL: "https://host/issues/7"}
 	if err := s.CreateSuggestion(ctx, sg); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestSuggestionLifecycle(t *testing.T) {
 	}
 
 	closed := &Suggestion{ShortID: "def456", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/b.md",
-		BaseSHA: "deadbeef", PRNumber: 8}
+		BaseSHA: "deadbeef", Issue: 8}
 	if err := s.CreateSuggestion(ctx, closed); err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +67,14 @@ func TestSuggestionLifecycle(t *testing.T) {
 		t.Errorf("after close: accepted %d open %d", u.Accepted, open)
 	}
 
-	// Edits from earlier versions stay in the history but do not count.
-	edit := &Suggestion{ShortID: "e1", TgID: 42, Kind: KindEdit, ArticlePath: "content/geometry/7/c.md",
-		BaseSHA: "deadbeef", Branch: "suggest/42-c-e1", PRNumber: 9}
+	// Rows of another kind, which early versions wrote, do not count.
+	edit := &Suggestion{ShortID: "e1", TgID: 42, Kind: "edit", ArticlePath: "content/geometry/7/c.md",
+		BaseSHA: "deadbeef", Branch: "suggest/42-c-e1", Issue: 9}
 	s.CreateSuggestion(ctx, edit)
 	s.ResolveSuggestion(ctx, edit.ID, StatusMerged)
 	u, _ = s.User(ctx, 42)
 	all, _ := s.UserSuggestions(ctx, 42)
-	if u.Accepted != 1 || len(all) != 3 || all[0].Kind != KindEdit || all[0].ResolvedAt.IsZero() {
+	if u.Accepted != 1 || len(all) != 3 || all[0].Kind != "edit" || all[0].ResolvedAt.IsZero() {
 		t.Errorf("with an edit: accepted %d, history %+v", u.Accepted, all)
 	}
 	if err := s.SetSuggestionComment(ctx, closed.ID, "Слишком коротко."); err != nil {
@@ -89,15 +89,15 @@ func TestReports(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
 	s.TouchUser(ctx, 42, "anya", "Аня")
-	rep := &Suggestion{ShortID: "r1", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/a.md", BaseSHA: "deadbeef", PRNumber: 12}
-	edit := &Suggestion{ShortID: "e1", TgID: 42, Kind: KindEdit, ArticlePath: "content/geometry/7/a.md", BaseSHA: "deadbeef", Branch: "b", PRNumber: 13}
+	rep := &Suggestion{ShortID: "r1", TgID: 42, Kind: KindReport, ArticlePath: "content/geometry/7/a.md", BaseSHA: "deadbeef", Issue: 12}
+	edit := &Suggestion{ShortID: "e1", TgID: 42, Kind: "edit", ArticlePath: "content/geometry/7/a.md", BaseSHA: "deadbeef", Branch: "b", Issue: 13}
 	for _, sg := range []*Suggestion{rep, edit} {
 		if err := s.CreateSuggestion(ctx, sg); err != nil {
 			t.Fatal(err)
 		}
 	}
 	list, err := s.OpenSuggestions(ctx)
-	if err != nil || len(list) != 2 || list[0].Kind != KindReport || list[1].PRNumber != 13 {
+	if err != nil || len(list) != 2 || list[0].Kind != KindReport || list[1].Issue != 13 {
 		t.Fatalf("open = %+v, %v", list, err)
 	}
 	// Only a closed report can be accepted late, once.

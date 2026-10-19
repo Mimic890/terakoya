@@ -133,7 +133,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 	for _, s := range b.catalog().Subjects {
 		subjects = append(subjects, s.Name)
 	}
-	b.settings, err = settings.Open(cfg.SettingsPath(), subjects, cfg.LegacyRanks, log)
+	b.settings, err = settings.Open(cfg.SettingsPath(), subjects, log)
 	if err != nil {
 		return nil, fmt.Errorf("settings: %w", err)
 	}
@@ -154,6 +154,7 @@ func (b *Bot) Run(ctx context.Context) {
 	go b.syncLoop(ctx)
 	go b.settings.Watch(ctx, settingsCheck)
 	go b.trafficLoop(ctx)
+	go b.cleanupLoop(ctx)
 	b.setCommands(ctx)
 	b.later(ctx, b.resumeBroadcasts)
 	b.api.Start(ctx)

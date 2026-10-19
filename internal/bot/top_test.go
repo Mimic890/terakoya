@@ -81,7 +81,7 @@ func (h *harness) accept(u models.User, n int) {
 	h.store.TouchUser(h.ctx, u.ID, u.Username, u.FirstName)
 	for i := 0; i < n; i++ {
 		h.msgID++
-		sg := &store.Suggestion{ShortID: fmt.Sprintf("t%d", h.msgID), TgID: u.ID, Kind: store.KindReport, PRNumber: 1000 + h.msgID}
+		sg := &store.Suggestion{ShortID: fmt.Sprintf("t%d", h.msgID), TgID: u.ID, Kind: store.KindReport, Issue: 1000 + h.msgID}
 		if err := h.store.CreateSuggestion(h.ctx, sg); err != nil {
 			h.t.Fatal(err)
 		}

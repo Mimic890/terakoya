@@ -47,7 +47,7 @@ func Handler(ctx context.Context, host githost.Host, handle func(context.Context
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		log.Info("webhook", "kind", ev.Kind, "pr", ev.PRNumber, "ref", ev.Ref)
+		log.Info("webhook", "kind", ev.Kind, "issue", ev.Number, "ref", ev.Ref)
 		w.WriteHeader(http.StatusAccepted)
 		go func() {
 			defer func() {

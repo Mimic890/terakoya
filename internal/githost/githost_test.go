@@ -25,11 +25,10 @@ func server(t *testing.T, rec *recorded) *httptest.Server {
 			json.NewDecoder(r.Body).Decode(&rec.body)
 			w.WriteHeader(http.StatusCreated)
 			w.Write([]byte(`{"number": 7, "html_url": "https://host/o/r/pull/7"}`))
-		case r.URL.Path == "/api/v1/repos/o/r/pulls/7/reviews", r.URL.Path == "/repos/o/r/pulls/7/reviews":
-			w.Write([]byte(`[{"body": "older review", "submitted_at": "2026-01-01T10:00:00Z"},
-				{"body": "", "submitted_at": "2026-01-03T10:00:00Z"}]`))
 		case r.URL.Path == "/api/v1/repos/o/r/issues/7/comments", r.URL.Path == "/repos/o/r/issues/7/comments":
-			w.Write([]byte(`[{"body": "  please fix the formula  ", "created_at": "2026-01-02T10:00:00Z"}]`))
+			w.Write([]byte(`[{"body": "older", "created_at": "2026-01-01T10:00:00Z"},
+				{"body": "  please fix the formula  ", "created_at": "2026-01-02T10:00:00Z"},
+				{"body": " ", "created_at": "2026-01-03T10:00:00Z"}]`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -66,7 +65,7 @@ func TestHosts(t *testing.T) {
 			if rec.body["title"] != "T" || rec.body["body"] != "B" {
 				t.Errorf("body = %v", rec.body)
 			}
-			got, err := h.LastReviewComment(context.Background(), 7)
+			got, err := h.LastComment(context.Background(), 7)
 			if err != nil || got != "please fix the formula" {
 				t.Errorf("last comment = %q, %v", got, err)
 			}
@@ -77,8 +76,6 @@ func TestHosts(t *testing.T) {
 func TestWebhooks(t *testing.T) {
 	secret := []byte("s3cret")
 	merged := []byte(`{"action":"closed","number":7,"pull_request":{"number":7,"merged":true,"head":{"ref":"suggest/1-a-x"}}}`)
-	closed := []byte(`{"action":"closed","pull_request":{"number":8,"merged":false,"head":{"ref":"suggest/1-b-y"}}}`)
-	opened := []byte(`{"action":"opened","pull_request":{"number":9}}`)
 	push := []byte(`{"ref":"refs/heads/main"}`)
 	issueClosed := []byte(`{"action":"closed","issue":{"number":12,"state":"closed","closed_at":"2026-01-02T10:00:00Z","labels":[{"name":"Accepted"}]}}`)
 	issueLabeled := []byte(`{"action":"label_updated","issue":{"number":12,"state":"open","labels":[]}}`)
@@ -98,24 +95,17 @@ func TestWebhooks(t *testing.T) {
 		header func(string, []byte) http.Header
 	}{"github": {gh, ghHeader}, "forgejo": {fj, fjHeader}} {
 		t.Run(name, func(t *testing.T) {
+			// Pull requests are no business of the bot's.
 			ev, err := c.h.ParseWebhook(c.header("pull_request", merged), merged)
-			if err != nil || ev.Kind != PRMerged || ev.PRNumber != 7 || ev.HeadBranch != "suggest/1-a-x" {
-				t.Errorf("merged = %+v, %v", ev, err)
-			}
-			ev, err = c.h.ParseWebhook(c.header("pull_request", closed), closed)
-			if err != nil || ev.Kind != PRClosed || ev.PRNumber != 8 {
-				t.Errorf("closed = %+v, %v", ev, err)
-			}
-			ev, err = c.h.ParseWebhook(c.header("pull_request", opened), opened)
 			if err != nil || ev.Kind != Ignored {
-				t.Errorf("opened = %+v, %v", ev, err)
+				t.Errorf("pull request = %+v, %v", ev, err)
 			}
 			ev, err = c.h.ParseWebhook(c.header("push", push), push)
 			if err != nil || ev.Kind != Push || ev.Ref != "refs/heads/main" {
 				t.Errorf("push = %+v, %v", ev, err)
 			}
 			ev, err = c.h.ParseWebhook(c.header("issues", issueClosed), issueClosed)
-			if err != nil || ev.Kind != IssueChanged || ev.PRNumber != 12 {
+			if err != nil || ev.Kind != IssueChanged || ev.Number != 12 {
 				t.Errorf("issue closed = %+v, %v", ev, err)
 			}
 			ev, err = c.h.ParseWebhook(c.header("issues", issueLabeled), issueLabeled)
@@ -170,8 +160,6 @@ func TestIssues(t *testing.T) {
 			}
 		case r.Method == http.MethodGet && p == "/repos/o/r/issues/12":
 			w.Write([]byte(`{"number": 12, "state": "closed", "closed_at": "2026-01-02T10:00:00Z", "labels": [{"name": "accepted"}]}`))
-		case r.Method == http.MethodGet && p == "/repos/o/r/pulls/7":
-			w.Write([]byte(`{"number": 7, "state": "closed", "merged": true}`))
 		default:
 			w.Write([]byte(`{}`))
 		}
@@ -212,13 +200,9 @@ func TestIssues(t *testing.T) {
 			t.Errorf("%s: label not created: %+v", kind, last)
 		}
 
-		st, err := h.State(ctx, 12, false)
-		if err != nil || !st.Closed || !st.HasLabel("accepted") || st.Merged || st.ClosedAt.IsZero() {
+		st, err := h.State(ctx, 12)
+		if err != nil || !st.Closed || !st.HasLabel("accepted") || st.ClosedAt.IsZero() {
 			t.Errorf("%s: issue state = %+v, %v", kind, st, err)
-		}
-		st, err = h.State(ctx, 7, true)
-		if err != nil || !st.Closed || !st.Merged {
-			t.Errorf("%s: PR state = %+v, %v", kind, st, err)
 		}
 	}
 

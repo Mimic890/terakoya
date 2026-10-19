@@ -19,7 +19,7 @@ import (
 // Host is a git hosting service.
 type Host interface {
 	// OpenIssue opens an issue.
-	OpenIssue(ctx context.Context, title, body string) (PR, error)
+	OpenIssue(ctx context.Context, title, body string) (Issue, error)
 	// EditIssue replaces the body of an issue.
 	EditIssue(ctx context.Context, number int, body string) error
 	// Attach uploads a file to an issue and returns its URL. Hosts without
@@ -27,11 +27,11 @@ type Host interface {
 	Attach(ctx context.Context, number int, name string, data []byte) (string, error)
 	// EnsureLabel creates the label if the repository does not have it.
 	EnsureLabel(ctx context.Context, name, color, description string) error
-	// State returns the state of a pull request or an issue.
-	State(ctx context.Context, number int, isPR bool) (State, error)
-	// LastReviewComment returns the most recent non-empty review or
-	// conversation comment on a pull request or issue, or "".
-	LastReviewComment(ctx context.Context, number int) (string, error)
+	// State returns the state of an issue.
+	State(ctx context.Context, number int) (State, error)
+	// LastComment returns the most recent non-empty comment on an issue,
+	// or "".
+	LastComment(ctx context.Context, number int) (string, error)
 	// ParseWebhook verifies the signature of a webhook delivery and decodes
 	// the events the bot cares about. Other events return Event{Kind: Ignored}.
 	ParseWebhook(header http.Header, body []byte) (Event, error)
@@ -43,16 +43,15 @@ type Host interface {
 // ErrUnsupported is returned for operations a host cannot do.
 var ErrUnsupported = errors.New("not supported by this host")
 
-// PR is an opened pull request or issue.
-type PR struct {
+// Issue is an opened issue.
+type Issue struct {
 	Number int
 	URL    string
 }
 
-// State is the state of a pull request or issue.
+// State is the state of an issue.
 type State struct {
 	Closed   bool
-	Merged   bool
 	Labels   []string
 	ClosedAt time.Time
 }
@@ -72,8 +71,6 @@ type EventKind int
 
 const (
 	Ignored EventKind = iota
-	PRMerged
-	PRClosed // closed without merging
 	Push
 	// IssueChanged: an issue was closed, reopened or relabeled. The bot
 	// reads its state from the API rather than trusting the delivery,
@@ -83,10 +80,9 @@ const (
 
 // Event is a decoded webhook delivery.
 type Event struct {
-	Kind     EventKind
-	PRNumber int
-	// HeadBranch is the source branch of a pull request.
-	HeadBranch string
+	Kind EventKind
+	// Number is the issue's, for IssueChanged.
+	Number int
 	// Ref is the pushed ref, e.g. refs/heads/main.
 	Ref string
 }
@@ -211,33 +207,21 @@ func (c *client) do(ctx context.Context, method, url string, in, out any) error 
 	return nil
 }
 
-// comment is the common shape of reviews and issue comments.
+// comment is an issue comment.
 type comment struct {
-	Body        string    `json:"body"`
-	SubmittedAt time.Time `json:"submitted_at"`
-	CreatedAt   time.Time `json:"created_at"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
-func (c comment) time() time.Time {
-	if !c.SubmittedAt.IsZero() {
-		return c.SubmittedAt
-	}
-	return c.CreatedAt
-}
-
-// lastComment reads reviews and conversation comments and returns the
-// newest non-empty body.
+// lastComment returns the newest non-empty comment on an issue.
 func (c *client) lastComment(ctx context.Context, number int) (string, error) {
-	// Either list may be unreadable with a narrow token; use what is there.
-	var reviews, comments []comment
-	errReviews := c.do(ctx, http.MethodGet, c.repoPath("/pulls/%d/reviews", number), nil, &reviews)
-	errComments := c.do(ctx, http.MethodGet, c.repoPath("/issues/%d/comments", number), nil, &comments)
-	if errReviews != nil && errComments != nil {
-		return "", errReviews
+	var comments []comment
+	if err := c.do(ctx, http.MethodGet, c.repoPath("/issues/%d/comments", number), nil, &comments); err != nil {
+		return "", err
 	}
 	var best comment
-	for _, x := range append(reviews, comments...) {
-		if strings.TrimSpace(x.Body) != "" && !x.time().Before(best.time()) {
+	for _, x := range comments {
+		if strings.TrimSpace(x.Body) != "" && !x.CreatedAt.Before(best.CreatedAt) {
 			best = x
 		}
 	}
@@ -249,27 +233,27 @@ type multipartBody struct {
 	contentType string
 }
 
-func (c *client) openIssue(ctx context.Context, title, body string) (PR, error) {
+func (c *client) openIssue(ctx context.Context, title, body string) (Issue, error) {
 	var out struct {
 		Number  int    `json:"number"`
 		HTMLURL string `json:"html_url"`
 	}
 	in := map[string]string{"title": title, "body": body}
 	if err := c.do(ctx, http.MethodPost, c.repoPath("/issues"), in, &out); err != nil {
-		return PR{}, err
+		return Issue{}, err
 	}
-	return PR{Number: out.Number, URL: out.HTMLURL}, nil
+	return Issue{Number: out.Number, URL: out.HTMLURL}, nil
 }
 
 func (c *client) editIssue(ctx context.Context, number int, body string) error {
 	return c.do(ctx, http.MethodPatch, c.repoPath("/issues/%d", number), map[string]string{"body": body}, nil)
 }
 
-// issueJSON is the shape of issues and pull requests in both APIs.
+// issueJSON is the shape of issues in both APIs. PullRequest is set on
+// the issues that are pull requests, which the bot leaves alone.
 type issueJSON struct {
 	Number   int        `json:"number"`
 	State    string     `json:"state"`
-	Merged   bool       `json:"merged"`
 	ClosedAt *time.Time `json:"closed_at"`
 	Labels   []struct {
 		Name string `json:"name"`
@@ -278,7 +262,7 @@ type issueJSON struct {
 }
 
 func (i issueJSON) state() State {
-	s := State{Closed: i.State == "closed", Merged: i.Merged}
+	s := State{Closed: i.State == "closed"}
 	if i.ClosedAt != nil {
 		s.ClosedAt = *i.ClosedAt
 	}
@@ -288,13 +272,9 @@ func (i issueJSON) state() State {
 	return s
 }
 
-func (c *client) state(ctx context.Context, number int, isPR bool) (State, error) {
+func (c *client) state(ctx context.Context, number int) (State, error) {
 	var out issueJSON
-	kind := "issues"
-	if isPR {
-		kind = "pulls"
-	}
-	if err := c.do(ctx, http.MethodGet, c.repoPath("/%s/%d", kind, number), nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, c.repoPath("/issues/%d", number), nil, &out); err != nil {
 		return State{}, err
 	}
 	return out.state(), nil
@@ -335,40 +315,16 @@ func escapePath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-// webhookPayload covers the pull_request, issues and push events of both
-// hosts.
+// webhookPayload covers the issues and push events of both hosts.
 type webhookPayload struct {
-	Action      string `json:"action"`
-	Number      int    `json:"number"`
-	Ref         string `json:"ref"`
-	PullRequest *struct {
-		Number int  `json:"number"`
-		Merged bool `json:"merged"`
-		Head   struct {
-			Ref string `json:"ref"`
-		} `json:"head"`
-	} `json:"pull_request"`
-	Issue *issueJSON `json:"issue"`
+	Action string     `json:"action"`
+	Ref    string     `json:"ref"`
+	Issue  *issueJSON `json:"issue"`
 }
 
 func decodeEvent(event string, body []byte) (Event, error) {
 	var p webhookPayload
 	switch event {
-	case "pull_request":
-		if err := json.Unmarshal(body, &p); err != nil {
-			return Event{}, err
-		}
-		if p.PullRequest == nil || p.Action != "closed" {
-			return Event{Kind: Ignored}, nil
-		}
-		ev := Event{Kind: PRClosed, PRNumber: p.PullRequest.Number, HeadBranch: p.PullRequest.Head.Ref}
-		if ev.PRNumber == 0 {
-			ev.PRNumber = p.Number
-		}
-		if p.PullRequest.Merged {
-			ev.Kind = PRMerged
-		}
-		return ev, nil
 	case "push":
 		if err := json.Unmarshal(body, &p); err != nil {
 			return Event{}, err
@@ -383,7 +339,7 @@ func decodeEvent(event string, body []byte) (Event, error) {
 		}
 		switch p.Action {
 		case "closed", "reopened", "labeled", "unlabeled", "label_updated", "label_cleared":
-			return Event{Kind: IssueChanged, PRNumber: p.Issue.Number}, nil
+			return Event{Kind: IssueChanged, Number: p.Issue.Number}, nil
 		}
 	}
 	return Event{Kind: Ignored}, nil

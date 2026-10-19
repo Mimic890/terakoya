@@ -311,7 +311,7 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 		}
 	case stateNick:
 	default:
-		// A dialog of an earlier version, such as an edit.
+		// A dialog the bot no longer has, from an earlier version.
 		b.endDialog(ctx, d)
 		return false
 	}
@@ -629,7 +629,7 @@ func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r sug
 	r.ArticleURL, r.CurrentURL = b.host.FileURL(d.ses.BaseSHA, r.RepoPath), b.host.FileURL(b.cfg.RepoBranch, r.RepoPath)
 	// A retry after a failure further down goes on with the issue it
 	// opened, instead of opening another one nobody would follow.
-	issue := githost.PR{Number: d.p.Issue, URL: d.p.IssueURL}
+	issue := githost.Issue{Number: d.p.Issue, URL: d.p.IssueURL}
 	reused := issue.Number != 0
 	if reused {
 		b.log.Info("retrying a report with its issue", "user", from.ID, "issue", issue.Number)
@@ -655,7 +655,7 @@ func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r sug
 		}
 	}
 	sg := &store.Suggestion{ShortID: d.p.ShortID, TgID: from.ID, Kind: store.KindReport, ArticlePath: r.RepoPath,
-		Title: r.Title, BaseSHA: d.ses.BaseSHA, Branch: branch, PRNumber: issue.Number, PRURL: issue.URL}
+		Title: r.Title, BaseSHA: d.ses.BaseSHA, Branch: branch, Issue: issue.Number, IssueURL: issue.URL}
 	if err := b.store.CreateSuggestion(ctx, sg); err != nil {
 		return fmt.Errorf("store report %d: %w", issue.Number, err)
 	}
