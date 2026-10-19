@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/go-telegram/bot/models"
 
@@ -220,34 +219,17 @@ func (b *Bot) nickReset(ctx context.Context, m *models.Message, arg string) {
 		b.send(ctx, m.Chat.ID, b.t.NickResetUsage, nil)
 		return
 	}
-	var u store.User
-	var err error
-	if id, perr := strconv.ParseInt(arg, 10, 64); perr == nil {
-		u, err = b.store.User(ctx, id)
-	} else {
-		u, err = b.store.UserByUsername(ctx, arg)
-	}
+	old, u, err := b.ResetNickname(ctx, arg, m.From.ID)
 	switch {
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, ErrNoUser):
 		b.send(ctx, m.Chat.ID, b.t.NickResetUnknown, nil)
-		return
+	case errors.Is(err, ErrNoNickname):
+		found, _ := b.AdminUser(ctx, arg)
+		b.send(ctx, m.Chat.ID, fmt.Sprintf(b.t.NickResetNone, found.Name), nil)
 	case err != nil:
-		b.log.Error("find user", "err", err)
-		b.send(ctx, m.Chat.ID, b.t.SubmitFailed, nil)
-		return
-	}
-	if u.Nickname == "" {
-		b.send(ctx, m.Chat.ID, fmt.Sprintf(b.t.NickResetNone, u.DisplayName()), nil)
-		return
-	}
-	if err := b.store.SetNickname(ctx, u.TgID, "", ""); err != nil {
 		b.log.Error("reset nickname", "err", err)
 		b.send(ctx, m.Chat.ID, b.t.SubmitFailed, nil)
-		return
+	default:
+		b.send(ctx, m.Chat.ID, fmt.Sprintf(b.t.NickResetDone, old, u.Name), nil)
 	}
-	b.log.Info("nickname reset", "user", u.TgID, "admin", m.From.ID)
-	old := u.Nickname
-	u.Nickname = ""
-	b.send(ctx, m.Chat.ID, fmt.Sprintf(b.t.NickResetDone, old, u.DisplayName()), nil)
-	b.send(ctx, u.TgID, b.t.NickResetNotice, nil)
 }

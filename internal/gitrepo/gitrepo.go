@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Repo is a local checkout.
@@ -191,4 +193,21 @@ func output(cmd *exec.Cmd, name string) (string, error) {
 		return "", fmt.Errorf("git %s: %w: %s", name, err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
+}
+
+// CommitTime returns when a commit was made, or the zero time if it
+// cannot be read.
+func (r *Repo) CommitTime(ctx context.Context, sha string) time.Time {
+	if sha == "" {
+		return time.Time{}
+	}
+	out, err := r.git(ctx, "log", "-1", "--format=%ct", sha)
+	if err != nil {
+		return time.Time{}
+	}
+	sec, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0)
 }

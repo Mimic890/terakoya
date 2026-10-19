@@ -24,6 +24,9 @@ import (
 // recorded as a group, so moving on removes all of them. fromPins is set
 // when it was opened from the pinned list, which «Назад» then returns to.
 func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fromPins bool) bool {
+	if err := b.store.NoteOpened(ctx, n.ID); err != nil {
+		b.log.Error("count note open", "err", err)
+	}
 	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued})
 	// In a private chat the chat ID is the user's.
 	pinned, err := b.store.Pinned(ctx, chatID, n.ID)

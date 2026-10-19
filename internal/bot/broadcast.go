@@ -37,14 +37,14 @@ const (
 )
 
 // startBroadcast handles /broadcast.
-func (b *Bot) startBroadcast(ctx context.Context, m *models.Message) {
-	unlock := b.userLocks.lock(m.From.ID)
+func (b *Bot) startBroadcast(ctx context.Context, chatID, userID int64) {
+	unlock := b.userLocks.lock(userID)
 	defer unlock()
 	// Like any new dialog, this one replaces what was going on.
-	if d, _ := b.loadDialog(ctx, m.From.ID, m.Chat.ID); d != nil {
+	if d, _ := b.loadDialog(ctx, userID, chatID); d != nil {
 		b.dropButtons(ctx, d)
 	}
-	d := &dialog{chatID: m.Chat.ID, ses: store.Session{TgID: m.From.ID, State: stateBroadcastWait}}
+	d := &dialog{chatID: chatID, ses: store.Session{TgID: userID, State: stateBroadcastWait}}
 	b.prompt(ctx, d, b.t.BroadcastAsk, keyboard(cancelRow(b.t.Cancel)))
 }
 
@@ -242,6 +242,9 @@ func (b *Bot) deliver(ctx context.Context, bc *store.Broadcast, userID int64) {
 // progress shows the state of a broadcast on its progress message, or in
 // a new one.
 func (b *Bot) progress(ctx context.Context, chatID int64, msg *models.Message, text string) {
+	if chatID == 0 {
+		return // from the admin socket, which has no chat
+	}
 	if msg != nil {
 		_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: chatID, MessageID: msg.ID, Text: text})
 		if err == nil || strings.Contains(err.Error(), "message is not modified") {

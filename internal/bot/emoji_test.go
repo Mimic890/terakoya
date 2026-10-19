@@ -90,7 +90,7 @@ func TestEmojiInUse(t *testing.T) {
 	h.say("/start")
 	calls := h.tg.take()
 	greet := firstCall(t, calls, "sendMessage")
-	if greet.params["text"] != "Привет, Аня! 👋\nЭто terakoya — школьный справочник, который пишут сами пользователи." {
+	if greet.params["text"] != "Привет, Аня! 👋\nЭто terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\nНашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг." {
 		t.Errorf("greeting = %q", greet.params["text"])
 	}
 	if e := entities(t, greet); len(e) != 1 || e[0].Offset != 13 || e[0].Length != 2 || e[0].CustomEmojiID != "105" {
@@ -143,7 +143,7 @@ func TestEmojiRejected(t *testing.T) {
 		t.Fatalf("first call = %s", calls[0].method)
 	}
 	greet := calls[1]
-	if greet.method != "sendMessage" || greet.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи." ||
+	if greet.method != "sendMessage" || greet.params["text"] != "Привет, Аня!\nЭто terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\nНашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг." ||
 		!strings.Contains(greet.params["reply_markup"], `{"text":"Предметы"}`) || greet.params["entities"] != "" {
 		t.Errorf("plain greeting = %+v", greet)
 	}
@@ -228,7 +228,7 @@ func TestNoStraySpaces(t *testing.T) {
 		},
 	}
 	want := map[string]string{
-		"greeting": "Привет, Аня!\nЭто terakoya — школьный справочник, который пишут сами пользователи.",
+		"greeting": "Привет, Аня!\nЭто terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\nНашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг.",
 		"rank-up":  "Принято.\n\nТеперь вы Pupil!",
 		"preview":  "Сохранить?",
 	}

@@ -189,6 +189,59 @@ type Strings struct {
 	NickResetDone    string // %s: old nickname, %s: the name now
 	NickResetNotice  string
 
+	// /admin.
+	AdminTitle        string
+	AdminSummary      string // %d users, %d active 24h, %d open, %s commit, %s age, %s uptime
+	AdminUsers        string
+	AdminStats        string
+	AdminServer       string
+	AdminSync         string
+	AdminBroadcast    string
+	AdminUsersText    string // %d all, %d new today, %d new 7d, %d active 24h, %d active 7d, %d blocked
+	AdminFound        string // %s query, %d found
+	AdminNobody       string
+	AdminSearch       string
+	AdminSearchClear  string
+	AdminSearchAsk    string
+	AdminCard         string // name, ids line, nickname, rank, accepted, open, rejected, first seen, last seen, top, blocked
+	AdminCardID       string // %d
+	AdminCardUserID   string // %s @username, %d
+	AdminNone         string
+	AdminNoData       string
+	AdminShown        string
+	AdminHidden       string
+	AdminResetNick    string
+	AdminResetAsk     string // %s nickname, %s user
+	AdminResetYes     string
+	AdminResetDone    string
+	AdminRefresh      string
+	AdminComputing    string
+	AdminSyncing      string
+	AdminSyncFailed   string // %s
+	AdminSyncNone     string // %s commit
+	AdminSyncDone     string // %s → %s, %d → %d notes, %d errors, %d warnings
+	AdminServerText   string // see adminServerText
+	AdminServerFailed string // %s
+	AdminLastSync     string // %s time, %s outcome
+	AdminSyncNever    string
+	AdminSyncSame     string
+	AdminAgo          string // %s
+	AdminStatsTitle   string
+	AdminReportsTitle string
+	AdminReportsLine  string // %s period, %d open, %d accepted, %d rejected
+	AdminAllTime      string
+	AdminWeek         string
+	AdminTopWeek      string
+	AdminTopAll       string
+	AdminNoteGone     string // %s id
+	AdminNoOpens      string
+	AdminBroadcasts   string // %d
+	AdminLastBcast    string // %s date, %d recipients, %d sent, %d blocked, %d failed
+	AdminDays         string // %d d, %d h
+	AdminHours        string // %d h, %d min
+	AdminMinutes      string // %d
+	AdminSeconds      string // %d
+
 	// The command menu.
 	CmdStart      string
 	CmdDownload   string
@@ -198,6 +251,7 @@ type Strings struct {
 	CmdTop        string
 	CmdBroadcast  string
 	CmdNickReset  string
+	CmdAdmin      string
 
 	// Months in the genitive case, for dates such as «25 октября».
 	Months [12]string
@@ -205,8 +259,9 @@ type Strings struct {
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting:       "Привет, %s!",
-	GreetingText:   "Это terakoya — школьный справочник, который пишут сами пользователи.",
+	Greeting: "Привет, %s!",
+	GreetingText: "Это terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\n" +
+		"Нашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг.",
 	ChooseSubject:  "Выберите предмет:",
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
@@ -377,6 +432,66 @@ var RU = Strings{
 	NickResetDone:    "Ник «%s» сброшен, теперь это %s.",
 	NickResetNotice:  "Ваш ник сброшен администратором.",
 
+	AdminTitle:       "Админка",
+	AdminSummary:     "Пользователей: %d, активны за 24 ч: %d\nПравок на рассмотрении: %d\nVault: %s, %s\nРаботает: %s",
+	AdminUsers:       "Пользователи",
+	AdminStats:       "Статистика",
+	AdminServer:      "Сервер",
+	AdminSync:        "Обновить vault",
+	AdminBroadcast:   "Рассылка",
+	AdminUsersText:   "Пользователи\n\nВсего: %d · новых сегодня: %d · за 7 дней: %d\nАктивны за 24 ч: %d · за 7 дней: %d\nЗаблокировали бота: %d",
+	AdminFound:       "Поиск «%s»: найдено %d",
+	AdminNobody:      "Никого не нашлось.",
+	AdminSearch:      "Поиск",
+	AdminSearchClear: "Сбросить поиск",
+	AdminSearchAsk:   "Кого найти? Пришлите ник, @username, имя или Telegram ID.",
+	AdminCard:        "%s\n%s\n\nНик: %s\nРанг: %s\nПравки: принято %d · на рассмотрении %d · отклонено %d\nВпервые: %s\nПоследний раз: %s\nВ топе: %s\nЗаблокировал бота: %s",
+	AdminCardID:      "ID %d",
+	AdminCardUserID:  "@%s · ID %d",
+	AdminNone:        "нет",
+	AdminNoData:      "нет данных",
+	AdminShown:       "показан",
+	AdminHidden:      "скрыт",
+	AdminResetNick:   "Сбросить ник",
+	AdminResetAsk:    "Сбросить ник «%s» у %s? Пользователь получит уведомление.",
+	AdminResetYes:    "Да, сбросить",
+	AdminResetDone:   "Ник сброшен",
+	AdminRefresh:     "Обновить",
+	AdminComputing:   "Считаю…",
+	AdminSyncing:     "Обновляю…",
+	AdminSyncFailed:  "Не удалось обновить vault: %s",
+	AdminSyncNone:    "Изменений нет, коммит %s",
+	AdminSyncDone:    "Vault обновлён: %s → %s\nЗаметок: %d → %d\nПроверка: ошибок %d, предупреждений %d",
+	AdminServerText: "Сервер\n\n" +
+		"Память: RSS %s, Go heap %s, горутин %d\n" +
+		"Работает: %s · версия %s\n\n" +
+		"Сеть контейнера: получено %s, отправлено %s\n" +
+		"Telegram API сегодня: запросов %d, отправлено %s, получено %s\n" +
+		"Telegram API всего: запросов %d, отправлено %s, получено %s\n\n" +
+		"Vault на диске: %s (заметки %s, картинки %s, .git %s)\n" +
+		"Данные: %s, база %s, file_id в кэше: %d\n\n" +
+		"Vault: коммит %s (%s), заметок %d\n%s",
+	AdminServerFailed: "Не удалось посчитать: %s",
+	AdminLastSync:     "Последняя синхронизация: %s — %s",
+	AdminSyncNever:    "Синхронизаций с запуска не было",
+	AdminSyncSame:     "без изменений",
+	AdminAgo:          "%s назад",
+	AdminStatsTitle:   "Статистика",
+	AdminReportsTitle: "Правки",
+	AdminReportsLine:  "%s: на рассмотрении %d · принято %d · отклонено %d",
+	AdminAllTime:      "Всего",
+	AdminWeek:         "За 7 дней",
+	AdminTopWeek:      "Чаще всего открывают — 7 дней",
+	AdminTopAll:       "Чаще всего открывают — всё время",
+	AdminNoteGone:     "%s (удалена)",
+	AdminNoOpens:      "Пока нет",
+	AdminBroadcasts:   "Рассылок: %d",
+	AdminLastBcast:    "Последняя: %s — получателей %d, доставлено %d, заблокировали бота %d, не доставлено %d",
+	AdminDays:         "%d д %d ч",
+	AdminHours:        "%d ч %d мин",
+	AdminMinutes:      "%d мин",
+	AdminSeconds:      "%d с",
+
 	CmdStart:      "Открыть каталог",
 	CmdDownload:   "Скачать все материалы",
 	CmdCancel:     "Отменить текущее действие",
@@ -385,6 +500,7 @@ var RU = Strings{
 	CmdTop:        "Топ участников",
 	CmdBroadcast:  "Рассылка всем пользователям",
 	CmdNickReset:  "Сбросить ник: /nick_reset <id или @username>",
+	CmdAdmin:      "Админка",
 
 	Months: [12]string{"января", "февраля", "марта", "апреля", "мая", "июня",
 		"июля", "августа", "сентября", "октября", "ноября", "декабря"},

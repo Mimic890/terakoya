@@ -4,6 +4,7 @@
 //
 //	terakoya [serve] [-config file]
 //	terakoya lint [-strict] <content-dir>
+//	terakoya admin [--json] <command>
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Mimic890/terakoya/internal/adminapi"
 	"github.com/Mimic890/terakoya/internal/bot"
 	"github.com/Mimic890/terakoya/internal/config"
 	"github.com/Mimic890/terakoya/internal/content"
@@ -29,13 +31,15 @@ import (
 func main() {
 	args := os.Args[1:]
 	cmd := "serve"
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "lint") {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "lint" || args[0] == "admin") {
 		cmd, args = args[0], args[1:]
 	}
 	var code int
 	switch cmd {
 	case "lint":
 		code = runLint(args)
+	case "admin":
+		code = runAdmin(args, os.Stdin, os.Stdout, os.Stderr, defaultSocket())
 	default:
 		code = runServe(args)
 	}
@@ -131,6 +135,12 @@ func runServe(args []string) int {
 		log.Error("start bot", "err", err)
 		return 1
 	}
+	go func() {
+		// The bot runs without it; `terakoya admin` then cannot reach it.
+		if err := adminapi.Serve(ctx, cfg.AdminSocketPath(), b, log); err != nil {
+			log.Error("admin socket", "err", err)
+		}
+	}()
 	if host != nil {
 		h := webhook.Handler(ctx, host, b.HandleGitEvent, log)
 		go func() {

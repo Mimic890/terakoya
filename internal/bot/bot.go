@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,19 @@ import (
 	"github.com/Mimic890/terakoya/internal/ranks"
 	"github.com/Mimic890/terakoya/internal/raster"
 	"github.com/Mimic890/terakoya/internal/settings"
+	"github.com/Mimic890/terakoya/internal/stats"
 	"github.com/Mimic890/terakoya/internal/store"
+)
+
+// Version is the bot's version or commit, set at build time with
+// -ldflags "-X github.com/Mimic890/terakoya/internal/bot.Version=…".
+var Version = "dev"
+
+const (
+	// seenEvery throttles recording when a user was last seen.
+	seenEvery = 5 * time.Minute
+	// trafficEvery is how often the Telegram API traffic is stored.
+	trafficEvery = time.Minute
 )
 
 // settingsCheck is how often the settings file is checked for hand edits.
@@ -55,17 +68,34 @@ type Bot struct {
 	progressEvery time.Duration
 	sleep         func(context.Context, time.Duration)
 
-	mu  sync.RWMutex
-	cat *content.Catalog
-	sha string
+	clock    func() time.Time
+	started  time.Time
+	traffic  *stats.Counter // calls to the Telegram API
+	seenMu   sync.Mutex
+	seen     map[int64]time.Time // when a user's last_seen_at was last written
+	adminMu  sync.Mutex
+	views    map[int64]adminView // each admin's place in /admin
+	sizes    sizeCache
+	procRoot string // /proc and /sys, replaced in tests
+	sysRoot  string
+
+	mu       sync.RWMutex
+	cat      *content.Catalog
+	sha      string
+	lastSync *SyncResult
 }
 
 // New creates the bot and loads the catalog.
 // Extra options are passed to the Telegram client.
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
 	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
-		rejectGrace: rejectGrace, broadcastGap: broadcastGap, progressEvery: progressEvery, sleep: sleep}
+		rejectGrace: rejectGrace, broadcastGap: broadcastGap, progressEvery: progressEvery, sleep: sleep,
+		clock: time.Now, traffic: &stats.Counter{}, seen: map[int64]time.Time{}, views: map[int64]adminView{},
+		procRoot: "/proc", sysRoot: "/sys"}
+	b.started = b.clock()
 	api, err := tg.New(cfg.BotToken, append([]tg.Option{
+		// Like the library's own client, with the traffic counted.
+		tg.WithHTTPClient(time.Minute, &http.Client{Timeout: time.Minute, Transport: b.traffic}),
 		tg.WithDefaultHandler(b.handle),
 		tg.WithAllowedUpdates(tg.AllowedUpdates{"message", "callback_query", "my_chat_member"}),
 		tg.WithErrorsHandler(func(err error) { log.Error("telegram", "err", err) }),
@@ -111,15 +141,70 @@ func (b *Bot) Run(ctx context.Context) {
 	b.log.Info("bot started", "username", b.cfg.BotUsername, "reports", b.host != nil, "admins", len(b.cfg.Admins))
 	go b.syncLoop(ctx)
 	go b.settings.Watch(ctx, settingsCheck)
+	go b.trafficLoop(ctx)
 	b.setCommands(ctx)
 	b.api.Start(ctx)
+	b.storeTraffic(context.WithoutCancel(ctx))
+}
+
+// trafficLoop stores the Telegram API traffic every minute.
+func (b *Bot) trafficLoop(ctx context.Context) {
+	t := time.NewTicker(trafficEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			b.storeTraffic(ctx)
+		}
+	}
+}
+
+// storeTraffic adds the traffic since the last call to today's total.
+func (b *Bot) storeTraffic(ctx context.Context) {
+	t := b.traffic.Take()
+	if t == (store.Traffic{}) {
+		return
+	}
+	if err := b.store.AddTraffic(ctx, store.Day(b.clock()), t); err != nil {
+		b.log.Error("store traffic", "err", err)
+	}
+}
+
+// markSeen records that a user did something, at most once per
+// seenEvery.
+func (b *Bot) markSeen(ctx context.Context, u *models.User) {
+	if u == nil || u.IsBot {
+		return
+	}
+	now := b.clock()
+	b.seenMu.Lock()
+	last, ok := b.seen[u.ID]
+	due := !ok || now.Sub(last) >= seenEvery
+	if due {
+		b.seen[u.ID] = now
+	}
+	b.seenMu.Unlock()
+	if !due {
+		return
+	}
+	if err := b.store.Seen(ctx, u.ID, u.Username, u.FirstName); err != nil {
+		b.log.Error("record last seen", "err", err)
+	}
 }
 
 // Reload reads the catalog from disk and swaps it in.
 func (b *Bot) Reload(ctx context.Context) error {
+	_, err := b.reload(ctx)
+	return err
+}
+
+// reload is Reload, returning the findings about the content.
+func (b *Bot) reload(ctx context.Context) ([]content.Issue, error) {
 	cat, issues, err := content.Load(b.cfg.RepoDir)
 	if err != nil {
-		return fmt.Errorf("load content: %w", err)
+		return nil, fmt.Errorf("load content: %w", err)
 	}
 	for _, i := range issues {
 		b.log.Warn("content", "issue", i.String())
@@ -129,7 +214,7 @@ func (b *Bot) Reload(ctx context.Context) error {
 	b.cat, b.sha = cat, sha
 	b.mu.Unlock()
 	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha)
-	return nil
+	return issues, nil
 }
 
 func (b *Bot) catalog() *content.Catalog {
@@ -139,6 +224,12 @@ func (b *Bot) catalog() *content.Catalog {
 }
 
 func (b *Bot) handle(ctx context.Context, _ *tg.Bot, u *models.Update) {
+	switch {
+	case u.CallbackQuery != nil:
+		b.markSeen(ctx, &u.CallbackQuery.From)
+	case u.Message != nil && u.Message.Chat.Type == models.ChatTypePrivate:
+		b.markSeen(ctx, u.Message.From)
+	}
 	switch {
 	case u.CallbackQuery != nil:
 		b.onCallback(ctx, u.CallbackQuery)

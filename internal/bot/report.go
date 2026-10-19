@@ -293,7 +293,7 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 	}
 	switch d.ses.State {
 	case stateReport, stateReportConfirm:
-	case stateBroadcastWait, stateBroadcastConfirm:
+	case stateBroadcastWait, stateBroadcastConfirm, stateAdminSearch:
 		if !b.cfg.IsAdmin(m.From.ID) {
 			b.endDialog(ctx, d)
 			return false
@@ -318,6 +318,9 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 		return true
 	case stateNick:
 		b.onNickMessage(ctx, d, m)
+		return true
+	case stateAdminSearch:
+		b.onAdminSearch(ctx, d, m)
 		return true
 	}
 
@@ -438,6 +441,9 @@ func (b *Bot) goBack(ctx context.Context, d *dialog) {
 	switch {
 	case d.ses.State == stateNick:
 		b.showSettingsScreen(ctx, d.chatID, d.p.OriginMsg, d.ses.TgID, true)
+		return
+	case d.ses.State == stateAdminSearch:
+		b.showUsers(ctx, d.chatID, d.p.OriginMsg, d.ses.TgID)
 		return
 	case d.p.NoteID != "" || d.ses.ArticlePath != "":
 		if n := b.dialogNote(d); n != nil {
