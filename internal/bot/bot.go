@@ -388,10 +388,16 @@ func (b *Bot) showMenu(ctx context.Context, chatID int64, text string, kb *model
 	b.sendMenu(ctx, chatID, text, kb)
 }
 
+// backgroundKey marks the context of work started with later.
+type backgroundKey struct{}
+
+// inBackground reports whether ctx is that of work started with later.
+func inBackground(ctx context.Context) bool { return ctx.Value(backgroundKey{}) != nil }
+
 // later runs f in the background, after the handler has answered. It
 // keeps running when the update's context ends.
 func (b *Bot) later(ctx context.Context, f func(context.Context)) {
-	ctx = context.WithoutCancel(ctx)
+	ctx = context.WithValue(context.WithoutCancel(ctx), backgroundKey{}, true)
 	b.bg.Add(1)
 	go func() {
 		defer b.bg.Done()
