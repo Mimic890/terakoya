@@ -22,19 +22,22 @@ type Strings struct {
 
 	// Error reports. Users are schoolchildren and teachers: no file names,
 	// Markdown or LaTeX here, and every step offers «Отмена».
-	ReportDisabled      string
-	Continued           string // %s: note title
-	ArchiveName         string // %s: date
-	ReportError         string
-	Cancel              string
-	Send                string
-	OpenTopic           string
-	ReportPrompt        string
-	GradeReportPrompt   string // %s: subject label, %s: grade title
-	ReportReceived      string
-	OnlyTextAndImages   string
-	ImageTooLarge       string
-	TooManyImages       string // %d: limit
+	ReportDisabled    string
+	Continued         string // %s: note title
+	ArchiveName       string // %s: date
+	ReportError       string
+	Cancel            string
+	Send              string
+	OpenTopic         string
+	ReportPrompt      string
+	GradeReportPrompt string // %s: subject label, %s: grade title
+	ReportReceived    string
+	OnlyTextAndImages string
+	ImageTooLarge     string
+	TooManyImages     string // %d: limit
+	// A picture that turned out not to be a PNG or JPEG; %d: its number.
+	NotAnImage          string
+	NotAnImageNoneLeft  string
 	Expired             string
 	TooOften            string
 	TooManyOpen         string // %d: open reports
@@ -290,6 +293,8 @@ var RU = Strings{
 	OnlyTextAndImages:   "Я понимаю только текст и картинки.",
 	ImageTooLarge:       "Эта картинка слишком большая — пришлите поменьше.",
 	TooManyImages:       "Больше %d картинок прислать нельзя.",
+	NotAnImage:          "Картинка №%d оказалась не PNG и не JPEG, поэтому её убрали. Отправьте сообщение без неё или пришлите другую картинку.",
+	NotAnImageNoneLeft:  "Картинка №%d оказалась не PNG и не JPEG, поэтому её убрали. Опишите ошибку словами или пришлите другую картинку.",
 	Expired:             "Время вышло — начните заново кнопкой «Сообщить об ошибке».",
 	TooOften:            "Подождите минутку перед следующим сообщением.",
 	TooManyOpen:         "Ваших правок на проверке: %d. Подождите, пока мы их проверим, и возвращайтесь.",

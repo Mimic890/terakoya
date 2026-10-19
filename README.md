@@ -41,6 +41,9 @@ services:
     restart: unless-stopped
     # Run as the owner of ./data and ./vault.
     user: "1000:1000"
+    # The bot needs about 30 MB; the cap keeps a runaway SVG conversion
+    # from taking the server's memory.
+    mem_limit: 512m
     env_file: .env
     ports:
       # Git host webhooks (POST /webhooks/git); put a TLS reverse proxy in
@@ -291,8 +294,8 @@ another socket.
 `lint` prints one `path:line: severity: message` line per problem and exits
 with status 1 if there are errors (or warnings, with `-strict`). It checks
 the folder structure, links and images (broken or ambiguous), duplicate
-topic numbers, notes without a title, unexpected files, SVGs that fail to
-rasterize, math delimiters and Telegram message limits, and lists notes
+topic numbers, notes without a title, unexpected files, symbolic links,
+SVGs that fail to rasterize, math delimiters and Telegram message limits, and lists notes
 that will be sent in several parts as `info`. The Docker image includes it, so a
 content repository can run it in CI without a Go toolchain:
 
@@ -430,11 +433,25 @@ one's ID back.
 Images are uploaded to Telegram once; afterwards the bot reuses the
 `file_id`, cached by the SHA-256 of the file, so a changed image is
 uploaded again automatically. SVG drawings are rasterized with resvg at
-twice their size on a white background, only when their PNG is not cached
-yet: the cache key is the hash of the SVG source plus the rendering
-settings, so an unchanged drawing is never converted or uploaded again. If
-a drawing cannot be converted, the note is sent without it and the error
-is logged (lint reports it too).
+twice their size, at most 4096 px on the longer side, on a white
+background, only when their PNG is not cached yet: the cache key is the
+hash of the SVG source plus the rendering settings, so an unchanged
+drawing is never converted or uploaded again. Users opening a new note at
+the same time share one conversion and one upload. If a drawing cannot be
+converted, the note is sent without it and the error is logged (lint
+reports it too).
+
+Before resvg runs, the bot checks the drawing: at most 5 MB and
+4096 × 4096 px (from `width`, `height` or `viewBox`), and every picture
+it embeds must be a `data:` URI or a file inside the vault, by a relative
+path without symbolic links. resvg would otherwise read any file on the
+server it is pointed at.
+
+The bot never follows symbolic links in the vault: its checkout stores
+them as plain files (`core.symlinks=false`), the loader, the `/download`
+archive and image uploads skip them, and `lint` reports each as an
+error. A link could otherwise point at a file on the server, such as
+the one holding the bot's tokens.
 
 Without `TERAKOYA_CACHE_CHAT_ID`, a new image is attached to the first
 message that uses it, and its `file_id` is read back from the sent
@@ -468,6 +485,14 @@ attachments; GitHub has no API for those, so they are pushed to a
 titled «Error report: <note>», those about a grade «Missing material:
 Геометрия · 7 класс».
 
+Whatever the user wrote, their names and picture captions appear in the
+issue as code, verbatim: as Markdown they could mention people on the
+host (`@user`), link other issues (`#12`) or load images from elsewhere
+in the reviewer's browser. Pictures must really be PNG or JPEG: the bot
+checks the bytes, not the name or type the app sent, before it opens the
+issue, and a picture that is neither is taken out of the report with a
+note to the user.
+
 Every step has «Отмена», and `/cancel` does the same. It says nothing:
 every message of the dialog goes, the bot's questions as well as the
 user's texts and photos (deleted in the background), and the user is back
@@ -495,6 +520,9 @@ Outcomes:
   comment. The bot waits two minutes after the close, so closing first and
   labeling right after is fine. Adding the label to an issue that was
   already reported as not accepted still counts it, once.
+- A delivery only tells the bot that an issue changed; it reads the
+  issue's state and labels from the host's API, so a replayed or late
+  delivery cannot change an outcome.
 - Every `TERAKOYA_SYNC_INTERVAL`, the bot also asks the host about each open
   report, so outcomes are noticed even when a webhook delivery is lost.
 

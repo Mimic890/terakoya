@@ -52,9 +52,18 @@ type call struct {
 	params map[string]string
 }
 
+// pngMagic starts every picture the fake serves.
+const pngMagic = "\x89PNG\r\n\x1a\n"
+
 func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/file/") {
-		w.Write([]byte("IMG:" + r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]))
+		// A PNG, unless its file_id says otherwise.
+		id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		if strings.Contains(id, "notimg") {
+			w.Write([]byte("%PDF-1.4 " + id))
+			return
+		}
+		w.Write([]byte(pngMagic + "IMG:" + id))
 		return
 	}
 	method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
@@ -501,13 +510,13 @@ func TestReport(t *testing.T) {
 		t.Fatalf("issues %q", h.host.issues)
 	}
 	body := h.host.bodies[7]
-	for _, want := range []string{"> в теореме опечатка, должно быть 180°", "https://host/src/" + base + "/" + triangles,
+	for _, want := range []string{"```text\nв теореме опечатка, должно быть 180°\n```", "https://host/src/" + base + "/" + triangles,
 		"вот тут", "https://host/attachments/7/treugolniki-", "`accepted` label"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("issue body misses %q:\n%s", want, body)
 		}
 	}
-	if len(h.host.attachments) != 1 || !strings.HasSuffix(h.host.attachments[0], "=IMG:shot") {
+	if len(h.host.attachments) != 1 || !strings.HasSuffix(h.host.attachments[0], ".png="+pngMagic+"IMG:shot") {
 		t.Errorf("attachments = %q", h.host.attachments)
 	}
 	if branches := git(t, h.remote, "branch", "--list"); strings.Contains(branches, "report/") {
@@ -526,7 +535,7 @@ func TestReport(t *testing.T) {
 	// Closed without the label: the user hears about it only after the
 	// grace period, from the host's state.
 	h.host.setState(7, githost.State{Closed: true, ClosedAt: time.Now().Add(-time.Hour)})
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7, State: githost.State{Closed: true}})
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
 	var got []string
 	for i := 0; i < 100 && len(got) == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
@@ -538,7 +547,8 @@ func TestReport(t *testing.T) {
 
 	// The label added afterwards turns it into an accepted report, once,
 	// and the rank goes up.
-	labeled := githost.Event{Kind: githost.IssueChanged, PRNumber: 7, State: githost.State{Closed: true, Labels: []string{"Accepted"}}}
+	h.host.setState(7, githost.State{Closed: true, Labels: []string{"Accepted"}})
+	labeled := githost.Event{Kind: githost.IssueChanged, PRNumber: 7}
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	h.bot.HandleGitEvent(h.ctx, labeled)
 	c := to(h.tg.take(), "sendMessage", 42)
@@ -573,7 +583,7 @@ func TestGradeReport(t *testing.T) {
 		t.Fatalf("issues %q", h.host.issues)
 	}
 	body := h.host.bodies[7]
-	for _, want := range []string{"Missing material reported in Telegram by @anya.", "> нет темы про ромб",
+	for _, want := range []string{"Missing material reported in Telegram by `@anya`.", "```text\nнет темы про ромб\n```",
 		"- Grade: [`Геометрия/7 класс`](https://host/src/" + base + "/Геометрия/7 класс)"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("issue body misses %q:\n%s", want, body)
@@ -587,8 +597,16 @@ func TestGradeReport(t *testing.T) {
 		t.Errorf("history:\n%s", got)
 	}
 
-	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7,
-		State: githost.State{Closed: true, Labels: []string{"accepted"}}})
+	// A delivery alone changes nothing: the issue is still open on the host.
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
+	if c := to(h.tg.take(), "sendMessage", 42); len(c) != 0 {
+		t.Errorf("an open issue resolved: %+v", c)
+	}
+	if sg, _ := h.store.SuggestionByNumber(h.ctx, 7); sg.Status != store.StatusOpen {
+		t.Errorf("status = %s", sg.Status)
+	}
+	h.host.setState(7, githost.State{Closed: true, Labels: []string{"accepted"}})
+	h.bot.HandleGitEvent(h.ctx, githost.Event{Kind: githost.IssueChanged, PRNumber: 7})
 	c := to(h.tg.take(), "sendMessage", 42)
 	if len(c) != 1 || !strings.HasPrefix(c[0].params["text"], "Ваше сообщение про «Геометрия · 7 класс» учли. Спасибо! Принято правок: 1.") ||
 		strings.Contains(c[0].params["reply_markup"], `"o:`) {
@@ -613,11 +631,11 @@ func TestReportPicturesOnBranch(t *testing.T) {
 	if parent := git(t, h.remote, "rev-parse", sg.Branch+"^"); parent != base {
 		t.Errorf("branch parent = %s, want %s", parent, base)
 	}
-	img := path.Dir(triangles) + "/_assets/treugolniki-" + strings.TrimPrefix(sg.Branch, "report/42-treugolniki-") + "-1.jpg"
-	if got := h.file(sg.Branch, img); got != "IMG:pic1" {
+	img := path.Dir(triangles) + "/_assets/treugolniki-" + strings.TrimPrefix(sg.Branch, "report/42-treugolniki-") + "-1.png" // named by its bytes
+	if got := h.file(sg.Branch, img); got != pngMagic+"IMG:pic1" {
 		t.Errorf("picture = %q", got)
 	}
-	if body := h.host.bodies[7]; !strings.Contains(body, "`"+img+"` — после таблицы") || !strings.Contains(body, "https://host/raw/"+sg.Branch+"/"+img) {
+	if body := h.host.bodies[7]; !strings.Contains(body, "`"+img+"` — `после таблицы`") || !strings.Contains(body, "https://host/raw/"+sg.Branch+"/"+img) {
 		t.Errorf("issue body:\n%s", body)
 	}
 
@@ -629,7 +647,7 @@ func TestReportPicturesOnBranch(t *testing.T) {
 	h.tg.take()
 	sg, _ = h.store.SuggestionByNumber(h.ctx, 8)
 	files := git(t, h.remote, "diff", "--name-only", sg.Branch+"^", sg.Branch)
-	if !strings.HasPrefix(files, "Геометрия/7 класс/_assets/") || !strings.HasSuffix(files, "-1.jpg") {
+	if !strings.HasPrefix(files, "Геометрия/7 класс/_assets/") || !strings.HasSuffix(files, "-1.png") {
 		t.Errorf("grade picture = %q on %q", files, sg.Branch)
 	}
 }
@@ -762,5 +780,47 @@ func TestReconcile(t *testing.T) {
 	}
 	if open, _ := h.store.OpenSuggestions(h.ctx); len(open) != 0 {
 		t.Errorf("still open: %+v", open)
+	}
+}
+
+func TestReportPictureNotAnImage(t *testing.T) {
+	h := newHarness(t, nil)
+	h.tap(cbReport + h.id(triangles))
+	h.say("опечатка")
+	h.photo("good", "")
+	// Named and typed as a PNG, but a PDF.
+	h.send(&models.Message{Document: &models.Document{FileID: "notimg", FileName: "скрин.png", MimeType: "image/png", FileSize: 7}})
+	h.tg.take()
+	h.tap(cbSend)
+	calls := h.tg.take()
+	if len(h.host.issues) != 0 {
+		t.Fatalf("issue opened: %q", h.host.issues)
+	}
+	wantPrompt(t, calls, fmt.Sprintf(i18n.RU.NotAnImage, 2), "Отправить", "Отмена")
+	// Without it, the report goes with the real picture only.
+	h.tap(cbSend)
+	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != i18n.RU.SubmittedReport {
+		t.Errorf("outcome = %q", s)
+	}
+	if len(h.host.attachments) != 1 || !strings.Contains(h.host.attachments[0], ".png="+pngMagic+"IMG:good") {
+		t.Errorf("attachments = %q", h.host.attachments)
+	}
+}
+
+func TestReportOnlyPictureNotAnImage(t *testing.T) {
+	h := newHarness(t, nil)
+	h.tap(cbReport + h.id(triangles))
+	h.photo("notimg", "")
+	h.tg.take()
+	h.tap(cbSend)
+	wantPrompt(t, h.tg.take(), fmt.Sprintf(i18n.RU.NotAnImageNoneLeft, 1), "Отмена")
+	if d := h.bot.mustDialog(t); d.ses.State != stateReport || len(d.p.Images) != 0 {
+		t.Errorf("dialog = %s %+v", d.ses.State, d.p.Images)
+	}
+	// The user goes on with words.
+	h.say("опечатка в теореме")
+	h.tap(cbSend)
+	if len(h.host.issues) != 1 {
+		t.Errorf("issues = %q", h.host.issues)
 	}
 }

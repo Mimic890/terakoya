@@ -115,11 +115,11 @@ func TestWebhooks(t *testing.T) {
 				t.Errorf("push = %+v, %v", ev, err)
 			}
 			ev, err = c.h.ParseWebhook(c.header("issues", issueClosed), issueClosed)
-			if err != nil || ev.Kind != IssueChanged || ev.PRNumber != 12 || !ev.State.Closed || !ev.State.HasLabel("accepted") || ev.State.ClosedAt.IsZero() {
+			if err != nil || ev.Kind != IssueChanged || ev.PRNumber != 12 {
 				t.Errorf("issue closed = %+v, %v", ev, err)
 			}
 			ev, err = c.h.ParseWebhook(c.header("issues", issueLabeled), issueLabeled)
-			if err != nil || ev.Kind != IssueChanged || ev.State.Closed {
+			if err != nil || ev.Kind != IssueChanged {
 				t.Errorf("issue labeled = %+v, %v", ev, err)
 			}
 			for _, body := range [][]byte{issueOpened, prAsIssue} {

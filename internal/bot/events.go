@@ -38,10 +38,21 @@ func (b *Bot) HandleGitEvent(ctx context.Context, ev githost.Event) {
 		b.resolve(ctx, sg, ev.Kind == githost.PRMerged)
 	case githost.IssueChanged:
 		sg, ok := b.suggestionFor(ctx, ev.PRNumber)
-		if !ok || sg.Kind != store.KindReport || !ev.State.Closed {
+		if !ok || sg.Kind != store.KindReport {
 			return
 		}
-		if ev.State.HasLabel(b.cfg.AcceptedLabel) {
+		// The delivery only says that something changed; the host says
+		// what. A replayed or late delivery cannot change the outcome.
+		st, err := b.host.State(ctx, sg.PRNumber, false)
+		if err != nil {
+			// The next reconcile asks again.
+			b.log.Warn("read report state", "number", sg.PRNumber, "err", err)
+			return
+		}
+		if !st.Closed {
+			return
+		}
+		if st.HasLabel(b.cfg.AcceptedLabel) {
 			b.resolve(ctx, sg, true)
 			return
 		}
