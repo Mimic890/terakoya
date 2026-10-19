@@ -143,24 +143,71 @@ func (b *Bot) onBroadcastCallback(ctx context.Context, q *models.CallbackQuery, 
 		b.prompt(ctx, d, b.t.BroadcastAsk, keyboard(cancelRow(b.t.Cancel)))
 		return
 	}
+	// One broadcast at a time: two would together go over Telegram's
+	// rate limit. The dialog stays, so the admin can press again later.
+	if !b.broadcasting.TryLock() {
+		b.send(ctx, d.chatID, b.t.BroadcastBusy, nil)
+		return
+	}
 	b.endDialog(ctx, d)
 	// The preview stays as the record of what went out.
 	b.dropMessages(ctx, d.chatID, without(d.p.Msgs, []int{d.p.Preview}))
+	bc := &store.Broadcast{AdminID: q.From.ID, Markdown: d.p.Markdown, Photo: d.p.Photo}
+	if _, err := b.launchBroadcast(ctx, bc, d.chatID); err != nil {
+		b.log.Error("start broadcast", "err", err)
+		b.send(ctx, d.chatID, b.t.SubmitFailed, nil)
+	}
+}
+
+// launchBroadcast stores a broadcast with its recipients and sends it in
+// the background, with a progress message in chatID unless it is 0. The
+// caller holds b.broadcasting, which is released when sending ends or
+// when this fails.
+func (b *Bot) launchBroadcast(ctx context.Context, bc *store.Broadcast, chatID int64) (int, error) {
 	ids, err := b.recipients(ctx)
+	if err == nil {
+		err = b.store.CreateBroadcast(ctx, bc, ids)
+	}
 	if err != nil {
-		b.log.Error("recipients", "err", err)
-		b.send(ctx, d.chatID, b.t.SubmitFailed, nil)
+		b.broadcasting.Unlock()
+		return 0, err
+	}
+	if chatID != 0 {
+		if m := b.send(ctx, chatID, fmt.Sprintf(b.t.BroadcastProgress, 0, len(ids)), nil); m != nil {
+			if err := b.store.SetBroadcastProgress(ctx, bc, chatID, m.ID); err != nil {
+				b.log.Error("store broadcast progress", "err", err)
+			}
+		}
+	}
+	b.log.Info("broadcast started", "id", bc.ID, "admin", bc.AdminID, "recipients", len(ids))
+	b.later(ctx, func(ctx context.Context) {
+		defer b.broadcasting.Unlock()
+		b.runBroadcast(ctx, bc)
+	})
+	return len(ids), nil
+}
+
+// resumeBroadcasts goes on with broadcasts a restart cut short.
+func (b *Bot) resumeBroadcasts(ctx context.Context) {
+	open, err := b.store.UnfinishedBroadcasts(ctx)
+	if err != nil {
+		b.log.Error("unfinished broadcasts", "err", err)
 		return
 	}
-	bc := &store.Broadcast{AdminID: q.From.ID, Markdown: d.p.Markdown, Photo: d.p.Photo, Recipients: len(ids)}
-	if err := b.store.CreateBroadcast(ctx, bc); err != nil {
-		b.log.Error("store broadcast", "err", err)
-		b.send(ctx, d.chatID, b.t.SubmitFailed, nil)
-		return
+	for _, bc := range open {
+		if b.stopping() {
+			return
+		}
+		b.broadcasting.Lock()
+		if err := b.store.ResumeBroadcast(ctx, &bc); err != nil {
+			b.broadcasting.Unlock()
+			b.log.Error("resume broadcast", "id", bc.ID, "err", err)
+			continue
+		}
+		b.log.Info("broadcast resumed", "id", bc.ID, "done", bc.Sent+bc.Blocked+bc.Failed, "recipients", bc.Recipients)
+		b.runBroadcast(ctx, &bc)
+		b.broadcasting.Unlock()
 	}
-	progress := b.send(ctx, d.chatID, fmt.Sprintf(b.t.BroadcastProgress, 0, len(ids)), nil)
-	b.log.Info("broadcast started", "id", bc.ID, "admin", q.From.ID, "recipients", len(ids))
-	b.later(ctx, func(ctx context.Context) { b.runBroadcast(ctx, bc, ids, d.chatID, progress) })
 }
 
 // recipients are the users a broadcast goes to.
@@ -184,18 +231,32 @@ func (b *Bot) sendBroadcast(ctx context.Context, chatID int64, md, photo string)
 	return msg, nil
 }
 
-// runBroadcast sends to every recipient in turn and keeps the admin's
-// progress message and the stored counts up to date.
-func (b *Bot) runBroadcast(ctx context.Context, bc *store.Broadcast, ids []int64, chatID int64, progress *models.Message) {
+// runBroadcast sends to every recipient still pending, in turn, and keeps
+// the admin's progress message and the stored counts up to date. When the
+// bot shuts down it stops between two recipients; the broadcast stays
+// unfinished and resumes on the next start.
+func (b *Bot) runBroadcast(ctx context.Context, bc *store.Broadcast) {
+	ids, err := b.store.PendingRecipients(ctx, bc.ID)
+	if err != nil {
+		b.log.Error("broadcast recipients", "id", bc.ID, "err", err)
+		return
+	}
 	last := time.Now()
 	for i, id := range ids {
 		if i > 0 {
-			b.sleep(ctx, b.broadcastGap)
+			b.sleep(b.stopCtx, b.broadcastGap)
+		}
+		if b.stopping() {
+			if err := b.store.UpdateBroadcast(ctx, bc, false); err != nil {
+				b.log.Error("store broadcast", "err", err)
+			}
+			b.log.Info("broadcast paused for shutdown; it resumes on start", "id", bc.ID, "left", len(ids)-i)
+			return
 		}
 		b.deliver(ctx, bc, id)
 		if time.Since(last) >= b.progressEvery {
 			last = time.Now()
-			b.progress(ctx, chatID, progress, fmt.Sprintf(b.t.BroadcastProgress, bc.Sent+bc.Blocked+bc.Failed, len(ids)))
+			b.progress(ctx, bc, fmt.Sprintf(b.t.BroadcastProgress, bc.Sent+bc.Blocked+bc.Failed, bc.Recipients))
 			if err := b.store.UpdateBroadcast(ctx, bc, false); err != nil {
 				b.log.Error("store broadcast", "err", err)
 			}
@@ -205,54 +266,76 @@ func (b *Bot) runBroadcast(ctx context.Context, bc *store.Broadcast, ids []int64
 		b.log.Error("store broadcast", "err", err)
 	}
 	b.log.Info("broadcast finished", "id", bc.ID, "sent", bc.Sent, "blocked", bc.Blocked, "failed", bc.Failed)
-	b.progress(ctx, chatID, progress, fmt.Sprintf(b.t.BroadcastDone, bc.Sent, bc.Blocked, bc.Failed))
+	b.progress(ctx, bc, fmt.Sprintf(b.t.BroadcastDone, bc.Sent, bc.Blocked, bc.Failed))
 }
 
 // deliver sends the broadcast to one user. After a 429 it waits as long
 // as Telegram asks and tries again; a user who blocked the bot is marked
-// and skipped from then on.
+// and skipped from then on. The recipient is marked sending first, so a
+// crash cannot lead to a second copy.
 func (b *Bot) deliver(ctx context.Context, bc *store.Broadcast, userID int64) {
+	if err := b.store.MarkRecipient(ctx, bc.ID, userID, store.RecipientSending); err != nil {
+		b.log.Error("mark broadcast recipient", "err", err)
+		bc.Failed++
+		return
+	}
+	outcome := b.deliverOnce(ctx, bc, userID)
+	switch outcome {
+	case store.RecipientSent:
+		bc.Sent++
+	case store.RecipientBlocked:
+		bc.Blocked++
+	default:
+		bc.Failed++
+	}
+	if err := b.store.MarkRecipient(ctx, bc.ID, userID, outcome); err != nil {
+		b.log.Error("mark broadcast recipient", "err", err)
+	}
+}
+
+func (b *Bot) deliverOnce(ctx context.Context, bc *store.Broadcast, userID int64) string {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		_, err := b.sendBroadcast(ctx, userID, bc.Markdown, bc.Photo)
 		var wait *tg.TooManyRequestsError
 		switch {
 		case err == nil:
-			bc.Sent++
-			return
+			return store.RecipientSent
 		case errors.As(err, &wait):
 			b.log.Warn("broadcast: too many requests", "retry_after", wait.RetryAfter)
-			b.sleep(ctx, time.Duration(max(wait.RetryAfter, 1))*time.Second)
+			b.sleep(b.stopCtx, time.Duration(max(wait.RetryAfter, 1))*time.Second)
 			continue
 		case errors.Is(err, tg.ErrorForbidden):
-			bc.Blocked++
 			if err := b.store.MarkBlocked(ctx, userID); err != nil {
 				b.log.Error("mark blocked", "err", err)
 			}
-			return
+			return store.RecipientBlocked
 		default:
-			bc.Failed++
 			b.log.Warn("broadcast: not delivered", "user", userID, "err", err)
-			return
+			return store.RecipientFailed
 		}
 	}
-	bc.Failed++
 	b.log.Warn("broadcast: still too many requests, gave up", "user", userID)
+	return store.RecipientFailed
 }
 
 // progress shows the state of a broadcast on its progress message, or in
 // a new one.
-func (b *Bot) progress(ctx context.Context, chatID int64, msg *models.Message, text string) {
-	if chatID == 0 {
+func (b *Bot) progress(ctx context.Context, bc *store.Broadcast, text string) {
+	if bc.ProgressChat == 0 {
 		return // from the admin socket, which has no chat
 	}
-	if msg != nil {
-		_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: chatID, MessageID: msg.ID, Text: text})
+	if bc.ProgressMsg != 0 {
+		_, err := b.api.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: bc.ProgressChat, MessageID: bc.ProgressMsg, Text: text})
 		if err == nil || strings.Contains(err.Error(), "message is not modified") {
 			return
 		}
 		b.log.Debug("edit broadcast progress", "err", err)
 	}
-	b.send(ctx, chatID, text, nil)
+	if m := b.send(ctx, bc.ProgressChat, text, nil); m != nil {
+		if err := b.store.SetBroadcastProgress(ctx, bc, bc.ProgressChat, m.ID); err != nil {
+			b.log.Error("store broadcast progress", "err", err)
+		}
+	}
 }
 
 // sleep waits d, or until ctx ends.

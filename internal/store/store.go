@@ -205,6 +205,19 @@ var migrations = []string{
 		sent     INTEGER NOT NULL DEFAULT 0,
 		received INTEGER NOT NULL DEFAULT 0
 	) WITHOUT ROWID;`,
+	// Broadcasts keep who they go to and how far they got, so one cut
+	// short by a restart resumes without sending anyone a second copy.
+	// Earlier unfinished ones have no such list and count as done.
+	`ALTER TABLE broadcasts ADD COLUMN progress_chat INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE broadcasts ADD COLUMN progress_msg INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE broadcast_recipients (
+		broadcast_id INTEGER NOT NULL REFERENCES broadcasts(id),
+		tg_id        INTEGER NOT NULL,
+		state        TEXT NOT NULL DEFAULT 'pending'
+			CHECK (state IN ('pending', 'sending', 'sent', 'blocked', 'failed')),
+		PRIMARY KEY (broadcast_id, tg_id)
+	) WITHOUT ROWID;
+	UPDATE broadcasts SET finished_at = created_at WHERE finished_at IS NULL;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

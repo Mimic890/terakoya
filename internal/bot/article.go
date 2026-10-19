@@ -46,7 +46,9 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fr
 		}
 		msg, err := b.sendRich(ctx, chatID, n, part, kb)
 		if err != nil {
-			b.log.Error("send note", "note", n.Path, "part", i+1, "of", len(res.Parts), "err", err)
+			if b.sendFailed(ctx, "send note", chatID, err, "note", n.Path, "part", i+1, "of", len(res.Parts)) {
+				return false
+			}
 			b.log.Debug("rejected markdown", "note", n.Path, "markdown", part.Markdown)
 			if m := b.send(ctx, chatID, b.t.SendFailed, keyboard(
 				row(button(b.t.DownloadMD, cbDownload+n.ID)),
@@ -108,7 +110,7 @@ func (b *Bot) sendMarkdownFile(ctx context.Context, chatID int64, n *content.Not
 		Document: &models.InputFileUpload{Filename: n.FileName(), Data: bytes.NewReader(n.Raw)},
 	})
 	if err != nil {
-		b.log.Error("send document", "note", n.Path, "err", err)
+		b.sendFailed(ctx, "send document", chatID, err, "note", n.Path)
 		return
 	}
 	b.msgs.seen(ctx, chatID, msg.ID)
@@ -141,8 +143,9 @@ func (b *Bot) sendArchive(ctx context.Context, chatID int64) {
 		Document: &models.InputFileUpload{Filename: name, Data: bytes.NewReader(data)},
 	})
 	if err != nil {
-		b.log.Error("send archive", "err", err)
-		b.send(ctx, chatID, b.t.SendFailed, nil)
+		if !b.sendFailed(ctx, "send archive", chatID, err) {
+			b.send(ctx, chatID, b.t.SendFailed, nil)
+		}
 		return
 	}
 	b.msgs.seen(ctx, chatID, msg.ID)

@@ -198,7 +198,7 @@ func runBroadcast(ctx context.Context, c *adminapi.Client, args []string, in io.
 		json.NewEncoder(out).Encode(r)
 		return 0
 	}
-	fmt.Fprintf(out, "Broadcast #%d started for %d recipients; it runs in the background.\n", r.ID, r.Recipients)
+	fmt.Fprintf(out, "The first admin got a test copy. Broadcast #%d started for %d recipients; it runs in the background.\n", r.ID, r.Recipients)
 	return 0
 }
 

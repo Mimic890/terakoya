@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tg "github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -166,6 +168,10 @@ type fakeHost struct {
 	number      int
 	// noAttach makes the host one without issue attachments, like GitHub.
 	noAttach bool
+	// failAttach makes the attachment with this name fail, once.
+	failAttach string
+	// comment is the last review comment; "" means «Слишком коротко.».
+	comment string
 }
 
 func (h *fakeHost) nextNumber() int {
@@ -199,6 +205,10 @@ func (h *fakeHost) Attach(_ context.Context, number int, name string, data []byt
 	if h.noAttach {
 		return "", githost.ErrUnsupported
 	}
+	if h.failAttach != "" && strings.HasSuffix(name, h.failAttach) {
+		h.failAttach = ""
+		return "", errors.New("502 Bad Gateway")
+	}
 	h.attachments = append(h.attachments, name+"="+string(data))
 	return fmt.Sprintf("https://host/attachments/%d/%s", number, name), nil
 }
@@ -217,6 +227,11 @@ func (h *fakeHost) setState(number int, st githost.State) {
 	h.states[number] = st
 }
 func (h *fakeHost) LastReviewComment(context.Context, int) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.comment != "" {
+		return h.comment, nil
+	}
 	return "Слишком коротко.", nil
 }
 func (h *fakeHost) ParseWebhook(http.Header, []byte) (githost.Event, error) {
@@ -306,6 +321,8 @@ func newHarness(t *testing.T, extra map[string]string) *harness {
 		t.Fatal(err)
 	}
 	b.media.Raster = fakeRaster{}
+	// Tests tap faster than any user; TestRateLimit turns it back on.
+	b.limit = nil
 	h := &harness{t: t, ctx: ctx, bot: b, tg: fake, host: host, store: st, remote: remote, upstream: upstream, msgID: 100,
 		user: anya}
 	h.setRanks("kōhai:0,senpai:1")
@@ -822,5 +839,98 @@ func TestReportOnlyPictureNotAnImage(t *testing.T) {
 	h.tap(cbSend)
 	if len(h.host.issues) != 1 {
 		t.Errorf("issues = %q", h.host.issues)
+	}
+}
+
+func TestReportRetryReusesIssue(t *testing.T) {
+	h := newHarness(t, nil)
+	h.host.failAttach = "-2.png"
+	h.tap(cbReport + h.id(triangles))
+	h.say("опечатка")
+	h.photo("one", "")
+	h.photo("two", "")
+	h.tg.take()
+	h.tap(cbSend)
+	wantPrompt(t, h.tg.take(), i18n.RU.SubmitFailed, "Отправить", "Отмена")
+	if len(h.host.issues) != 1 || len(h.host.attachments) != 1 {
+		t.Fatalf("after the failure: issues %q attachments %q", h.host.issues, h.host.attachments)
+	}
+	if _, err := h.store.SuggestionByNumber(h.ctx, 7); err == nil {
+		t.Fatal("stored before it was done")
+	}
+	// The user adds a line and tries again: same issue, the first picture
+	// is not uploaded twice, and the body has both pictures and the line.
+	h.say("и ещё одна")
+	h.tap(cbSend)
+	if s := texts(h.tg.take(), "editMessageText"); len(s) != 1 || s[0] != i18n.RU.SubmittedReport {
+		t.Errorf("outcome = %q", s)
+	}
+	if len(h.host.issues) != 1 || len(h.host.attachments) != 2 {
+		t.Errorf("issues %q attachments %q", h.host.issues, h.host.attachments)
+	}
+	body := h.host.bodies[7]
+	for _, want := range []string{"опечатка\n\nи ещё одна", "![picture 1](https://host/attachments/7/", "![picture 2](https://host/attachments/7/"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body misses %q:\n%s", want, body)
+		}
+	}
+	if sg, err := h.store.SuggestionByNumber(h.ctx, 7); err != nil || sg.Status != store.StatusOpen {
+		t.Errorf("stored = %+v, %v", sg, err)
+	}
+}
+
+func TestReportTextCap(t *testing.T) {
+	h := newHarness(t, nil)
+	h.tap(cbReport + h.id(triangles))
+	h.say(strings.Repeat("я", 3000))
+	h.tg.take()
+	// Together with the first message, this one would go over the limit.
+	h.say(strings.Repeat("б", 1000))
+	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != fmt.Sprintf(i18n.RU.ReportTooLong, maxReportText) {
+		t.Errorf("reply = %q", s)
+	}
+	if d := h.bot.mustDialog(t); utf8.RuneCountInString(d.p.Text) != 3000 {
+		t.Errorf("text has %d characters", utf8.RuneCountInString(d.p.Text))
+	}
+	// A shorter one still fits: 3000 + 2 for the paragraph break + 998.
+	h.say(strings.Repeat("б", 998))
+	h.tap(cbSend)
+	if len(h.host.issues) != 1 {
+		t.Errorf("issues = %q", h.host.issues)
+	}
+}
+
+func TestLongReviewComment(t *testing.T) {
+	h := newHarness(t, nil)
+	h.bot.rejectGrace = 0
+	h.host.comment = strings.Repeat("очень длинный разбор ", 2000)
+	h.tap(cbReport + h.id(triangles))
+	h.say("опечатка")
+	h.tap(cbSend)
+	h.tg.take()
+	h.host.setState(7, githost.State{Closed: true, ClosedAt: time.Now().Add(-time.Hour)})
+	h.bot.reconcile(h.ctx)
+	c := to(h.tg.take(), "sendMessage", 42)
+	if len(c) != 1 {
+		t.Fatalf("messages = %+v", c)
+	}
+	text := c[0].params["text"]
+	if n := utf8.RuneCountInString(text); n > 4096 || !strings.Contains(text, "…") {
+		t.Errorf("message has %d characters:\n%.200s…", n, text)
+	}
+	if sg, _ := h.store.SuggestionByNumber(h.ctx, 7); utf8.RuneCountInString(sg.Comment) > maxReviewComment {
+		t.Errorf("stored comment has %d characters", utf8.RuneCountInString(sg.Comment))
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		n    int
+		want string
+	}{{"короткий", 10, "короткий"}, {"ровно", 5, "ровно"}, {"длинный текст", 9, "длинный…"}, {"абвгд", 3, "аб…"}} {
+		if got := truncate(c.in, c.n); got != c.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
 	}
 }

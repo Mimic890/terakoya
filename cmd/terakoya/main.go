@@ -118,6 +118,7 @@ func runServe(args []string) int {
 		log.Error("content repository", "err", err)
 		return 1
 	}
+	repo.Log = log
 	var host githost.Host
 	if cfg.Suggestions() {
 		host, err = githost.New(githost.Config{Kind: cfg.GitHost, APIURL: cfg.GitAPIURL, WebURL: cfg.RepoURL,

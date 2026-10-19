@@ -258,7 +258,7 @@ func TestAdminStats(t *testing.T) {
 	h.tapOn(502, cbArticle+h.id(vmain))
 	h.store.NoteOpened(h.ctx, "gone-note")
 	h.accept(anya, 2)
-	h.store.CreateBroadcast(h.ctx, &store.Broadcast{Markdown: "x", Recipients: 3})
+	h.store.CreateBroadcast(h.ctx, &store.Broadcast{Markdown: "x"}, []int64{1, 2, 3})
 	menu, _ := h.adminMenu()
 	h.tapOn(menu, cbAdminStats)
 	r := lastRich(t, h.tg.take())
@@ -384,6 +384,10 @@ func TestSocketBroadcast(t *testing.T) {
 			t.Errorf("to %d: %q", id, got)
 		}
 	}
+	// The first admin gets a test copy first, and no progress messages.
+	if got := richTo(calls, ivan.ID); len(got) != 1 || got[0] != `{"markdown":"Завтра \\*обновление\\*"}` {
+		t.Errorf("test copy = %q", got)
+	}
 	if len(to(calls, "sendMessage", ivan.ID))+len(to(calls, "editMessageText", ivan.ID)) != 0 {
 		t.Errorf("progress to the admin: %+v", calls)
 	}
@@ -424,4 +428,32 @@ func TestAdminUsersPages(t *testing.T) {
 	if _, err := h.bot.AdminUser(h.ctx, "@nobody"); err != ErrNoUser {
 		t.Errorf("unknown = %v", err)
 	}
+}
+
+func TestSocketBroadcastTestCopyFails(t *testing.T) {
+	h, _ := broadcastHarness(t)
+	h.tg.fail = func(method string, p map[string]string) (int, int) {
+		if method == "sendRichMessage" && p["chat_id"] == fmt.Sprint(ivan.ID) {
+			return 400, 0
+		}
+		return 0, 0
+	}
+	h.tg.take()
+	if _, err := h.bot.Broadcast(h.ctx, "Новость", nil); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("err = %v", err)
+	}
+	h.bot.bg.Wait()
+	calls := h.tg.take()
+	if got := richTo(calls, anya.ID); len(got) != 0 {
+		t.Errorf("sent to users: %q", got)
+	}
+	if all, _ := h.store.Broadcasts(h.ctx); len(all) != 0 {
+		t.Errorf("stored = %+v", all)
+	}
+	// The slot is free again.
+	h.tg.fail = nil
+	if _, err := h.bot.Broadcast(h.ctx, "Новость", nil); err != nil {
+		t.Errorf("after a failed test copy: %v", err)
+	}
+	h.bot.bg.Wait()
 }

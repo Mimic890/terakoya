@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-telegram/bot/models"
 
@@ -18,6 +20,19 @@ import (
 // accepted label before the user is told it was not accepted. It lets the
 // reviewer close first and label right after without a wrong message.
 const rejectGrace = 2 * time.Minute
+
+// maxReviewComment is how much of the reviewer's comment a user is sent,
+// in characters.
+const maxReviewComment = 1000
+
+// truncate cuts s to at most n characters, marking the cut with «…».
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimRightFunc(string(r[:n-1]), unicode.IsSpace) + "…"
+}
 
 // HandleGitEvent reacts to a verified webhook delivery from the git host.
 func (b *Bot) HandleGitEvent(ctx context.Context, ev githost.Event) {
@@ -60,6 +75,7 @@ func (b *Bot) HandleGitEvent(ctx context.Context, ev githost.Event) {
 			// Decide later, in case the label follows the close.
 			id := sg.PRNumber
 			time.AfterFunc(b.rejectGrace, func() {
+				defer b.recovered("report check")
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 				if sg, ok := b.suggestionFor(ctx, id); ok && sg.Status == store.StatusOpen {
@@ -183,6 +199,9 @@ func (b *Bot) resolve(ctx context.Context, sg store.Suggestion, accepted bool) {
 		if err != nil {
 			b.log.Warn("read review comments", "number", sg.PRNumber, "err", err)
 		}
+		// A long comment would make the message too long to send, and
+		// the user would never hear the outcome.
+		comment = truncate(comment, maxReviewComment)
 		if comment != "" {
 			text += "\n\n" + fmt.Sprintf(b.t.ReviewComment, comment)
 			if err := b.store.SetSuggestionComment(ctx, sg.ID, comment); err != nil {
@@ -289,8 +308,7 @@ func (b *Bot) syncLoop(ctx context.Context) {
 		return
 	}
 	// A checkout from an earlier run may be behind.
-	b.Sync(ctx)
-	b.reconcile(ctx)
+	b.syncOnce(ctx)
 	if b.cfg.SyncInterval <= 0 {
 		return
 	}
@@ -301,8 +319,15 @@ func (b *Bot) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			b.Sync(ctx)
-			b.reconcile(ctx)
+			b.syncOnce(ctx)
 		}
 	}
+}
+
+// syncOnce syncs the content and checks open reports; a panic in either
+// is logged and the loop goes on.
+func (b *Bot) syncOnce(ctx context.Context) {
+	defer b.recovered("sync")
+	b.Sync(ctx)
+	b.reconcile(ctx)
 }

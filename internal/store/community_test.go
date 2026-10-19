@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -99,8 +100,8 @@ func TestRecipientsAndBroadcasts(t *testing.T) {
 		t.Errorf("after unblock = %v", got)
 	}
 
-	b := &Broadcast{AdminID: 7, Markdown: "**Привет**", Recipients: 3}
-	if err := s.CreateBroadcast(ctx, b); err != nil || b.ID == 0 {
+	b := &Broadcast{AdminID: 7, Markdown: "**Привет**"}
+	if err := s.CreateBroadcast(ctx, b, []int64{1, 2, 3}); err != nil || b.ID == 0 || b.Recipients != 3 {
 		t.Fatalf("create = %+v, %v", b, err)
 	}
 	b.Sent, b.Blocked = 2, 1
@@ -113,5 +114,42 @@ func TestRecipientsAndBroadcasts(t *testing.T) {
 	all, _ = s.Broadcasts(ctx)
 	if all[0].Finished.IsZero() || all[0].Markdown != "**Привет**" || all[0].Blocked != 1 || all[0].Recipients != 3 {
 		t.Errorf("finished = %+v", all)
+	}
+}
+
+func TestBroadcastResume(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	b := &Broadcast{AdminID: 7, Markdown: "x"}
+	if err := s.CreateBroadcast(ctx, b, []int64{5, 1, 4, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	s.SetBroadcastProgress(ctx, b, 7, 900)
+	if got, _ := s.PendingRecipients(ctx, b.ID); fmt.Sprint(got) != "[1 2 3 4 5]" {
+		t.Fatalf("pending = %v", got)
+	}
+	s.MarkRecipient(ctx, b.ID, 1, RecipientSent)
+	s.MarkRecipient(ctx, b.ID, 2, RecipientBlocked)
+	// The bot stopped while sending to 3.
+	s.MarkRecipient(ctx, b.ID, 3, RecipientSending)
+
+	open, err := s.UnfinishedBroadcasts(ctx)
+	if err != nil || len(open) != 1 || open[0].ID != b.ID || open[0].ProgressChat != 7 || open[0].ProgressMsg != 900 {
+		t.Fatalf("unfinished = %+v, %v", open, err)
+	}
+	r := open[0]
+	if err := s.ResumeBroadcast(ctx, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Sent != 1 || r.Blocked != 1 || r.Failed != 1 {
+		t.Errorf("counts = %+v", r)
+	}
+	// 3 may have it already and is not sent to again.
+	if got, _ := s.PendingRecipients(ctx, b.ID); fmt.Sprint(got) != "[4 5]" {
+		t.Errorf("pending after resume = %v", got)
+	}
+	s.UpdateBroadcast(ctx, &r, true)
+	if open, _ := s.UnfinishedBroadcasts(ctx); len(open) != 0 {
+		t.Errorf("still unfinished = %+v", open)
 	}
 }

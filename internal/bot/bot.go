@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -56,13 +57,22 @@ type Bot struct {
 	log   *slog.Logger
 	t     i18n.Strings
 
-	emoji       *emojiSet
-	settings    *settings.File
-	msgs        *tracker
-	bg          sync.WaitGroup // work left running after a reply, such as deleting old messages
-	userLocks   userLocks
-	syncMu      sync.Mutex
-	rejectGrace time.Duration
+	emoji    *emojiSet
+	settings *settings.File
+	msgs     *tracker
+	bg       sync.WaitGroup // work left running after a reply, such as deleting old messages
+	bgMu     sync.Mutex     // guards closing against bg.Add
+	closing  bool           // shutting down: no new background work
+	// stopCtx ends when the bot starts shutting down, so long background
+	// work, such as a broadcast, stops at the next safe point.
+	stopCtx context.Context
+	stopNow context.CancelFunc
+	// broadcasting is held while a broadcast is being sent: one at a time.
+	broadcasting sync.Mutex
+	limit        *limiter // updates per user; nil allows all
+	userLocks    userLocks
+	syncMu       sync.Mutex
+	rejectGrace  time.Duration
 	// Broadcast pacing; tests shorten them and record the waits.
 	broadcastGap  time.Duration
 	progressEvery time.Duration
@@ -93,6 +103,8 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 		clock: time.Now, traffic: &stats.Counter{}, seen: map[int64]time.Time{}, views: map[int64]adminView{},
 		procRoot: "/proc", sysRoot: "/sys"}
 	b.started = b.clock()
+	b.stopCtx, b.stopNow = context.WithCancel(context.Background())
+	b.limit = newLimiter(rateBurst, rateEvery)
 	api, err := tg.New(cfg.BotToken, append([]tg.Option{
 		// Like the library's own client, with the traffic counted.
 		tg.WithHTTPClient(time.Minute, &http.Client{Timeout: time.Minute, Transport: b.traffic}),
@@ -143,8 +155,37 @@ func (b *Bot) Run(ctx context.Context) {
 	go b.settings.Watch(ctx, settingsCheck)
 	go b.trafficLoop(ctx)
 	b.setCommands(ctx)
+	b.later(ctx, b.resumeBroadcasts)
 	b.api.Start(ctx)
+	b.drain(shutdownGrace)
 	b.storeTraffic(context.WithoutCancel(ctx))
+}
+
+// shutdownGrace is how long shutdown waits for background work: less
+// than the 10 seconds Docker gives before it kills the container.
+const shutdownGrace = 8 * time.Second
+
+// stopping reports whether the bot is shutting down.
+func (b *Bot) stopping() bool { return b.stopCtx.Err() != nil }
+
+// drain tells background work to stop and waits for it, at most grace.
+// A broadcast stops between two recipients and resumes on the next start.
+func (b *Bot) drain(grace time.Duration) {
+	b.stopNow()
+	b.bgMu.Lock()
+	b.closing = true
+	b.bgMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		b.bg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		b.log.Info("background work finished")
+	case <-time.After(grace):
+		b.log.Warn("background work still running at shutdown", "waited", grace)
+	}
 }
 
 // trafficLoop stores the Telegram API traffic every minute.
@@ -227,11 +268,24 @@ func (b *Bot) catalog() *content.Catalog {
 }
 
 func (b *Bot) handle(ctx context.Context, _ *tg.Bot, u *models.Update) {
+	// The library runs each update in its own goroutine, without
+	// recovering: a panic would end the whole process.
+	defer b.recovered("update")
+	var from *models.User
 	switch {
 	case u.CallbackQuery != nil:
-		b.markSeen(ctx, &u.CallbackQuery.From)
+		from = &u.CallbackQuery.From
 	case u.Message != nil && u.Message.Chat.Type == models.ChatTypePrivate:
-		b.markSeen(ctx, u.Message.From)
+		from = u.Message.From
+	}
+	b.markSeen(ctx, from)
+	if from != nil && !b.cfg.IsAdmin(from.ID) && !b.limit.allow(from.ID, b.clock()) {
+		b.log.Debug("update dropped: too many from this user", "user", from.ID)
+		if u.CallbackQuery != nil {
+			// Stops the spinner on the button; nothing else happens.
+			b.answer(ctx, u.CallbackQuery, "", false)
+		}
+		return
 	}
 	switch {
 	case u.CallbackQuery != nil:
@@ -338,11 +392,27 @@ func (b *Bot) send(ctx context.Context, chatID int64, text string, kb *models.In
 		return err
 	})
 	if err != nil {
-		b.log.Error("send message", "chat", chatID, "err", err)
+		b.sendFailed(ctx, "send message", chatID, err)
 		return nil
 	}
 	b.msgs.seen(ctx, chatID, msg.ID)
 	return msg
+}
+
+// sendFailed logs a message that could not be sent, and reports whether
+// it was because the user blocked the bot. Such a user is marked, so that
+// broadcasts skip them until they come back, and logged at info level:
+// it is their choice, not a fault.
+func (b *Bot) sendFailed(ctx context.Context, what string, chatID int64, err error, attrs ...any) bool {
+	if errors.Is(err, tg.ErrorForbidden) && chatID > 0 {
+		b.log.Info("user has blocked the bot", "user", chatID, "while", what)
+		if err := b.store.MarkBlocked(context.WithoutCancel(ctx), chatID); err != nil {
+			b.log.Error("mark blocked", "err", err)
+		}
+		return true
+	}
+	b.log.Error(what, append([]any{"chat", chatID, "err", err}, attrs...)...)
+	return false
 }
 
 // sendMenu sends a new navigation menu.
@@ -396,13 +466,35 @@ func inBackground(ctx context.Context) bool { return ctx.Value(backgroundKey{}) 
 
 // later runs f in the background, after the handler has answered. It
 // keeps running when the update's context ends.
+//
+// Once shutdown has begun, f runs right away in the caller instead, so
+// that it is not cut off and the wait for background work stays exact.
 func (b *Bot) later(ctx context.Context, f func(context.Context)) {
 	ctx = context.WithValue(context.WithoutCancel(ctx), backgroundKey{}, true)
+	b.bgMu.Lock()
+	if b.closing {
+		b.bgMu.Unlock()
+		func() {
+			defer b.recovered("background work")
+			f(ctx)
+		}()
+		return
+	}
 	b.bg.Add(1)
+	b.bgMu.Unlock()
 	go func() {
 		defer b.bg.Done()
+		defer b.recovered("background work")
 		f(ctx)
 	}()
+}
+
+// recovered, deferred, logs a panic with its stack instead of letting it
+// end the process.
+func (b *Bot) recovered(where string) {
+	if r := recover(); r != nil {
+		b.log.Error("panic recovered", "in", where, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+	}
 }
 
 // retireLater removes a replaced message in the background.

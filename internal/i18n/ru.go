@@ -35,6 +35,7 @@ type Strings struct {
 	OnlyTextAndImages string
 	ImageTooLarge     string
 	TooManyImages     string // %d: limit
+	ReportTooLong     string // %d: limit in characters
 	// A picture that turned out not to be a PNG or JPEG; %d: its number.
 	NotAnImage          string
 	NotAnImageNoneLeft  string
@@ -161,6 +162,7 @@ type Strings struct {
 	No                     string
 	BroadcastProgress      string // %d: done, %d: recipients
 	BroadcastDone          string // %d: sent, %d: blocked, %d: failed
+	BroadcastBusy          string
 
 	// «Настройки» and nicknames.
 	SettingsTitle    string
@@ -293,6 +295,7 @@ var RU = Strings{
 	OnlyTextAndImages:   "Я понимаю только текст и картинки.",
 	ImageTooLarge:       "Эта картинка слишком большая — пришлите поменьше.",
 	TooManyImages:       "Больше %d картинок прислать нельзя.",
+	ReportTooLong:       "Описание не может быть длиннее %d символов, поэтому это сообщение не добавлено. Сократите его и пришлите ещё раз.",
 	NotAnImage:          "Картинка №%d оказалась не PNG и не JPEG, поэтому её убрали. Отправьте сообщение без неё или пришлите другую картинку.",
 	NotAnImageNoneLeft:  "Картинка №%d оказалась не PNG и не JPEG, поэтому её убрали. Опишите ошибку словами или пришлите другую картинку.",
 	Expired:             "Время вышло — начните заново кнопкой «Сообщить об ошибке».",
@@ -407,6 +410,7 @@ var RU = Strings{
 	No:                     "Нет",
 	BroadcastProgress:      "Рассылка: отправлено %d из %d…",
 	BroadcastDone:          "Рассылка завершена. Доставлено: %d, заблокировали бота: %d, не доставлено: %d.",
+	BroadcastBusy:          "Сейчас идёт другая рассылка. Когда она закончится, нажмите «Да, отправить» ещё раз.",
 
 	SettingsTitle:    "Настройки",
 	SettingsNick:     "Ник: %s",

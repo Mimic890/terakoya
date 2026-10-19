@@ -98,6 +98,25 @@ This serves the sample vault in `examples/vault`. SVG drawings need
 [resvg](https://github.com/linebender/resvg) (`cargo install resvg`) and
 the DejaVu fonts; the Docker image has both.
 
+### Shutdown and limits
+
+On `SIGTERM` (`docker compose down`, a deploy) the bot stops taking
+updates and waits up to 8 seconds, less than Docker's 10, for work it
+left running in the background: deleting old messages, recording
+activity, a broadcast (which pauses and resumes on the next start, see
+[Broadcasts](#broadcasts)). A git command that is cut off gets
+`SIGTERM` and 5 seconds to clean up; a lock file a killed one left in the
+vault checkout is removed before the next sync. A panic while handling
+an update, in background work, a sync or a webhook is logged with its
+stack, and the bot goes on.
+
+Each user may send a burst of 20 updates (an album of pictures with a
+caption fits) and then 3 a second; beyond that, taps and messages are
+dropped, so one user cannot use up Telegram's limit for the whole bot.
+Admins are not limited. A user who blocked the bot is noticed whenever a
+message to them fails with 403, and broadcasts skip them until they come
+back.
+
 `/admin` shows the version the binary was built with: the commit for
 images built by CI (the `REVISION` build argument), otherwise `dev`. Set
 it by hand with
@@ -226,8 +245,15 @@ and sends again; a user who answers 403 has blocked the bot and is
 skipped from then on, until they use the bot again. The admin gets a
 progress message, updated every 10 seconds, that ends with how many were
 sent, blocked and failed; the preview stays in their chat as a record.
-Broadcasts and their counts are stored in the database. A restart in the
-middle stops the broadcast; what was sent is in the stored counts.
+One broadcast is sent at a time; «Да, отправить» while another is
+running says so and keeps the dialog, to be pressed again later.
+
+Broadcasts, their counts and every recipient's state are stored in the
+database. On shutdown a broadcast stops between two recipients and
+resumes on the next start, with the same progress message. Each
+recipient is marked before the message goes out, so even if the process
+dies at that moment nobody gets a second copy: that one recipient counts
+as not delivered instead.
 
 ### Admin panel
 
@@ -287,8 +313,10 @@ prints the number of recipients and asks `[y/N]` first (`-it` gives it a
 terminal; `--yes` skips the question). Its text is sent as is, without
 formatting; a `--photo` (a path inside the container) is uploaded once,
 to the cache chat or the first admin's chat (and deleted there), and
-sent with it. The broadcast runs in the background like one from
-`/broadcast`. `--socket path` (or `TERAKOYA_ADMIN_SOCKET`) points to
+sent with it. The message first goes to the first admin as a test copy;
+if Telegram refuses it, nothing is sent to anyone and the command fails.
+The broadcast then runs in the background like one from `/broadcast`;
+while another one runs, the command fails and sends nothing. `--socket path` (or `TERAKOYA_ADMIN_SOCKET`) points to
 another socket.
 
 `lint` prints one `path:line: severity: message` line per problem and exits
@@ -475,6 +503,13 @@ reports (`TERAKOYA_SUGGEST_COOLDOWN`, `TERAKOYA_SUGGEST_MAX_OPEN`).
   missing in the grade or one of its topics («нет темы про подобные
   треугольники»). It works the same way.
 
+A report's text, all its messages together, may be up to 4000
+characters; a message that would go over is not added, and the user is
+told. If sending fails halfway, say an attachment upload, the dialog
+stays and «Отправить» goes on from there: the issue already opened and
+the pictures already attached are reused, never opened or uploaded
+twice.
+
 Each report becomes an **issue** for a maintainer to fix by hand: the
 user's text, who sent it (name, @username, Telegram ID), a link to the
 note, or for a grade to its folder, at the commit the user saw and on the
@@ -517,7 +552,7 @@ Outcomes:
   «Принято правок: N», a rank-up line when they reach a new rank, and,
   for a note, a button to open it.
 - An issue closed without the label sends the user the last review
-  comment. The bot waits two minutes after the close, so closing first and
+  comment, cut to 1000 characters. The bot waits two minutes after the close, so closing first and
   labeling right after is fine. Adding the label to an issue that was
   already reported as not accepted still counts it, once.
 - A delivery only tells the bot that an issue changed; it reads the

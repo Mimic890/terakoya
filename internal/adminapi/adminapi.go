@@ -119,7 +119,7 @@ func Handler(svc Service, log *slog.Logger) http.Handler {
 				switch {
 				case errors.Is(err, bot.ErrNoUser):
 					code = http.StatusNotFound
-				case errors.Is(err, bot.ErrNoNickname):
+				case errors.Is(err, bot.ErrNoNickname), errors.Is(err, bot.ErrBroadcastBusy):
 					code = http.StatusConflict
 				case errors.As(err, &bad):
 					code = http.StatusBadRequest
