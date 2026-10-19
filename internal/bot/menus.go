@@ -209,9 +209,17 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 // accountMarkdown is the account page: rank, how far the next one is,
 // accepted and open reports, and for admins their level.
 func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
+	_, md := b.accountPage(ctx, from)
+	return md
+}
+
+// accountPage returns the account page and its title, the name the user
+// is addressed by, from one look at the user.
+func (b *Bot) accountPage(ctx context.Context, from *models.User) (title, md string) {
 	u, err := b.store.TouchUser(ctx, from.ID, from.Username, from.FirstName)
 	if err != nil {
 		b.log.Error("touch user", "err", err)
+		u = store.User{TgID: from.ID, Username: from.Username, FirstName: from.FirstName}
 	}
 	open, _, err := b.store.SuggestQuota(ctx, from.ID)
 	if err != nil {
@@ -245,7 +253,7 @@ func (b *Bot) accountMarkdown(ctx context.Context, from *models.User) string {
 		lines[len(lines)-1] += "  "
 		lines = append(lines, b.t.AccountAdmin)
 	}
-	return strings.Join(lines, "\n")
+	return u.AddressName(), strings.Join(lines, "\n")
 }
 
 func (b *Bot) accountKeyboard() *models.InlineKeyboardMarkup {
@@ -378,7 +386,8 @@ func (b *Bot) showRich(ctx context.Context, chatID int64, title, md string, kb *
 }
 
 func (b *Bot) showAccount(ctx context.Context, chatID int64, from *models.User) {
-	b.showRich(ctx, chatID, b.addressName(ctx, from), b.accountMarkdown(ctx, from), b.accountKeyboard())
+	title, md := b.accountPage(ctx, from)
+	b.showRich(ctx, chatID, title, md, b.accountKeyboard())
 }
 
 func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) {
