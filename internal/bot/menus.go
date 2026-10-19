@@ -315,21 +315,13 @@ func (b *Bot) historyKeyboard() *models.InlineKeyboardMarkup {
 	return keyboard(row(button(b.t.Back, cbAccount), button(b.t.Close, cbClose)))
 }
 
-// kindLabel names what a suggestion was. A report about a grade names its
-// folder rather than a note. A new topic's page lies right in the topic
-// folder (subject/grade/topic/page.md); a new note is deeper.
+// kindLabel names what a report was about: an error in a note, or
+// something missing in a grade.
 func (b *Bot) kindLabel(sg store.Suggestion) string {
-	switch {
-	case sg.Kind == store.KindEdit:
-		return b.t.KindEditLabel
-	case sg.Kind == store.KindReport && isGradeReport(sg):
+	if isGradeReport(sg) {
 		return b.t.KindGradeLabel
-	case sg.Kind == store.KindReport:
-		return b.t.KindReportLabel
-	case strings.Count(sg.ArticlePath, "/") <= 3:
-		return b.t.KindTopicLabel
 	}
-	return b.t.KindNoteLabel
+	return b.t.KindReportLabel
 }
 
 // showRich sends a menu as rich messages, split like a long note, with the
@@ -397,7 +389,7 @@ func (b *Bot) showHistory(ctx context.Context, chatID int64, from *models.User) 
 // isGradeReport tells a report about a grade, filed under the grade
 // folder, from one about a note.
 func isGradeReport(sg store.Suggestion) bool {
-	return sg.Kind == store.KindReport && !strings.HasSuffix(sg.ArticlePath, ".md")
+	return !strings.HasSuffix(sg.ArticlePath, ".md")
 }
 
 // date formats a day as «25 октября».

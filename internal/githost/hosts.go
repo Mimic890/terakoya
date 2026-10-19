@@ -13,11 +13,11 @@ import (
 )
 
 // GitHub uses the REST API with a fine-grained personal access token that
-// has read and write access to contents and issues, and read access to
-// pull requests.
+// has read and write access to contents (the report pictures' branches)
+// and issues.
 type GitHub struct{ c *client }
 
-func (g *GitHub) OpenIssue(ctx context.Context, title, body string) (PR, error) {
+func (g *GitHub) OpenIssue(ctx context.Context, title, body string) (Issue, error) {
 	return g.c.openIssue(ctx, title, body)
 }
 
@@ -34,14 +34,14 @@ func (g *GitHub) EnsureLabel(ctx context.Context, name, color, description strin
 	return g.c.ensureLabel(ctx, name, strings.TrimPrefix(color, "#"), description, "per_page")
 }
 
-func (g *GitHub) State(ctx context.Context, number int, isPR bool) (State, error) {
-	return g.c.state(ctx, number, isPR)
+func (g *GitHub) State(ctx context.Context, number int) (State, error) {
+	return g.c.state(ctx, number)
 }
 
 func (g *GitHub) FileURL(ref, path string) string { return g.c.fileURL("/blob/%s", ref, path) }
 func (g *GitHub) RawURL(ref, path string) string  { return g.c.fileURL("/raw/%s", ref, path) }
 
-func (g *GitHub) LastReviewComment(ctx context.Context, number int) (string, error) {
+func (g *GitHub) LastComment(ctx context.Context, number int) (string, error) {
 	return g.c.lastComment(ctx, number)
 }
 
@@ -58,7 +58,7 @@ func (g *GitHub) ParseWebhook(h http.Header, body []byte) (Event, error) {
 // repository read and write scope.
 type Forgejo struct{ c *client }
 
-func (f *Forgejo) OpenIssue(ctx context.Context, title, body string) (PR, error) {
+func (f *Forgejo) OpenIssue(ctx context.Context, title, body string) (Issue, error) {
 	return f.c.openIssue(ctx, title, body)
 }
 
@@ -89,8 +89,8 @@ func (f *Forgejo) EnsureLabel(ctx context.Context, name, color, description stri
 	return f.c.ensureLabel(ctx, name, "#"+strings.TrimPrefix(color, "#"), description, "limit")
 }
 
-func (f *Forgejo) State(ctx context.Context, number int, isPR bool) (State, error) {
-	return f.c.state(ctx, number, isPR)
+func (f *Forgejo) State(ctx context.Context, number int) (State, error) {
+	return f.c.state(ctx, number)
 }
 
 // FileURL and RawURL take a commit SHA or a branch name.
@@ -110,7 +110,7 @@ func forgejoRef(ref string) string {
 	return "branch/" + ref
 }
 
-func (f *Forgejo) LastReviewComment(ctx context.Context, number int) (string, error) {
+func (f *Forgejo) LastComment(ctx context.Context, number int) (string, error) {
 	return f.c.lastComment(ctx, number)
 }
 

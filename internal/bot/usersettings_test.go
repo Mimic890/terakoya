@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-telegram/bot/models"
 
 	"github.com/Mimic890/terakoya/internal/i18n"
 	"github.com/Mimic890/terakoya/internal/nick"
+	"github.com/Mimic890/terakoya/internal/store"
 )
 
 // openSettings taps «Настройки» and returns the menu's message ID.
@@ -81,6 +83,7 @@ func nickScreen(t *testing.T, calls []call, menu int, now, tg, own string) {
 
 func TestNickScreen(t *testing.T) {
 	h := newHarness(t, nil)
+	h.noNickLimit()
 	menu, _ := h.openSettings()
 
 	// «Ник» replaces the main screen.
@@ -147,6 +150,7 @@ func TestNickScreen(t *testing.T) {
 
 func TestNickname(t *testing.T) {
 	h := newHarness(t, nil)
+	h.noNickLimit()
 	h.store.TouchUser(h.ctx, ivan.ID, ivan.Username, ivan.FirstName)
 	h.store.TouchUser(h.ctx, boris.ID, boris.Username, boris.FirstName)
 	h.store.SetNickname(h.ctx, boris.ID, "Звезда", nick.Key("Звезда"))
@@ -283,6 +287,7 @@ func TestNamesAddressAndList(t *testing.T) {
 
 func TestNicknameLookAlikes(t *testing.T) {
 	h := newHarness(t, nil)
+	h.noNickLimit()
 	h.store.TouchUser(h.ctx, boris.ID, boris.Username, boris.FirstName)
 	h.store.SetNickname(h.ctx, boris.ID, "Маша", nick.Key("Маша"))
 	for name, taken := range map[string]bool{
@@ -304,4 +309,63 @@ func TestNicknameLookAlikes(t *testing.T) {
 	if err := h.store.SetNickname(h.ctx, anya.ID, "Mаша", nick.Key("Mаша")); err == nil {
 		t.Error("store took a look-alike")
 	}
+}
+
+// noNickLimit puts the bot a day ahead, so that a test may change names
+// as often as it likes.
+func (h *harness) noNickLimit() {
+	h.bot.clock = func() time.Time { return time.Now().Add(nickEvery + time.Hour) }
+}
+
+func TestNicknameOncePerDay(t *testing.T) {
+	h := newHarness(t, nil)
+	now := time.Now().Truncate(time.Second)
+	h.bot.clock = func() time.Time { return now }
+	menu, _ := h.openSettings()
+	h.tapOn(menu, cbNickMenu)
+	h.tg.take()
+	// The first name is free.
+	h.tapOn(menu, cbNickOwn)
+	h.say("Ёжик")
+	h.tg.take()
+
+	soon := fmt.Sprintf(i18n.RU.NickTooSoon, "24 ч 0 мин")
+	alert := func(what string) {
+		t.Helper()
+		calls := h.tg.take()
+		if a := toasts(calls); len(a) != 1 || a[0] != soon || len(calls) != 1 {
+			t.Errorf("%s = %+v", what, calls)
+		}
+	}
+	// Neither another one nor the Telegram name for a day.
+	h.tapOn(menu, cbNickOwn)
+	alert("«Свой ник»")
+	h.tapOn(menu, cbNickTG)
+	alert("«Из Telegram»")
+	if u, _ := h.store.User(h.ctx, anya.ID); u.Nickname != "Ёжик" {
+		t.Errorf("nickname = %q", u.Nickname)
+	}
+	// A dialog opened before is refused at the answer.
+	h.store.PutSession(h.ctx, store.Session{TgID: anya.ID, State: stateNick, Payload: `{"origin_msg":` + fmt.Sprint(menu) + `}`,
+		ExpiresAt: now.Add(time.Hour)})
+	h.say("Ёжик-2")
+	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != soon {
+		t.Errorf("dialog = %q", s)
+	}
+	// A day later it is fine.
+	now = now.Add(nickEvery)
+	h.tapOn(menu, cbNickTG)
+	if u, _ := h.store.User(h.ctx, anya.ID); u.Nickname != "" {
+		t.Errorf("after a day: nickname = %q", u.Nickname)
+	}
+
+	// After an admin reset, a new name may be chosen right away.
+	now = time.Now()
+	h.store.SetNickname(h.ctx, anya.ID, "Плохой", nick.Key("Плохой"))
+	if _, _, err := h.bot.ResetNickname(h.ctx, "42", ivan.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.tg.take()
+	h.tapOn(menu, cbNickOwn)
+	wantPrompt(t, h.tg.take(), i18n.RU.NickAsk, "Отмена")
 }

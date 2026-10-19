@@ -115,7 +115,7 @@ func edited(t *testing.T, calls []call, msgID int) call {
 func TestAdminMain(t *testing.T) {
 	h := newHarness(t, nil)
 	h.accept(anya, 1)
-	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "o", TgID: anya.ID, Kind: store.KindReport, PRNumber: 50})
+	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "o", TgID: anya.ID, Kind: store.KindReport, Issue: 50})
 	menu, c := h.adminMenu()
 	// Аня has used the bot; Иван is seen as he opens /admin.
 	if !strings.HasPrefix(c.params["text"], "Админка\n\nПользователей: 2, активны за 24 ч: 1\nПравок на рассмотрении: 1\nVault: ") ||

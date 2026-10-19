@@ -221,6 +221,15 @@ var migrations = []string{
 		PRIMARY KEY (broadcast_id, tg_id)
 	) WITHOUT ROWID;
 	UPDATE broadcasts SET finished_at = created_at WHERE finished_at IS NULL;`,
+	// When a user last changed their nickname, for the once-a-day limit;
+	// when a note's messages were sent, so old groups can be forgotten;
+	// and indexes for the top, the open reports and the note statistics.
+	`ALTER TABLE users ADD COLUMN nickname_changed_at INTEGER;
+	ALTER TABLE message_parts ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+	UPDATE message_parts SET created_at = CAST(strftime('%s', 'now') AS INTEGER);
+	CREATE INDEX suggestions_kind_status ON suggestions(kind, status, tg_id);
+	CREATE INDEX suggestions_status ON suggestions(status);
+	CREATE INDEX note_opens_day ON note_opens(day);`,
 }
 
 // migrate brings the schema to version to. An existing database is
@@ -272,6 +281,8 @@ type User struct {
 	// Accepted is how many of the user's error reports were accepted,
 	// which sets their rank.
 	Accepted int
+	// NickChanged is when the user last chose their name, or zero.
+	NickChanged time.Time
 }
 
 // AddressName is how the bot addresses the user: the nickname, else the
@@ -329,13 +340,18 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, erro
 
 func (s *Store) userWhere(ctx context.Context, where string, args ...any) (User, error) {
 	var u User
+	var changed sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
 		SELECT tg_id, username, first_name, nickname, hide_top,
-			(SELECT COUNT(*) FROM suggestions s WHERE s.tg_id = users.tg_id AND s.kind = 'report' AND s.status = 'merged')
+			(SELECT COUNT(*) FROM suggestions s WHERE s.tg_id = users.tg_id AND s.kind = 'report' AND s.status = 'merged'),
+			nickname_changed_at
 		FROM users WHERE `+where, args...,
-	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.Nickname, &u.HideTop, &u.Accepted)
+	).Scan(&u.TgID, &u.Username, &u.FirstName, &u.Nickname, &u.HideTop, &u.Accepted, &changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
+	}
+	if changed.Valid {
+		u.NickChanged = time.Unix(changed.Int64, 0)
 	}
 	return u, err
 }

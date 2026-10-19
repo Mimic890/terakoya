@@ -11,12 +11,9 @@ type Strings struct {
 	TopicsHeader   string // %s: subject label, %s: grade title
 	ChooseTopic    string
 	NoTopics       string
-	GradeTitle     string // %s: grade directory name
 	Back           string
-	Home           string
 	DownloadMD     string
 	NotFound       string
-	TooLarge       string
 	SendFailed     string
 	UnknownCommand string
 
@@ -53,12 +50,6 @@ type Strings struct {
 	RejectedReport      string // %s: note title
 	RejectedGradeReport string // %s: «subject · grade»
 	ReviewComment       string // %s: comment
-	// Outcomes of edits and new topics suggested in earlier versions,
-	// whose pull requests may still be open.
-	AcceptedEdit string // %s: topic title
-	AcceptedNew  string // %s: topic title
-	RejectedEdit string // %s: topic title
-	RejectedNew  string // %s: topic title
 
 	// The keyboard at the bottom of the chat.
 	KeySubjects string
@@ -103,9 +94,6 @@ type Strings struct {
 	TopYou          string // %d: place, %d: accepted reports, %s: Reports in the right form
 	TopYouNone      string
 	// Kinds of earlier versions, still in the history.
-	KindEditLabel  string
-	KindTopicLabel string
-	KindNoteLabel  string
 
 	// /emoji_setup: one step per place a custom emoji can go.
 	EmojiStep          string // %d: step, %d: steps, %s: where
@@ -188,6 +176,7 @@ type Strings struct {
 	NickBanned       string
 	NickReserved     string
 	NickTaken        string
+	NickTooSoon      string // %s: time left
 	NickResetUsage   string
 	NickResetUnknown string
 	NickResetNone    string // %s: user
@@ -276,12 +265,9 @@ var RU = Strings{
 	TopicsHeader:   "%s · %s",
 	ChooseTopic:    "Выберите тему:",
 	NoTopics:       "В этом классе пока нет тем.",
-	GradeTitle:     "%s класс",
 	Back:           "« Назад",
-	Home:           "В начало",
 	DownloadMD:     "Скачать",
 	NotFound:       "Тема не найдена. Возможно, каталог обновился.",
-	TooLarge:       "Эта тема слишком большая для одного сообщения. Нажмите «Скачать», чтобы получить её файлом.",
 	SendFailed:     "Не удалось отправить тему. Попробуйте позже.",
 	UnknownCommand: "Не понимаю. Нажмите /start, чтобы открыть каталог.",
 
@@ -315,10 +301,6 @@ var RU = Strings{
 	RejectedReport:      "Сообщение об ошибке в «%s» закрыли без исправлений.",
 	RejectedGradeReport: "Сообщение про «%s» закрыли без изменений.",
 	ReviewComment:       "Комментарий: «%s»",
-	AcceptedEdit:        "Ваша правка в «%s» принята. Спасибо!",
-	AcceptedNew:         "Ваша тема «%s» добавлена. Спасибо!",
-	RejectedEdit:        "Правку в «%s» не приняли.",
-	RejectedNew:         "Тему «%s» не добавили.",
 
 	KeySubjects: "Предметы",
 	KeyPinned:   "Закреплённые",
@@ -356,9 +338,6 @@ var RU = Strings{
 	TopEmpty:        "Пока здесь никого нет. Сюда попадают те, чьи правки приняли.",
 	TopYou:          "Ваше место: %d — %d %s",
 	TopYouNone:      "Вас пока нет в топе: вы попадёте сюда, когда примут вашу первую правку.",
-	KindEditLabel:   "правка",
-	KindTopicLabel:  "новая тема",
-	KindNoteLabel:   "новая запись",
 
 	EmojiStep:          "Шаг %d из %d. %s",
 	EmojiWhereSubjects: "Кнопка «Предметы» в нижней клавиатуре.",
@@ -438,6 +417,7 @@ var RU = Strings{
 	NickBanned:       "Такой ник использовать нельзя.",
 	NickReserved:     "Такой ник можно спутать с администратором или ботом.",
 	NickTaken:        "Этот ник уже занят.",
+	NickTooSoon:      "Имя можно менять раз в сутки. В следующий раз — через %s.",
 	NickResetUsage:   "Напишите так: /nick_reset 123456 или /nick_reset @username",
 	NickResetUnknown: "Не нашёл такого пользователя.",
 	NickResetNone:    "У %s нет своего ника.",
@@ -497,7 +477,7 @@ var RU = Strings{
 	AdminAllTime:      "Всего",
 	AdminWeek:         "За 7 дней",
 	AdminTopWeek:      "Чаще всего открывают — 7 дней",
-	AdminTopAll:       "Чаще всего открывают — всё время",
+	AdminTopAll:       "Чаще всего открывают — 180 дней",
 	AdminNoteGone:     "%s (удалена)",
 	AdminNoOpens:      "Пока нет",
 	AdminBroadcasts:   "Рассылок: %d",
