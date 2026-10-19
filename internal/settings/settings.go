@@ -20,11 +20,11 @@ import (
 // FileName is the settings file in the data directory.
 const FileName = "settings.yml"
 
-// Topic list styles: a rich message with a link per topic, or a button
-// per topic.
+// List styles of the subject, grade and topic lists: a rich message with
+// a line per item that opens it, or a button per item.
 const (
-	TopicListList    = "list"
-	TopicListButtons = "buttons"
+	ListList    = "list"
+	ListButtons = "buttons"
 )
 
 // Rank styles of the top: what follows a user's name.
@@ -40,9 +40,10 @@ const MaxMedals = 5
 
 // Settings is the content of settings.yml (see file for its layout).
 type Settings struct {
-	// TopicListStyle is how a grade's topics are listed; empty means list.
-	TopicListStyle string
-	Ranks          []Rank
+	// ListStyle is how subjects, grades and topics are listed; empty
+	// means list.
+	ListStyle string
+	Ranks     []Rank
 	// HideFutureRanks shows ranks beyond a user's next one in /ranks as
 	// «???», with their threshold only.
 	HideFutureRanks bool
@@ -53,10 +54,13 @@ type Settings struct {
 // file is settings.yml as written: ranks is a section with hide_future
 // and the ladder.
 type file struct {
-	TopicListStyle string      `yaml:"topic_list_style"`
-	Ranks          rankSection `yaml:"ranks"`
-	Top            Top         `yaml:"top"`
-	Emoji          Emoji       `yaml:"emoji"`
+	ListStyle string `yaml:"list_style"`
+	// LegacyListStyle is topic_list_style, the name list_style had when
+	// it applied to topics only. It is read, and never written.
+	LegacyListStyle *string     `yaml:"topic_list_style,omitempty"`
+	Ranks           rankSection `yaml:"ranks"`
+	Top             Top         `yaml:"top"`
+	Emoji           Emoji       `yaml:"emoji"`
 }
 
 type rankSection struct {
@@ -116,12 +120,16 @@ func decodeRanks(n *yaml.Node, out *[]Rank) error {
 }
 
 func (f file) settings() Settings {
-	return Settings{TopicListStyle: f.TopicListStyle, Ranks: f.Ranks.Ladder, HideFutureRanks: f.Ranks.HideFuture,
+	style := f.ListStyle
+	if style == "" && f.LegacyListStyle != nil {
+		style = *f.LegacyListStyle
+	}
+	return Settings{ListStyle: style, Ranks: f.Ranks.Ladder, HideFutureRanks: f.Ranks.HideFuture,
 		Top: f.Top, Emoji: f.Emoji}
 }
 
 func toFile(s Settings) file {
-	return file{TopicListStyle: s.TopicListStyle, Ranks: rankSection{HideFuture: s.HideFutureRanks, Ladder: s.Ranks},
+	return file{ListStyle: s.ListStyle, Ranks: rankSection{HideFuture: s.HideFutureRanks, Ladder: s.Ranks},
 		Top: s.Top, Emoji: s.Emoji}
 }
 
@@ -140,12 +148,12 @@ func DefaultTop() Top {
 	return Top{Size: 20, Medals: 3, RankStyle: RankEmoji, ShowCount: true}
 }
 
-// TopicList returns the topic list style in use.
-func (s Settings) TopicList() string {
-	if s.TopicListStyle == "" {
-		return TopicListList
+// List returns the list style in use.
+func (s Settings) List() string {
+	if s.ListStyle == "" {
+		return ListList
 	}
-	return s.TopicListStyle
+	return s.ListStyle
 }
 
 // Rank is one step of the ladder.
@@ -193,7 +201,7 @@ func Default(subjects []string) Settings {
 
 // FromLadder returns settings with ladder l and no custom emoji.
 func FromLadder(l ranks.Ladder, subjects []string) Settings {
-	s := Settings{TopicListStyle: TopicListList, HideFutureRanks: true, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
+	s := Settings{ListStyle: ListList, HideFutureRanks: true, Top: DefaultTop(), Emoji: Emoji{Subjects: map[string]string{}}}
 	for _, r := range l {
 		s.Ranks = append(s.Ranks, Rank{Title: r.Title, From: r.From, Emoji: r.Emoji})
 	}
@@ -224,13 +232,13 @@ func (s Settings) Clone() Settings {
 	return out
 }
 
-// Validate checks the topic list style, the ladder, the top and that
+// Validate checks the list style, the ladder, the top and that
 // every emoji ID is a number.
 func (s Settings) Validate() error {
-	switch s.TopicListStyle {
-	case "", TopicListList, TopicListButtons:
+	switch s.ListStyle {
+	case "", ListList, ListButtons:
 	default:
-		return fmt.Errorf("topic_list_style: %q, want list or buttons", s.TopicListStyle)
+		return fmt.Errorf("list_style: %q, want list or buttons", s.ListStyle)
 	}
 	if err := s.Ladder().Validate(); err != nil {
 		return fmt.Errorf("ranks: %w", err)
@@ -284,16 +292,23 @@ func (s Settings) Validate() error {
 
 // Load reads and validates a settings file.
 func Load(path string) (Settings, error) {
+	s, _, err := load(path)
+	return s, err
+}
+
+// load is Load, also reporting whether the file has keys under old names,
+// which a save renames.
+func load(path string) (Settings, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Settings{}, err
+		return Settings{}, false, err
 	}
 	// A file from before a section was added keeps its defaults.
 	f := file{Ranks: rankSection{HideFuture: true}, Top: DefaultTop()}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return Settings{}, fmt.Errorf("%s: %w", path, err)
+		return Settings{}, false, fmt.Errorf("%s: %w", path, err)
 	}
 	s := f.settings()
 	for i := range s.Ranks {
@@ -303,16 +318,17 @@ func Load(path string) (Settings, error) {
 		s.Emoji.Subjects = map[string]string{}
 	}
 	if err := s.Validate(); err != nil {
-		return Settings{}, fmt.Errorf("%s: %w", path, err)
+		return Settings{}, false, fmt.Errorf("%s: %w", path, err)
 	}
-	return s, nil
+	return s, f.LegacyListStyle != nil, nil
 }
 
 const header = `# terakoya settings. Admin commands in the bot (/emoji_setup) rewrite this
 # file; it can also be edited by hand: the bot rereads it within seconds
 # and keeps the previous settings if the new ones are invalid (see its log).
 #
-# topic_list_style: list (a message with a link per topic) or buttons.
+# list_style: list (rich messages with a line per subject, grade and
+# topic, which opens it) or buttons (an inline button per item).
 # ranks: hide_future shows ranks beyond a user's next one in /ranks as
 # "???" with their threshold; ladder lists title, the number of accepted
 # reports it starts at (the first starts at 0, then strictly increasing),

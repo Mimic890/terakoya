@@ -61,3 +61,37 @@ func (s *Store) Pins(ctx context.Context, tgID int64) ([]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// PrunePins removes the pins of notes known reports false for, such as
+// notes that left the vault or whose ID changed, and returns how many.
+func (s *Store) PrunePins(ctx context.Context, known func(noteID string) bool) (int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT note_id FROM pins`)
+	if err != nil {
+		return 0, err
+	}
+	var gone []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if !known(id) {
+			gone = append(gone, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, id := range gone {
+		res, err := s.db.ExecContext(ctx, `DELETE FROM pins WHERE note_id = ?`, id)
+		if err != nil {
+			return n, err
+		}
+		k, _ := res.RowsAffected()
+		n += k
+	}
+	return n, nil
+}

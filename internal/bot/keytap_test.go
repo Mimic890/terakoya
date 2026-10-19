@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mimic890/terakoya/internal/i18n"
+	"github.com/Mimic890/terakoya/internal/settings"
 )
 
 // foreground records the Telegram methods the update handler itself calls,
@@ -36,13 +37,21 @@ func TestKeyButtonCalls(t *testing.T) {
 		key   string
 		menu  string // the call that shows the new menu
 	}{
-		{"subjects, menu last", func(h *harness) { h.say(i18n.RU.KeyPinned) }, i18n.RU.KeySubjects, "editMessageText"},
+		// The subject list is a rich message, sent anew.
+		{"subjects over pinned", func(h *harness) { h.say(i18n.RU.KeyPinned) }, i18n.RU.KeySubjects, "sendRichMessage"},
 		{"subjects, note below the menu", func(h *harness) {
 			h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), false)
-		}, i18n.RU.KeySubjects, "sendMessage"},
+		}, i18n.RU.KeySubjects, "sendRichMessage"},
 		{"account over subjects", func(h *harness) {}, i18n.RU.KeyAccount, "sendRichMessage"},
-		{"subjects over account", func(h *harness) { h.say(i18n.RU.KeyAccount) }, i18n.RU.KeySubjects, "sendMessage"},
-		{"settings over subjects", func(h *harness) {}, i18n.RU.KeySettings, "editMessageText"},
+		{"subjects over account", func(h *harness) { h.say(i18n.RU.KeyAccount) }, i18n.RU.KeySubjects, "sendRichMessage"},
+		// A text menu replaces a rich one rather than editing it.
+		{"settings over subjects", func(h *harness) {}, i18n.RU.KeySettings, "sendMessage"},
+		{"settings over pinned", func(h *harness) { h.say(i18n.RU.KeyPinned) }, i18n.RU.KeySettings, "editMessageText"},
+		// In the button style, the subject list is edited in place.
+		{"subject buttons, menu last", func(h *harness) {
+			h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListButtons })
+			h.say(i18n.RU.KeyPinned)
+		}, i18n.RU.KeySubjects, "editMessageText"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newHarness(t, nil)

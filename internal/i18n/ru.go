@@ -6,6 +6,10 @@ type Strings struct {
 	Greeting       string // %s: user's first name
 	GreetingText   string // on the next line, after the greeting and its emoji
 	ChooseSubject  string
+	SubjectsTitle  string
+	NoGrades       string
+	GradeForms     [3]string // «1 класс», «2 класса», «5 классов»
+	TopicForms     [3]string // «1 тема», «2 темы», «5 тем»
 	NoSubjects     string
 	ChooseGrade    string // %s: subject label
 	TopicsHeader   string // %s: subject label, %s: grade title
@@ -22,20 +26,21 @@ type Strings struct {
 
 	// Error reports. Users are schoolchildren and teachers: no file names,
 	// Markdown or LaTeX here, and every step offers «Отмена».
-	ReportDisabled    string
-	Continued         string // %s: note title
-	ArchiveName       string // %s: date
-	ReportError       string
-	Cancel            string
-	Send              string
-	OpenTopic         string
-	ReportPrompt      string
-	GradeReportPrompt string // %s: subject label, %s: grade title
-	ReportReceived    string
-	OnlyTextAndImages string
-	ImageTooLarge     string
-	TooManyImages     string // %d: limit
-	ReportTooLong     string // %d: limit in characters
+	ReportDisabled      string
+	Continued           string // %s: note title
+	ArchiveName         string // %s: date
+	ReportError         string
+	Cancel              string
+	Send                string
+	OpenTopic           string
+	ReportPrompt        string
+	GradeReportPrompt   string // %s: subject label, %s: grade title
+	SubjectReportPrompt string // %s: subject
+	ReportReceived      string
+	OnlyTextAndImages   string
+	ImageTooLarge       string
+	TooManyImages       string // %d: limit
+	ReportTooLong       string // %d: limit in characters
 	// A picture that turned out not to be a PNG or JPEG; %d: its number.
 	NotAnImage          string
 	NotAnImageNoneLeft  string
@@ -268,6 +273,10 @@ var RU = Strings{
 	GreetingText: "Это terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\n" +
 		"Нашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг.",
 	ChooseSubject:  "Выберите предмет:",
+	SubjectsTitle:  "Предметы",
+	NoGrades:       "Здесь пока нет классов.",
+	GradeForms:     [3]string{"класс", "класса", "классов"},
+	TopicForms:     [3]string{"тема", "темы", "тем"},
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",
 	TopicsHeader:   "%s · %s",
@@ -291,6 +300,7 @@ var RU = Strings{
 	OpenTopic:           "Открыть тему",
 	ReportPrompt:        "Опишите своими словами, что не так. Например: «в теореме опечатка, должно быть 180°». Можно приложить фото или скриншот.",
 	GradeReportPrompt:   "%s · %s. Опишите, чего здесь не хватает или что не так. Например: «нет темы про подобные треугольники». Можно приложить фото или скриншот.",
+	SubjectReportPrompt: "%s. Опишите, что не так или чего не хватает. Например: «нет 11 класса». Можно приложить фото или скриншот.",
 	ReportReceived:      "Понял! Можно добавить ещё фото или сразу отправить.",
 	OnlyTextAndImages:   "Я понимаю только текст и картинки.",
 	ImageTooLarge:       "Эта картинка слишком большая — пришлите поменьше.",

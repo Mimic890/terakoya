@@ -46,7 +46,7 @@ func stampOf(path string) stamp {
 // use, and is not overwritten.
 func Open(path string, subjects []string, legacyRanks string, log *slog.Logger) (*File, error) {
 	f := &File{path: path, log: log}
-	s, err := Load(path)
+	s, legacy, err := load(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		s = Default(subjects)
@@ -68,6 +68,12 @@ func Open(path string, subjects []string, legacyRanks string, log *slog.Logger) 
 	default:
 		if legacyRanks != "" {
 			log.Warn("TERAKOYA_RANKS is ignored: ranks are in " + FileName + "; remove the variable")
+		}
+		if legacy {
+			if err := Save(path, s); err != nil {
+				return nil, err
+			}
+			log.Info("settings: topic_list_style is now list_style; the file was updated", "path", path)
 		}
 	}
 	f.cur, f.stamp = s, stampOf(path)

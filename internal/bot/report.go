@@ -50,14 +50,15 @@ const (
 var downloadClient = &http.Client{Timeout: time.Minute}
 
 // sessionPayload is the JSON stored with a report session. A report is
-// about the note NoteID, or about the grade GradeID.
+// about the note NoteID, the grade GradeID or the subject SubjectID.
 type sessionPayload struct {
-	NoteID   string         `json:"note_id,omitempty"`
-	GradeID  string         `json:"grade_id,omitempty"`
-	ShortID  string         `json:"short_id"`
-	Text     string         `json:"text,omitempty"`
-	Images   []pendingImage `json:"images,omitempty"`
-	PromptID int            `json:"prompt_id,omitempty"`
+	NoteID    string         `json:"note_id,omitempty"`
+	GradeID   string         `json:"grade_id,omitempty"`
+	SubjectID string         `json:"subject_id,omitempty"`
+	ShortID   string         `json:"short_id"`
+	Text      string         `json:"text,omitempty"`
+	Images    []pendingImage `json:"images,omitempty"`
+	PromptID  int            `json:"prompt_id,omitempty"`
 	// Msgs are all messages of the dialog, the bot's and the user's, which
 	// «Отмена» deletes. OriginMsg is the note or list the dialog started
 	// from, which is replaced when the user goes back to it.
@@ -176,6 +177,21 @@ func (b *Bot) startGradeReport(ctx context.Context, q *models.CallbackQuery, cha
 		ses: store.Session{TgID: q.From.ID, State: stateReport, BaseSHA: base},
 		p:   sessionPayload{GradeID: g.ID, ShortID: suggest.ShortID(), OriginMsg: q.Message.Message.ID}}
 	b.prompt(ctx, d, fmt.Sprintf(b.t.GradeReportPrompt, g.Subject.Name, g.Title()), keyboard(cancelRow(b.t.Cancel)))
+}
+
+// startSubjectReport asks what is wrong or missing in subject s.
+func (b *Bot) startSubjectReport(ctx context.Context, q *models.CallbackQuery, chatID int64, s *content.Subject) {
+	unlock := b.userLocks.lock(q.From.ID)
+	defer unlock()
+	base, ok := b.canReport(ctx, q)
+	if !ok {
+		return
+	}
+	b.answer(ctx, q, "", false)
+	d := &dialog{chatID: chatID,
+		ses: store.Session{TgID: q.From.ID, State: stateReport, BaseSHA: base},
+		p:   sessionPayload{SubjectID: s.ID, ShortID: suggest.ShortID(), OriginMsg: q.Message.Message.ID}}
+	b.prompt(ctx, d, fmt.Sprintf(b.t.SubjectReportPrompt, s.Name), keyboard(cancelRow(b.t.Cancel)))
 }
 
 // quotaProblem returns a message if the user may not suggest right now.
@@ -447,8 +463,8 @@ func (b *Bot) dropMessages(ctx context.Context, chatID int64, ids []int) {
 }
 
 // goBack returns the user to where a cancelled dialog started: its note,
-// re-sent in place of the old one, or the topic list for a report about
-// the grade. A note that left the vault falls back to its topic list, then to
+// re-sent in place of the old one, the topic list for a report about the
+// grade, or the grade list for one about the subject. A note that left the vault falls back to its topic list, then to
 // the subject list. «Свой ник» goes back to the «Ник» screen. A dialog
 // without an origin (/emoji_setup) only goes.
 func (b *Bot) goBack(ctx context.Context, d *dialog) {
@@ -471,6 +487,11 @@ func (b *Bot) goBack(ctx context.Context, d *dialog) {
 		g = gradeOfPath(cat, d.ses.ArticlePath)
 	case d.p.GradeID != "":
 		g = cat.Grade(d.p.GradeID)
+	case d.p.SubjectID != "":
+		if s := cat.Subject(d.p.SubjectID); s != nil {
+			b.showSubject(ctx, d.chatID, nil, s)
+			return
+		}
 	default:
 		return
 	}
@@ -478,8 +499,7 @@ func (b *Bot) goBack(ctx context.Context, d *dialog) {
 		b.showGrade(ctx, d.chatID, nil, g)
 		return
 	}
-	text, kb := homeView(b.t, cat, b.emoji.Subject)
-	b.replaceMenu(ctx, d.chatID, text, kb)
+	b.showSubjects(ctx, d.chatID, nil, nil)
 }
 
 // gradeOfPath finds the grade a vault path lies in, if it still exists.
@@ -606,6 +626,14 @@ func sniffExt(data []byte) string {
 func (b *Bot) reportOf(d *dialog, by suggest.Submitter) (r suggest.Report, assets string, ok bool) {
 	r = suggest.Report{BaseSHA: d.ses.BaseSHA, ShortID: d.p.ShortID, By: by, Text: d.p.Text,
 		AcceptLabel: b.cfg.AcceptedLabel}
+	if d.p.SubjectID != "" {
+		s := b.catalog().Subject(d.p.SubjectID)
+		if s == nil {
+			return r, "", false
+		}
+		r.Grade, r.Title, r.RepoPath = true, s.Name, s.Name
+		return r, s.Name + "/" + content.AssetsDir, true
+	}
 	if d.p.GradeID != "" {
 		g := b.catalog().Grade(d.p.GradeID)
 		if g == nil {

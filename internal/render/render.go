@@ -39,7 +39,17 @@ type Options struct {
 	// Continued formats the title repeated at the top of every part after
 	// the first, e.g. "%s (продолжение)".
 	Continued string
+	// Callbacks turns links to CallbackLink targets into buttons. It is
+	// for menus the bot writes itself, never for notes from the vault.
+	Callbacks bool
 }
+
+// callbackScheme starts a CallbackLink.
+const callbackScheme = "callback:"
+
+// CallbackLink is a link target that, with Options.Callbacks, makes the
+// link an in-text button sending data as its callback data.
+func CallbackLink(data string) string { return callbackScheme + data }
 
 // Media is a local image referenced from the converted Markdown as
 // tg://photo?id=<ID>.
@@ -109,7 +119,7 @@ func Convert(cat *content.Catalog, n *content.Note, opts Options) *Result {
 			head := srcLine{"# " + fmt.Sprintf(opts.Continued, n.Title), 0}
 			src = append([]srcLine{head, {"", 0}}, src...)
 		}
-		c := &converter{cat: cat, note: n, mediaSeen: map[string]bool{}}
+		c := &converter{cat: cat, note: n, mediaSeen: map[string]bool{}, callbacks: opts.Callbacks}
 		c.run(src)
 		return c, opts.Limits.Check(c.part.Stats)
 	}
@@ -175,6 +185,7 @@ type converter struct {
 	breakable []bool // whether out[i] is ordinary text that may take a line break
 	mediaSeen map[string]bool
 	mediaRefs int
+	callbacks bool
 }
 
 func (c *converter) issue(line int, sev content.Severity, format string, args ...any) {
@@ -461,6 +472,9 @@ func (c *converter) link(l content.Link, lineNo int) string {
 		c.issue(lineNo, content.Error, "image %s must be on its own line", content.FileTarget(l))
 		return escapeText(l.Text)
 	}
+	if c.callbacks && !l.Wiki && strings.HasPrefix(l.Target, callbackScheme) {
+		return button(strings.TrimPrefix(l.Target, callbackScheme), l.Text)
+	}
 	if !l.Wiki && content.IsRemote(l.Target) {
 		return "[" + l.Text + "](" + l.Target + ")"
 	}
@@ -476,8 +490,13 @@ func (c *converter) link(l content.Link, lineNo int) string {
 	if label == "" {
 		label = n.Title
 	}
-	// Button text is plain: drop Markdown and math markers.
-	return `<tg-button type="callback_data" style="link" data="` + html.EscapeString(ArticleCallbackPrefix+n.ID) + `">` +
+	return button(ArticleCallbackPrefix+n.ID, label)
+}
+
+// button is an in-text button sending data. Its text is plain: Markdown
+// and math markers are dropped.
+func button(data, label string) string {
+	return `<tg-button type="callback_data" style="link" data="` + html.EscapeString(data) + `">` +
 		html.EscapeString(plainLabel(label)) + "</tg-button>"
 }
 

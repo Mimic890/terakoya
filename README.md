@@ -381,23 +381,25 @@ file; empty variables are ignored. See
 | `TERAKOYA_IMAGE_MAX_BYTES` | `image_max_bytes` | `5242880` | Maximum size of a picture attached to a report. |
 | `TERAKOYA_CONFIG` | — | — | Path to the YAML config file. |
 
-### Settings file: ranks, custom emoji, topic list, top
+### Settings file: ranks, custom emoji, list style, top
 
 What admins change while the bot runs lives in `settings.yml` in the data
 directory (`./data/settings.yml` with Docker Compose, so it survives
 redeploys). The bot creates it on first start with the default ranks
 (Novice 0 · Pupil 1 · Student 3 · Scholar 7 · Mentor 15 · Teacher 30 ·
 Master 60 · Sage 100 accepted reports), no custom emoji and the list
-style for topic lists, and
+style for subjects, grades and topics, and
 rereads it within seconds when it is edited by hand. A file that does not
 validate (the first rank must start at 0, thresholds must strictly
-increase, emoji IDs are numbers, the topic list style is `list` or
+increase, emoji IDs are numbers, the list style is `list` or
 `buttons`, `top.size` is 1 to 100, `top.medals` 0 to 5, `rank_style` one
 of the four) is logged and ignored; the previous settings stay in use. A
-file from before a section existed gets its defaults.
+file from before a section existed gets its defaults. The list style was
+called `topic_list_style` when it applied to topics only; a file with the
+old key is read as before and rewritten with `list_style` on start.
 
 ```yaml
-topic_list_style: list   # or buttons
+list_style: list   # or buttons: subjects, grades and topics
 ranks:
   hide_future: true  # /ranks shows later ranks as «???» with their threshold
   ladder:
@@ -502,6 +504,10 @@ reports (`TERAKOYA_SUGGEST_COOLDOWN`, `TERAKOYA_SUGGEST_MAX_OPEN`).
 - Under a grade's topic list, **«Сообщить об ошибке»** is for something
   missing in the grade or one of its topics («нет темы про подобные
   треугольники»). It works the same way.
+- Under a subject's grade list, **«Сообщить об ошибке»** is for the
+  subject as a whole («нет 11 класса»). The issue is titled «Missing
+  material: Геометрия» and links the subject's folder; «Отмена» returns
+  to the grade list.
 
 A report's text, all its messages together, may be up to 4000
 characters; a message that would go over is not added, and the user is
@@ -535,15 +541,29 @@ where the dialog started: the note, sent again in place of the old copy,
 or the topic list. If that note has left the vault meanwhile, they get
 its topic list, or failing that the subject list.
 
-A grade's topic list is, by default (`topic_list_style: list`), a rich
-message: the heading «Геометрия · 10 класс» (with the subject's custom
-emoji, if set) and one line per topic, «§5 Параллельность прямой и
-плоскости», the number taken from the folder prefix without leading zeros
-(topics without a number have just the title). Each line is an in-text
-button that opens the topic in place of the list. Under it are only
-«Сообщить об ошибке» (when reports are on) and «Назад». With
-`topic_list_style: buttons` the topics are inline buttons instead, with
-the same «§5 » labels.
+Subjects, grades and topics are listed the same way, set by
+`list_style` in `settings.yml`. By default (`list`) each list is a rich
+message, a heading and one line per item; each line is an in-text button
+that opens the item in place of the list. A subject's custom emoji, if
+set, goes in front of its line and in the headings of its grade and
+topic lists; without one there is nothing, not even a space.
+
+- **Subjects:** «Предметы», then «Геометрия · 2 класса» per subject,
+  with the number of grades. Under it only «Закрыть»: there is nothing to
+  go back to.
+- **Grades:** «Геометрия», then «10 класс · 5 тем» per grade, with the
+  number of topics. Under it «Сообщить об ошибке» (when reports are on)
+  and «« Назад» in one row.
+- **Topics:** «Геометрия · 10 класс», then «§5 Параллельность прямой и
+  плоскости» per topic, the number taken from the folder prefix without
+  leading zeros (topics without a number have just the title). Under it
+  «Сообщить об ошибке» (when reports are on) and «Назад».
+
+Moving between the levels replaces the list with the next one, and
+«Назад» brings the previous one back; a rich list is always sent anew,
+never edited into text. With `list_style: buttons` all three are text
+menus with an inline button per item, edited in place, the subject's
+emoji on its button, and the same buttons underneath.
 
 Outcomes:
 

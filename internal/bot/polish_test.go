@@ -28,7 +28,7 @@ func TestRepeatedKeyTap(t *testing.T) {
 	// The first tap shows the list; the second, with it still last, only
 	// deletes the tap.
 	h.say(i18n.RU.KeySubjects)
-	if len(to(h.tg.take(), "editMessageText", 42)) != 1 {
+	if len(richs(h.tg.take())) != 1 {
 		t.Fatal("subjects not shown")
 	}
 	h.say(i18n.RU.KeySubjects)
@@ -61,8 +61,8 @@ func TestRepeatedKeyTap(t *testing.T) {
 	h.tapOn(menu, cbSubject+h.bot.catalog().Subjects[0].ID)
 	h.tg.take()
 	h.say(i18n.RU.KeySubjects)
-	if e := to(h.tg.take(), "editMessageText", 42); len(e) != 1 || e[0].params["text"] != i18n.RU.ChooseSubject {
-		t.Errorf("after navigating: %+v", e)
+	if r := richs(h.tg.take()); len(r) != 1 || !strings.HasPrefix(r[0], "# Предметы\n\n") {
+		t.Errorf("after navigating: %q", r)
 	}
 }
 

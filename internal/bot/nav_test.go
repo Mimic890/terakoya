@@ -40,13 +40,18 @@ func TestViews(t *testing.T) {
 	if text != "Выберите предмет:" {
 		t.Errorf("home text = %q", text)
 	}
-	if got := callbacks(kb); len(got) != 1 || got[0] != "s:"+s.ID || labels(kb)[0] != "Геометрия" {
+	if got := strings.Join(callbacks(kb), " "); got != "s:"+s.ID+" c" || strings.Join(labels(kb), ",") != "Геометрия,Закрыть" {
 		t.Errorf("home = %v %v", got, labels(kb))
 	}
 
-	_, kb = subjectView(tr, s)
+	_, kb = subjectView(tr, s, false)
 	if got := strings.Join(callbacks(kb), " "); got != "g:"+g.ID+" h" || labels(kb)[0] != "10 класс" {
 		t.Errorf("subject = %q %v", got, labels(kb))
+	}
+	// With reports, «Сообщить об ошибке» and «Назад» share the last row.
+	_, kb = subjectView(tr, s, true)
+	if got := strings.Join(callbacks(kb), " "); got != "g:"+g.ID+" m:"+s.ID+" h" || len(kb.InlineKeyboard[len(kb.InlineKeyboard)-1]) != 2 {
+		t.Errorf("subject with reports = %q", got)
 	}
 
 	text, kb = gradeView(tr, g, true)

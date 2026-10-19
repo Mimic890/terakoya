@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/go-telegram/bot/models"
-
-	"github.com/Mimic890/terakoya/internal/i18n"
 )
 
 // sameIDs compares deleted message IDs (as sent) with tracked ones.
@@ -131,8 +129,8 @@ func TestCancelWhenTheNoteIsGone(t *testing.T) {
 	h.bot.Reload(h.ctx)
 	h.tap(cbCancel)
 	calls := h.tg.take()
-	if s := texts(calls, "sendMessage"); len(s) != 1 || (s[0] != i18n.RU.ChooseSubject && s[0] != i18n.RU.NoSubjects) {
-		t.Errorf("subject list = %q (%+v)", s, calls)
+	if r := richs(calls); len(r) != 1 || !strings.HasPrefix(r[0], "# Предметы\n\n") {
+		t.Errorf("subject list = %q (%+v)", r, calls)
 	}
 }
 

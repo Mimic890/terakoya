@@ -1,9 +1,9 @@
 # Проверка
 
-Ссылки: <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">признак</tg-button>, <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">Признак</tg-button>, <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">с подписью</tg-button>,  
-по пути <tg-button type="callback_data" style="link" data="a:en59LBFZtfR">другая</tg-button>, сайт [пример](https://example.org).  
+Ссылки: <tg-button type="callback_data" style="link" data="a:GfzrvaSrXh_">признак</tg-button>, <tg-button type="callback_data" style="link" data="a:GfzrvaSrXh_">Признак</tg-button>, <tg-button type="callback_data" style="link" data="a:GfzrvaSrXh_">с подписью</tg-button>,  
+по пути <tg-button type="callback_data" style="link" data="a:hiKJgvsSJ3v">другая</tg-button>, сайт [пример](https://example.org).  
 Двусмысленная общая и битая нет.  
-Подпись **жирная** и $x^2$ в <tg-button type="callback_data" style="link" data="a:xr0yQmZURlz">ссылке a</tg-button>.
+Подпись **жирная** и $x^2$ в <tg-button type="callback_data" style="link" data="a:GfzrvaSrXh_">ссылке a</tg-button>.
 
 **Дано:**  
 $a \parallel b$  

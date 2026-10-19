@@ -116,13 +116,15 @@ func lessHint(a, b []int) (less, decided bool) {
 	return false, false
 }
 
-// ID derives a short stable ID from a vault path: the first 66 bits of the
-// SHA-256 of the path with the numeric prefixes of its parts removed, in
-// URL-safe base64. Renumbering topics keeps IDs; renaming changes them.
+// ID derives a short stable ID from a vault path
+// (subject/grade/topic/…): the first 66 bits of the SHA-256 of the path
+// with the topic folder's numeric prefix removed, in URL-safe base64.
+// Renumbering topics keeps IDs; renaming changes them. The grade keeps its
+// number, which is all that tells «7 класс» from «10 класс».
 func ID(rel string) string {
 	parts := strings.Split(rel, "/")
-	for i, p := range parts {
-		parts[i] = stripNumber(p)
+	if len(parts) > 2 {
+		parts[2] = stripNumber(parts[2])
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "/")))
 	return base64.RawURLEncoding.EncodeToString(sum[:])[:11]
