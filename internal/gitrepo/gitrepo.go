@@ -27,7 +27,9 @@ type Repo struct {
 
 // Ensure prepares the checkout in dir. With a URL, an empty dir is cloned
 // and an existing checkout must have that URL as origin; the bot then owns
-// the checkout and may reset it when syncing. Without a URL, dir is used as
+// the checkout and may reset it when syncing. Its checkout writes symbolic
+// links as plain files holding the target, so a link committed to the
+// vault cannot point at files on the server. Without a URL, dir is used as
 // is and never modified, which suits local development.
 func Ensure(ctx context.Context, dir, url, branch, token string) (*Repo, error) {
 	r := &Repo{Dir: dir, URL: url, Branch: branch, token: token}
@@ -42,6 +44,9 @@ func Ensure(ctx context.Context, dir, url, branch, token string) (*Repo, error) 
 		if strings.TrimSpace(origin) != url {
 			return nil, fmt.Errorf("%s is a checkout of %s, not %s", dir, strings.TrimSpace(origin), url)
 		}
+		if _, err := r.git(ctx, "config", "core.symlinks", "false"); err != nil {
+			return nil, err
+		}
 		return r, nil
 	}
 	entries, err := os.ReadDir(dir)
@@ -51,7 +56,7 @@ func Ensure(ctx context.Context, dir, url, branch, token string) (*Repo, error) 
 	if len(entries) > 0 {
 		return nil, fmt.Errorf("%s is not empty and is not a git checkout", dir)
 	}
-	if _, err := r.run(ctx, "", "clone", "--branch", branch, "--single-branch", url, dir); err != nil {
+	if _, err := r.run(ctx, "", "clone", "--config", "core.symlinks=false", "--branch", branch, "--single-branch", url, dir); err != nil {
 		return nil, err
 	}
 	return r, nil

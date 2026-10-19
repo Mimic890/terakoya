@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,16 +31,20 @@ var FontDirs = []string{"/usr/share/fonts/dejavu", "/usr/share/fonts/truetype/de
 // ErrNoResvg is returned when the resvg binary cannot be found.
 var ErrNoResvg = errors.New("resvg is not installed; it is included in the Docker image, or set TERAKOYA_RESVG")
 
-// Resvg runs the resvg CLI at twice the drawing's size on a white
-// background, with system fonts disabled and only the DejaVu fonts loaded.
+// Resvg runs the resvg CLI at twice the drawing's size, at most MaxSide
+// pixels, on a white background, with system fonts disabled and only the DejaVu fonts loaded.
 type Resvg struct {
 	Bin      string // path or name of the binary, default "resvg"
 	FontsDir string // default: the first of FontDirs that exists
-	Timeout  time.Duration
+	// Root is the vault: the only place pictures a drawing embeds may
+	// come from (see Check).
+	Root    string
+	Timeout time.Duration
 }
 
-// New returns a Resvg with defaults filled in.
-func New(bin, fontsDir string) *Resvg {
+// New returns a Resvg with defaults filled in, for drawings in the vault
+// at root.
+func New(bin, fontsDir, root string) *Resvg {
 	if bin == "" {
 		bin = "resvg"
 	}
@@ -50,7 +56,15 @@ func New(bin, fontsDir string) *Resvg {
 			}
 		}
 	}
-	return &Resvg{Bin: bin, FontsDir: fontsDir, Timeout: 30 * time.Second}
+	// Drawings come from the loaded catalog, whose root has its links
+	// resolved; the root here must match it.
+	if abs, err := filepath.Abs(root); err == nil {
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = real
+		}
+		root = abs
+	}
+	return &Resvg{Bin: bin, FontsDir: fontsDir, Root: root, Timeout: 30 * time.Second}
 }
 
 // Tag is the settings tag of the output.
@@ -62,14 +76,18 @@ func (r *Resvg) Available() bool {
 	return err == nil
 }
 
-// Rasterize converts the SVG at svgPath.
+// Rasterize converts the SVG at svgPath, after Check.
 func (r *Resvg) Rasterize(ctx context.Context, svgPath string) ([]byte, error) {
 	if !r.Available() {
 		return nil, ErrNoResvg
 	}
+	size, err := Check(svgPath, r.Root)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
-	args := []string{"--zoom", "2", "--background", "white", "--skip-system-fonts",
+	args := []string{"--zoom", strconv.FormatFloat(Zoom(size), 'f', -1, 64), "--background", "white", "--skip-system-fonts",
 		"--serif-family", "DejaVu Serif", "--sans-serif-family", "DejaVu Sans", "--font-family", "DejaVu Sans",
 		"--monospace-family", "DejaVu Sans Mono"}
 	if r.FontsDir != "" {

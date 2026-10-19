@@ -8,11 +8,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -46,6 +48,8 @@ type Resolver struct {
 	CacheChatID int64
 	Raster      raster.Rasterizer
 	Log         *slog.Logger
+
+	flight flight
 }
 
 // Key is the cache key of an image: its SHA-256, and for an SVG the
@@ -113,36 +117,98 @@ func (r *Resolver) Prepare(ctx context.Context, part render.Part) (*Prepared, er
 			p.Entries = append(p.Entries, models.InputRichMessageMedia{ID: m.ID, Media: &models.InputMediaPhoto{Media: fileID}})
 			continue
 		}
-		data, name, err := r.load(ctx, m)
+		// Users opening the same new note at once share one conversion
+		// and one upload.
+		got, err := r.flight.do(key, func() (loaded, error) { return r.loadOnce(ctx, m, key) })
 		if err != nil {
 			r.Log.Error("image left out of the message", "file", m.Path, "err", err)
 			p.Failed[m.ID] = err
 			continue
 		}
-		if r.CacheChatID != 0 {
-			fileID, err = r.uploadToCacheChat(ctx, key, name, data)
-			if err != nil {
-				r.Log.Warn("upload to cache chat failed; attaching instead", "file", m.Path, "err", err)
-			} else {
-				r.Log.Info("image uploaded to cache chat", "file", m.Path, "key", short(key))
-				p.Entries = append(p.Entries, models.InputRichMessageMedia{ID: m.ID, Media: &models.InputMediaPhoto{Media: fileID}})
-				continue
-			}
+		if got.fileID != "" {
+			p.Entries = append(p.Entries, models.InputRichMessageMedia{ID: m.ID, Media: &models.InputMediaPhoto{Media: got.fileID}})
+			continue
 		}
 		r.Log.Info("image attached to message", "file", m.Path, "key", short(key))
 		p.pending[m.ID] = pendingMedia{m, key}
 		p.Entries = append(p.Entries, models.InputRichMessageMedia{
 			ID:    m.ID,
-			Media: &models.InputMediaPhoto{Media: "attach://" + m.ID, MediaAttachment: bytes.NewReader(data)},
+			Media: &models.InputMediaPhoto{Media: "attach://" + m.ID, MediaAttachment: bytes.NewReader(got.data)},
 		})
 	}
 	return p, nil
+}
+
+// loaded is an image ready to send: its file_id in the cache chat, or its
+// bytes to attach.
+type loaded struct {
+	fileID string
+	data   []byte
+}
+
+// loadOnce reads an image and, with a cache chat, uploads it there.
+func (r *Resolver) loadOnce(ctx context.Context, m render.Media, key string) (loaded, error) {
+	data, name, err := r.load(ctx, m)
+	if err != nil {
+		return loaded{}, err
+	}
+	if r.CacheChatID != 0 {
+		fileID, err := r.uploadToCacheChat(ctx, key, name, data)
+		if err == nil {
+			r.Log.Info("image uploaded to cache chat", "file", m.Path, "key", short(key))
+			return loaded{fileID: fileID}, nil
+		}
+		r.Log.Warn("upload to cache chat failed; attaching instead", "file", m.Path, "err", err)
+	}
+	return loaded{data: data}, nil
+}
+
+// flight runs one load per cache key at a time; callers that come while
+// it runs get its result.
+type flight struct {
+	mu    sync.Mutex
+	calls map[string]*flightCall
+}
+
+type flightCall struct {
+	done chan struct{}
+	val  loaded
+	err  error
+}
+
+func (f *flight) do(key string, fn func() (loaded, error)) (loaded, error) {
+	f.mu.Lock()
+	if c, ok := f.calls[key]; ok {
+		f.mu.Unlock()
+		<-c.done
+		return c.val, c.err
+	}
+	if f.calls == nil {
+		f.calls = map[string]*flightCall{}
+	}
+	c := &flightCall{done: make(chan struct{})}
+	f.calls[key] = c
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		delete(f.calls, key)
+		f.mu.Unlock()
+		close(c.done)
+	}()
+	c.val, c.err = fn()
+	return c.val, c.err
 }
 
 // load reads an image, rasterizing SVGs, and returns its bytes and a file
 // name for the upload.
 func (r *Resolver) load(ctx context.Context, m render.Media) ([]byte, string, error) {
 	name := filepath.Base(m.AbsPath)
+	// The catalog has no links, but the file may have changed since.
+	if info, err := os.Lstat(m.AbsPath); err != nil {
+		return nil, "", err
+	} else if !info.Mode().IsRegular() {
+		return nil, "", fmt.Errorf("%s is not a regular file", m.Path)
+	}
 	if !m.SVG {
 		data, err := os.ReadFile(m.AbsPath)
 		return data, name, err

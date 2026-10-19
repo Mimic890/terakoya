@@ -58,7 +58,10 @@ func Handler(ctx context.Context, host githost.Host, handle func(context.Context
 
 // Serve runs an HTTP server on addr until ctx is cancelled.
 func Serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) error {
-	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second,
+		// A delivery is at most maxBody and is answered before it is
+		// handled; slow clients do not hold connections open.
+		ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Info("http server listening", "addr", addr)

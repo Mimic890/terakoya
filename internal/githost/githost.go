@@ -75,8 +75,9 @@ const (
 	PRMerged
 	PRClosed // closed without merging
 	Push
-	// IssueChanged: an issue was closed, reopened or relabeled; State
-	// tells how it is now.
+	// IssueChanged: an issue was closed, reopened or relabeled. The bot
+	// reads its state from the API rather than trusting the delivery,
+	// which could be replayed or arrive out of order.
 	IssueChanged
 )
 
@@ -88,8 +89,6 @@ type Event struct {
 	HeadBranch string
 	// Ref is the pushed ref, e.g. refs/heads/main.
 	Ref string
-	// State of an issue for IssueChanged.
-	State State
 }
 
 // ErrSignature is returned for deliveries with a missing or wrong signature.
@@ -384,7 +383,7 @@ func decodeEvent(event string, body []byte) (Event, error) {
 		}
 		switch p.Action {
 		case "closed", "reopened", "labeled", "unlabeled", "label_updated", "label_cleared":
-			return Event{Kind: IssueChanged, PRNumber: p.Issue.Number, State: p.Issue.state()}, nil
+			return Event{Kind: IssueChanged, PRNumber: p.Issue.Number}, nil
 		}
 	}
 	return Event{Kind: Ignored}, nil

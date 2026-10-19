@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -185,6 +187,8 @@ func TestDownloadArchive(t *testing.T) {
 		t.Fatalf("calls = %+v", calls)
 	}
 	// The fake keeps no files; build the archive the same way to check it.
+	// A link to a file outside the vault is left out.
+	os.Symlink("/etc/hostname", filepath.Join(h.bot.catalog().Root, "Геометрия", "секрет.md"))
 	data, err := zipVault(h.bot.catalog().Root)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +199,7 @@ func TestDownloadArchive(t *testing.T) {
 		names = append(names, f.Name)
 	}
 	all := strings.Join(names, "\n")
-	if !strings.Contains(all, vmain) || strings.Contains(all, ".obsidian") || strings.Contains(all, ".git/") || strings.Contains(all, ".gitignore") {
+	if !strings.Contains(all, vmain) || strings.Contains(all, "секрет") || strings.Contains(all, ".obsidian") || strings.Contains(all, ".git/") || strings.Contains(all, ".gitignore") {
 		t.Errorf("archive:\n%s", all)
 	}
 	// The second request reuses the uploaded file.

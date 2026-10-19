@@ -541,7 +541,48 @@ func (b *Bot) submitReport(ctx context.Context, d *dialog, from *models.User) {
 	if msgID == 0 {
 		return
 	}
-	b.finish(ctx, d, msgID, b.openIssue(ctx, d, from, r, assets), b.t.SubmittedReport)
+	// The pictures are fetched and checked before anything is opened.
+	pics, err := b.pictureChanges(ctx, d, assets, r.RepoPath)
+	var bad notImage
+	if errors.As(err, &bad) {
+		b.dropPicture(ctx, d, msgID, bad.n)
+		return
+	}
+	if err == nil {
+		err = b.openIssue(ctx, d, from, r, pics)
+	}
+	b.finish(ctx, d, msgID, err, b.t.SubmittedReport)
+}
+
+// notImage is a picture whose bytes are neither PNG nor JPEG, whatever
+// its name or type said; n counts from 1.
+type notImage struct{ n int }
+
+func (e notImage) Error() string { return fmt.Sprintf("picture %d is not a PNG or JPEG", e.n) }
+
+// dropPicture takes a picture that is not one out of the dialog and asks
+// the user how to go on.
+func (b *Bot) dropPicture(ctx context.Context, d *dialog, submittingMsg, n int) {
+	b.log.Info("report picture is not an image", "user", d.ses.TgID, "picture", n)
+	d.p.Images = append(d.p.Images[:n-1:n-1], d.p.Images[n:]...)
+	b.deleteMessage(ctx, d.chatID, submittingMsg)
+	if d.p.Text == "" && len(d.p.Images) == 0 {
+		d.ses.State = stateReport
+		b.prompt(ctx, d, fmt.Sprintf(b.t.NotAnImageNoneLeft, n), keyboard(cancelRow(b.t.Cancel)))
+		return
+	}
+	b.prompt(ctx, d, fmt.Sprintf(b.t.NotAnImage, n), b.sendKeyboard(b.t.Send))
+}
+
+// sniffExt is the extension the bytes of a picture call for, or "".
+func sniffExt(data []byte) string {
+	switch http.DetectContentType(data) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	}
+	return ""
 }
 
 // reportOf describes the dialog's report and names the folder its pictures
@@ -565,7 +606,7 @@ func (b *Bot) reportOf(d *dialog, by suggest.Submitter) (r suggest.Report, asset
 	return r, a.Topic.Path() + "/" + content.AssetsDir, true
 }
 
-func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r suggest.Report, assets string) error {
+func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r suggest.Report, pics []picture) error {
 	if _, err := suggest.RepoPath(r.RepoPath); err != nil {
 		return err
 	}
@@ -575,11 +616,7 @@ func (b *Bot) openIssue(ctx context.Context, d *dialog, from *models.User, r sug
 		return err
 	}
 	branch := ""
-	if len(d.p.Images) > 0 {
-		pics, err := b.pictureChanges(ctx, d, assets, r.RepoPath)
-		if err != nil {
-			return err
-		}
+	if len(pics) > 0 {
 		branch, err = b.attachPictures(ctx, d, issue.Number, &r, pics)
 		if err != nil {
 			return err
@@ -602,19 +639,26 @@ type picture struct {
 	caption string
 }
 
-// pictureChanges downloads the user's pictures and names them in the
-// assets folder of the note's topic, or of the grade.
+// pictureChanges downloads the user's pictures, checks that they are PNG
+// or JPEG images, and names them in the assets folder of the note's topic,
+// or of the grade.
 func (b *Bot) pictureChanges(ctx context.Context, d *dialog, assets, about string) ([]picture, error) {
 	var out []picture
 	for i, img := range d.p.Images {
-		name := suggest.ImageName(about, d.p.ShortID, i+1, img.Ext)
-		rel, err := suggest.RepoPath(assets + "/" + name)
-		if err != nil {
-			return nil, err
-		}
 		data, err := b.download(ctx, img.FileID, b.cfg.ImageMaxBytes)
 		if err != nil {
 			return nil, fmt.Errorf("download picture %d: %w", i+1, err)
+		}
+		// The file name and type come from the user's app; the bytes
+		// decide.
+		ext := sniffExt(data)
+		if ext == "" {
+			return nil, notImage{i + 1}
+		}
+		name := suggest.ImageName(about, d.p.ShortID, i+1, ext)
+		rel, err := suggest.RepoPath(assets + "/" + name)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, picture{gitrepo.Change{Path: rel, Data: data}, img.Caption})
 	}

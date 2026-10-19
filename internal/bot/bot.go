@@ -113,7 +113,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 	}
 	b.emoji = newEmojiSet(log)
 	b.media = &media.Resolver{Cache: st, Sender: api, CacheChatID: cfg.CacheChatID,
-		Raster: raster.New(cfg.Resvg, cfg.FontsDir), Log: log}
+		Raster: raster.New(cfg.Resvg, cfg.FontsDir, cfg.RepoDir), Log: log}
 	if err := b.Reload(ctx); err != nil {
 		return nil, err
 	}

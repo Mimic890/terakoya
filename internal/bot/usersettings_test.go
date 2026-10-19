@@ -199,8 +199,8 @@ func TestNickname(t *testing.T) {
 	h.say("опечатка")
 	h.tap(cbSend)
 	h.tg.take()
-	if body := h.host.bodies[7]; !strings.Contains(body, "Error reported in Telegram by Ёжик.") || !strings.Contains(body, "- Nickname: Ёжик") ||
-		!strings.Contains(body, "- Username: @anya") {
+	if body := h.host.bodies[7]; !strings.Contains(body, "Error reported in Telegram by `Ёжик`.") || !strings.Contains(body, "- Nickname: `Ёжик`") ||
+		!strings.Contains(body, "- Username: `@anya`") {
 		t.Errorf("issue body:\n%s", body)
 	}
 
