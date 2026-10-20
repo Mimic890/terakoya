@@ -27,25 +27,31 @@ func (s *Store) Seen(ctx context.Context, tgID int64, username, firstName string
 	return err
 }
 
-// NoteOpened counts an opening of a note today.
-func (s *Store) NoteOpened(ctx context.Context, noteID string) error {
+// NoteOpened counts an opening of a note today, with its title and path.
+func (s *Store) NoteOpened(ctx context.Context, noteID, title, path string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO note_opens (note_id, day, count) VALUES (?, ?, 1)
-		ON CONFLICT (note_id, day) DO UPDATE SET count = count + 1`, noteID, Day(s.now()))
+		INSERT INTO note_opens (note_id, day, count, title, path) VALUES (?, ?, 1, ?, ?)
+		ON CONFLICT (note_id, day) DO UPDATE SET count = count + 1, title = excluded.title, path = excluded.path`,
+		noteID, Day(s.now()), title, path)
 	return err
 }
 
-// NoteCount is how often a note was opened.
+// NoteCount is how often a note was opened, with its title and path as
+// last opened ("" for opens counted before they were kept).
 type NoteCount struct {
-	NoteID string
-	Opens  int
+	NoteID      string
+	Title, Path string
+	Opens       int
 }
 
 // TopNotes lists the n most opened notes since the given day ("" for all
 // time), most opened first.
 func (s *Store) TopNotes(ctx context.Context, since string, n int) ([]NoteCount, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT note_id, SUM(count) AS n FROM note_opens WHERE day >= ?
+		SELECT note_id, SUM(count) AS n,
+			(SELECT l.title FROM note_opens l WHERE l.note_id = o.note_id ORDER BY l.day DESC LIMIT 1),
+			(SELECT l.path FROM note_opens l WHERE l.note_id = o.note_id ORDER BY l.day DESC LIMIT 1)
+		FROM note_opens o WHERE day >= ?
 		GROUP BY note_id ORDER BY n DESC, note_id LIMIT ?`, since, n)
 	if err != nil {
 		return nil, err
@@ -54,12 +60,31 @@ func (s *Store) TopNotes(ctx context.Context, since string, n int) ([]NoteCount,
 	var out []NoteCount
 	for rows.Next() {
 		var c NoteCount
-		if err := rows.Scan(&c.NoteID, &c.Opens); err != nil {
+		if err := rows.Scan(&c.NoteID, &c.Opens, &c.Title, &c.Path); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// Opens are the note opens of today, of the last 7 days and of all the
+// days kept.
+type Opens struct {
+	Today int `json:"today"`
+	Week  int `json:"week"`
+	All   int `json:"all"`
+}
+
+// CountOpens counts note opens; today and week are the first days of the
+// periods.
+func (s *Store) CountOpens(ctx context.Context, today, week string) (Opens, error) {
+	var o Opens
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(CASE WHEN day >= ? THEN count END), 0), COALESCE(SUM(CASE WHEN day >= ? THEN count END), 0),
+			COALESCE(SUM(count), 0)
+		FROM note_opens`, today, week).Scan(&o.Today, &o.Week, &o.All)
+	return o, err
 }
 
 // Traffic is calls to the Telegram API and the bytes they moved.

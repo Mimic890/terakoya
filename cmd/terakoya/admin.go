@@ -321,8 +321,8 @@ func printStats(w io.Writer, s bot.AdminStats) {
 		}
 		for i, n := range top.notes {
 			title := n.Title
-			if title == "" {
-				title = n.ID + " (removed)"
+			if n.Gone {
+				title += " (removed)"
 			}
 			fmt.Fprintf(w, "  %2d. %s — %d\n", i+1, title, n.Opens)
 		}

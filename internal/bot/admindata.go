@@ -21,7 +21,10 @@ import (
 // The numbers behind /admin, shared with the admin socket and its CLI.
 
 // usersPerPage is the length of a page of the user list.
-const usersPerPage = 10
+const usersPerPage = 25
+
+// cpuWindow is how long CPU use is measured over.
+const cpuWindow = time.Second
 
 // sizesFor is how long directory sizes are reused.
 const sizesFor = 60 * time.Second
@@ -73,6 +76,12 @@ func startOfDay(t time.Time) time.Time {
 
 // AdminServer is the «Сервер» screen.
 type AdminServer struct {
+	// CPU is the process's CPU use over cpuWindow, in percent of one core.
+	CPU   float64 `json:"cpu"`
+	Cores int     `json:"cores"`
+	// DiskFree and DiskTotal are of the filesystem of the data directory.
+	DiskFree   int64    `json:"disk_free"`
+	DiskTotal  int64    `json:"disk_total"`
 	RSS        int64    `json:"rss"`
 	Heap       int64    `json:"heap"`
 	Goroutines int      `json:"goroutines"`
@@ -148,6 +157,20 @@ func (b *Bot) AdminServer(ctx context.Context) (AdminServer, error) {
 	if rx, tx, err := stats.Network(filepath.Join(b.sysRoot, "class", "net")); err == nil {
 		s.NetRx, s.NetTx = rx, tx
 	}
+	if free, total, err := stats.Disk(b.cfg.DataDir); err == nil {
+		s.DiskFree, s.DiskTotal = free, total
+	}
+	// shortcut: percent of one core, not of the container's CPU quota;
+	// read cpu.max from the cgroup if a quota is ever set.
+	s.Cores = runtime.NumCPU()
+	stat := filepath.Join(b.procRoot, "self", "stat")
+	if before, err := stats.CPUTime(stat); err == nil {
+		start := time.Now()
+		b.sleep(ctx, cpuWindow)
+		if after, err := stats.CPUTime(stat); err == nil && time.Since(start) > 0 {
+			s.CPU = float64(after-before) / float64(time.Since(start)) * 100
+		}
+	}
 	today, total, err := b.store.TrafficTotals(ctx, store.Day(b.clock()))
 	if err != nil {
 		return s, err
@@ -173,13 +196,16 @@ func (b *Bot) AdminServer(ctx context.Context) (AdminServer, error) {
 // NoteStat is a note and how often it was opened.
 type NoteStat struct {
 	ID    string `json:"id"`
-	Title string `json:"title"` // "" if the note left the vault
+	Title string `json:"title"`
 	Path  string `json:"path,omitempty"`
-	Opens int    `json:"opens"`
+	// Gone is set for a note no longer in the vault, by its last title.
+	Gone  bool `json:"gone,omitempty"`
+	Opens int  `json:"opens"`
 }
 
 // AdminStats is the «Статистика» screen.
 type AdminStats struct {
+	Opens       store.Opens            `json:"opens"`
 	Reports     store.SuggestionCounts `json:"reports"`
 	ReportsWeek store.SuggestionCounts `json:"reports_week"`
 	TopWeek     []NoteStat             `json:"top_week"`
@@ -197,6 +223,9 @@ func (b *Bot) AdminStats(ctx context.Context) (AdminStats, error) {
 	var s AdminStats
 	var err error
 	week := b.clock().Add(-7 * 24 * time.Hour)
+	if s.Opens, err = b.store.CountOpens(ctx, store.Day(b.clock()), store.Day(week)); err != nil {
+		return s, err
+	}
 	if s.Reports, err = b.store.CountSuggestions(ctx, time.Time{}); err != nil {
 		return s, err
 	}
@@ -207,15 +236,20 @@ func (b *Bot) AdminStats(ctx context.Context) (AdminStats, error) {
 		since string
 		out   *[]NoteStat
 	}{{store.Day(week), &s.TopWeek}, {"", &s.TopAll}} {
-		top, err := b.store.TopNotes(ctx, t.since, 10)
+		// More than shown: notes with no name to show are left out.
+		top, err := b.store.TopNotes(ctx, t.since, 100)
 		if err != nil {
 			return s, err
 		}
 		cat := b.catalog()
 		for _, c := range top {
-			ns := NoteStat{ID: c.NoteID, Opens: c.Opens}
-			if n := cat.Note(c.NoteID); n != nil {
+			ns := NoteStat{ID: c.NoteID, Title: c.Title, Path: c.Path, Opens: c.Opens}
+			n := cat.Note(c.NoteID)
+			if ns.Gone = n == nil; !ns.Gone {
 				ns.Title, ns.Path = n.Title, n.Path
+			}
+			if ns.Title == "" || len(*t.out) == 10 {
+				continue
 			}
 			*t.out = append(*t.out, ns)
 		}

@@ -311,12 +311,8 @@ func TestSearchInAdminStats(t *testing.T) {
 	if fmt.Sprint(s.Searches) != "[{трапеция 2 0} {треугольник 1 1}]" || fmt.Sprint(s.Missing) != "[{трапеция 2 0}]" {
 		t.Errorf("searches = %v, missing = %v", s.Searches, s.Missing)
 	}
-	md := h.bot.statsMarkdown(s)
-	for _, want := range []string{"## Чаще всего ищут — 7 дней\n\n1\\. «трапеция» — 2  \n2\\. «треугольник» — 1\n",
-		"## Ищут, но не находят — 180 дней\n\n1\\. «трапеция» — 2\n"} {
-		if !strings.Contains(md, want) {
-			t.Errorf("stats lack %q:\n%s", want, md)
-		}
+	if got := h.bot.searchTable(s.Searches); got != "| № | Запрос | Раз |\n|---|---|---|\n| 1 | трапеция | 2 |\n| 2 | треугольник | 1 |" {
+		t.Errorf("table = %q", got)
 	}
 	// Cleaned up with the rest after 180 days.
 	h.store.SetClock(func() time.Time { return time.Now().Add(store.KeepSearches + time.Hour) })
