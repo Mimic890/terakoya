@@ -347,8 +347,9 @@ Under it:
 
 - **Пользователи**: «Users», a table of 25 users a page, most recently
   active first: ID, @username, first name, nickname, rank, accepted,
-  open and rejected reports, first and last seen, shown in the top or
-  hidden, blocked the bot. «‹ Назад» and «Вперёд ›» appear only when
+  open and rejected reports, first and last seen, the place in /top as
+  everyone sees it («скрыт» for one who hides, «нет» without accepted
+  reports or below the top), blocked the bot. «‹ Назад» and «Вперёд ›» appear only when
   there is a page to go to; «В админку» goes back.
 - **Обновить vault** syncs now, as a push webhook does: «Обновление
   vault…» while it runs, then the panel anew and the outcome under it.

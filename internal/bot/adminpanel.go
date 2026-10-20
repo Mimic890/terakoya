@@ -216,10 +216,28 @@ func (b *Bot) showUsers(ctx context.Context, chatID int64, page int) {
 		rows = append(rows, nav)
 	}
 	rows = append(rows, row(button(b.t.AdminBack, cbAdminMain)))
-	b.showRich(ctx, chatID, b.t.AdminUsersTitle, b.usersMarkdown(l), keyboard(rows...))
+	b.showRich(ctx, chatID, b.t.AdminUsersTitle, b.usersMarkdown(l, b.topPlaces(ctx)), keyboard(rows...))
 }
 
-func (b *Bot) usersMarkdown(l AdminUsers) string {
+// topPlaces is each user's place in /top as everyone sees it: users with
+// accepted reports who do not hide, up to the size of the top.
+func (b *Bot) topPlaces(ctx context.Context) map[int64]int {
+	all, err := b.store.Leaderboard(ctx)
+	if err != nil {
+		b.log.Error("leaderboard", "err", err)
+	}
+	size, places := b.settings.Get().Top.Size, map[int64]int{}
+	for _, e := range all {
+		if !e.HideTop && len(places) < size {
+			places[e.TgID] = len(places) + 1
+		}
+	}
+	return places
+}
+
+// usersMarkdown renders a page of the user table; places are from
+// topPlaces.
+func (b *Bot) usersMarkdown(l AdminUsers, places map[int64]int) string {
 	md := "# " + b.t.AdminUsersTitle + "\n\n" + fmt.Sprintf(b.t.AdminUsersPage, l.Page+1, l.Pages, l.Found) + "\n\n"
 	if len(l.Users) == 0 {
 		return md + b.t.AdminNobody + "\n"
@@ -238,11 +256,14 @@ func (b *Bot) usersMarkdown(l AdminUsers) string {
 	}
 	lines := []string{b.t.AdminUsersHead}
 	for i, u := range l.Users {
-		username, top := "", b.t.AdminShown
+		username, top := "", b.t.AdminNo
 		if u.Username != "" {
 			username = "@" + u.Username
 		}
-		if u.HideTop {
+		switch p, ok := places[u.ID]; {
+		case ok:
+			top = fmt.Sprintf(b.t.AdminTopPlace, p)
+		case u.HideTop && u.Accepted > 0:
 			top = b.t.AdminHidden
 		}
 		lines = append(lines, fmt.Sprintf("| %d | %d | %s | %s | %s | %s | %d | %d | %d | %s | %s | %s | %s |",

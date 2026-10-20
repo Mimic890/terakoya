@@ -240,7 +240,7 @@ type Strings struct {
 	AdminPrev          string
 	AdminNext          string
 	AdminBack          string
-	AdminShown         string
+	AdminTopPlace      string // %d place
 	AdminHidden        string
 	AdminYes           string
 	AdminNo            string
@@ -512,7 +512,7 @@ var RU = Strings{
 	AdminPrev:          "‹ Назад",
 	AdminNext:          "Вперёд ›",
 	AdminBack:          "В админку",
-	AdminShown:         "показан",
+	AdminTopPlace:      "%d место",
 	AdminHidden:        "скрыт",
 	AdminYes:           "да",
 	AdminNo:            "нет",
