@@ -15,6 +15,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/bot"
 	"github.com/Mimic890/terakoya/internal/config"
 	"github.com/Mimic890/terakoya/internal/stats"
+	"github.com/Mimic890/terakoya/internal/store"
 )
 
 const adminUsage = `usage: terakoya admin [--json] [--socket path] <command>
@@ -324,6 +325,18 @@ func printStats(w io.Writer, s bot.AdminStats) {
 				title = n.ID + " (removed)"
 			}
 			fmt.Fprintf(w, "  %2d. %s — %d\n", i+1, title, n.Opens)
+		}
+	}
+	for _, top := range []struct {
+		title string
+		list  []store.SearchCount
+	}{{"Searched for most, 7 days", s.Searches}, {"Searched for, nothing found, 180 days", s.Missing}} {
+		fmt.Fprintf(w, "\n%s:\n", top.title)
+		if len(top.list) == 0 {
+			fmt.Fprintln(w, "  none yet")
+		}
+		for i, c := range top.list {
+			fmt.Fprintf(w, "  %2d. %s — %d\n", i+1, c.Query, c.Count)
 		}
 	}
 	fmt.Fprintf(w, "\nBroadcasts: %d\n", s.Broadcasts)

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -205,6 +206,7 @@ func TestCleanup(t *testing.T) {
 	for _, days := range []int{200, 181, 179, 0} {
 		s.SetClock(func() time.Time { return now.AddDate(0, 0, -days) })
 		s.NoteOpened(ctx, "n")
+		s.LogSearch(ctx, "трапеция", 0)
 	}
 	s.SetClock(func() time.Time { return now })
 
@@ -212,7 +214,7 @@ func TestCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c != (Cleaned{MessageParts: 3, Sessions: 1, NoteOpens: 2}) {
+	if c != (Cleaned{MessageParts: 3, Sessions: 1, NoteOpens: 2, Searches: 2}) {
 		t.Errorf("cleaned = %+v", c)
 	}
 	if g, _ := s.MessageGroup(ctx, 42, 2); len(g) != 1 {
@@ -226,5 +228,55 @@ func TestCleanup(t *testing.T) {
 	}
 	if top, _ := s.TopNotes(ctx, "", 1); len(top) != 1 || top[0].Opens != 2 {
 		t.Errorf("opens = %+v", top)
+	}
+	if top, _ := s.TopSearches(ctx, time.Time{}, 1); len(top) != 1 || top[0].Count != 2 {
+		t.Errorf("searches = %+v", top)
+	}
+}
+
+func TestSearches(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	now := time.Now()
+	at := func(days int) { s.SetClock(func() time.Time { return now.AddDate(0, 0, -days) }) }
+	for _, q := range []struct {
+		days    int
+		query   string
+		results int
+	}{
+		{10, "окружность", 0}, {10, "окружность", 0}, {10, "окружность", 0},
+		{3, "трапеция", 0}, {2, "трапеция", 0},
+		{3, "параллельность", 4}, {2, "параллельность", 4}, {1, "параллельность", 5},
+		// Material was added: the last search finds it.
+		{5, "призма", 0}, {5, "призма", 0}, {1, "призма", 2},
+		{1, "угол", 1},
+	} {
+		at(q.days)
+		if err := s.LogSearch(ctx, q.query, q.results); err != nil {
+			t.Fatal(err)
+		}
+	}
+	week := now.AddDate(0, 0, -7)
+	top, err := s.TopSearches(ctx, week, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range top {
+		got = append(got, fmt.Sprintf("%s:%d:%d", c.Query, c.Count, c.Results))
+	}
+	if strings.Join(got, " ") != "параллельность:3:5 призма:3:2 трапеция:2:0 угол:1:1" {
+		t.Errorf("top = %v", got)
+	}
+	missing, _ := s.MissingSearches(ctx, now.Add(-KeepSearches), 10)
+	got = nil
+	for _, c := range missing {
+		got = append(got, fmt.Sprintf("%s:%d", c.Query, c.Count))
+	}
+	if strings.Join(got, " ") != "окружность:3 трапеция:2" {
+		t.Errorf("missing = %v", got)
+	}
+	if top, _ := s.TopSearches(ctx, week, 2); len(top) != 2 {
+		t.Errorf("limit: %d", len(top))
 	}
 }

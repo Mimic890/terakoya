@@ -98,7 +98,7 @@ func TestKeyButtons(t *testing.T) {
 	// With a note below the menu, the old menu goes and a new one comes.
 	h.tapOn(menu, cbHome)
 	h.tg.take()
-	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), false)
+	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), cbBack)
 	h.tg.take()
 	h.say(i18n.RU.KeySubjects)
 	calls = h.tg.take()

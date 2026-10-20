@@ -410,6 +410,7 @@ func (b *Bot) finishEmojiSetup(ctx context.Context, wz *wizard) {
 func (b *Bot) setCommands(ctx context.Context) {
 	common := []models.BotCommand{
 		{Command: "start", Description: b.t.CmdStart},
+		{Command: "search", Description: b.t.CmdSearch},
 		{Command: "download", Description: b.t.CmdDownload},
 		{Command: "top", Description: b.t.CmdTop},
 		{Command: "ranks", Description: b.t.CmdRanks},

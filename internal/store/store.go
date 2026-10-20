@@ -228,6 +228,15 @@ var migrations = []string{
 	CREATE INDEX suggestions_kind_status ON suggestions(kind, status, tg_id);
 	CREATE INDEX suggestions_status ON suggestions(status);
 	CREATE INDEX note_opens_day ON note_opens(day);`,
+	// Search queries, normalized, and how many notes each found, for
+	// /admin: what is searched for and what is missing. Who searched is
+	// not kept.
+	`CREATE TABLE search_queries (
+		query   TEXT NOT NULL,
+		results INTEGER NOT NULL,
+		at      INTEGER NOT NULL
+	);
+	CREATE INDEX search_queries_at ON search_queries(at);`,
 }
 
 // migrate brings the schema to version to. An existing database is

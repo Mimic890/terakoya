@@ -67,10 +67,10 @@ func TestViews(t *testing.T) {
 
 	// Under every note, the main page included: back, suggest, download,
 	// pin; no buttons for the topic's notes.
-	if got := strings.Join(labels(articleKeyboard(tr, main, false, false, "")), ","); got != "« Назад,Сообщить об ошибке,Скачать,Закрепить" {
+	if got := strings.Join(labels(articleKeyboard(tr, main, false, cbBack, "")), ","); got != "« Назад,Сообщить об ошибке,Скачать,Закрепить" {
 		t.Errorf("note keyboard = %q", got)
 	}
-	kb = articleKeyboard(tr, main, true, true, "")
+	kb = articleKeyboard(tr, main, true, cbBackPins, "")
 	if got := strings.Join(callbacks(kb), " "); got != "bp:"+main.ID+" e:"+main.ID+" d:"+main.ID+" p:"+main.ID || labels(kb)[3] != "Открепить" {
 		t.Errorf("pinned note keyboard = %q %v", got, labels(kb))
 	}
@@ -79,7 +79,8 @@ func TestViews(t *testing.T) {
 func TestCallbackDataFits(t *testing.T) {
 	cat := loadExamples(t)
 	for _, n := range cat.Notes() {
-		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, true, "")), cbOpen+n.ID, cbFromPins+n.ID,
+		for _, d := range append(callbacks(articleKeyboard(i18n.RU, n, true, cbBackPins, "")), cbOpen+n.ID, cbFromPins+n.ID,
+			cbSearchOpen+n.ID, cbBackSearch+n.ID, cbSearchReport+n.Subject().ID,
 			cbReportGrade+n.Grade().ID) {
 			if len(d) > 64 {
 				t.Errorf("callback %q is %d bytes", d, len(d))

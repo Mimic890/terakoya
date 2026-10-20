@@ -21,9 +21,9 @@ import (
 
 // sendArticle sends a note as one or more rich messages, with the buttons
 // under the last one, and reports whether it succeeded. The messages are
-// recorded as a group, so moving on removes all of them. fromPins is set
-// when it was opened from the pinned list, which «Назад» then returns to.
-func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fromPins bool) bool {
+// recorded as a group, so moving on removes all of them. back is the
+// prefix of its «Назад» (see articleKeyboard).
+func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, back string) bool {
 	if err := b.store.NoteOpened(ctx, n.ID); err != nil {
 		b.log.Error("count note open", "err", err)
 	}
@@ -42,7 +42,7 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, fr
 	for i, part := range res.Parts {
 		var kb *models.InlineKeyboardMarkup
 		if i == len(res.Parts)-1 {
-			kb = articleKeyboard(b.t, n, pinned, fromPins, b.emoji.Pin())
+			kb = articleKeyboard(b.t, n, pinned, back, b.emoji.Pin())
 		}
 		msg, err := b.sendRich(ctx, chatID, n, part, kb)
 		if err != nil {

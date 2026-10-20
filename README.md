@@ -16,6 +16,7 @@ into several messages. See [docs/content-guide.md](docs/content-guide.md)
 
 - [x] Obsidian vault loader, Markdown → Telegram rich message converter with SVG drawings and long-note splitting, `lint`
 - [x] Navigation: subjects → grades → topics → notes, deep links, note download, `/download` of the whole vault
+- [x] Full-text search with stemming, typos, filters and a list of missing material for admins
 - [x] Error reports from Telegram as issues (GitHub or Forgejo), git host webhooks, content sync
 - [x] Bottom keyboard, pinned notes, account page, ranks, leaderboard, nicknames, admin broadcasts
 - [x] Multi-arch Docker image on ghcr.io
@@ -123,7 +124,7 @@ back.
 Once a day the bot removes rows it has no use for: the message groups of
 notes sent more than 7 days ago (the bot can no longer delete such
 messages anyway), dialogs that expired over a day ago, and note opens
-older than 180 days.
+and search queries older than 180 days.
 
 `/admin` shows the version the binary was built with: the commit for
 images built by CI (the `REVISION` build argument), otherwise `dev`. Set
@@ -163,7 +164,8 @@ deletes the tap. Typed commands are deleted once answered. Every note has
 «Закрепить» / «Открепить» (at most 30 pins); a note opened from the
 pinned list goes back to it with «Назад». Pins of notes removed from the
 vault disappear from the list. `/download` sends the whole vault as a zip
-(without hidden files such as `.obsidian`).
+(without hidden files such as `.obsidian`). Any text outside a dialog is a
+[search](#search).
 
 The interface has no emoji of its own.
 
@@ -171,9 +173,57 @@ Admins also have [`/admin`](#admin-panel), `/emoji_setup` (see
 [the settings file](#settings-file-ranks-custom-emoji-topic-list-top)),
 [`/broadcast`](#broadcasts) and `/nick_reset <id or @username>`. For
 everyone else these commands do nothing. The command menu shows
-`/start`, `/download`, `/top`, `/ranks` and `/cancel` to everyone, and the admin
+`/start`, `/search`, `/download`, `/top`, `/ranks` and `/cancel` to everyone, and the admin
 commands only in the admins' chats (set on start; an admin who has never
 opened the bot gets them after the next restart).
+
+### Search
+
+Any text message outside a dialog is a search query, and so is
+`/search <query>`; `/search` alone asks «Что найти? Напишите слово или
+фразу, например «теорема Пифагора».» and takes the next message. Text
+typed inside a dialog (a report, a nickname, a broadcast) belongs to the
+dialog and is never searched; the rate limit applies as to everything
+else. The query is deleted once the results are shown, and the results
+replace the current menu.
+
+The index is built in memory each time the vault is loaded (on start and
+after every sync; about 0.4 s for 2000 notes). Each note contributes its
+title, headings, topic, subject and kind, and its text without Markdown:
+pictures go, links keep their text, tables their cells, and LaTeX reads
+as words (`\parallel` as «параллельна», `\perp` «перпендикулярна»,
+`\angle` «угол», `\triangle` «треугольник», Greek letters by name), so
+«параллельны» finds `$a \parallel b$`. Words are lowercased, ё is read as
+е, Russian and English words are stemmed (Snowball) and stop words
+dropped. Ranking is BM25 with field weights (title ≫ headings > topic >
+text), boosted when all words are present and again when they come as a
+phrase; on equal scores a topic's main page comes first. The last word
+also matches as the start of a word («параллел» finds «параллельность»).
+Words that match nothing, or all words when fewer than 3 notes are found,
+also match with typos: one for words of 4–7 letters, two from 8.
+
+Filters in the query narrow the results and are not searched for: a grade
+(«7 класс», «10 кл», «10-й класс») and a kind («теорема», «задача»,
+«аксиома», «следствие»; a note whose title has the word counts, such as a
+main page «Теорема Пифагора»). A query of filters alone lists everything
+they let through.
+
+«Поиск: «запрос»» shows «Найдено: N», 8 results per page with ‹ and ›:
+each is «Теорема · title», a link that opens the note, «Геометрия · 10
+класс · §5 topic» and about 120 characters of text around the words
+found, in bold. «Назад» under a note opened from the results returns to
+them. With no results, «Ничего не нашлось.» offers «Возможно, вы имели в
+виду:» other queries as buttons (the closest words of the index, or the
+query without one of its filters) and, when reports are on, «Сообщить,
+что не хватает материала»: a report about the subject (asked first if
+there are several) that already says «По запросу «…» ничего не нашлось.»
+and can be sent as it is or with more text and pictures. Each chat's last
+search lives in memory; after a restart its buttons ask for the query
+again.
+
+Queries are stored normalized, with how many notes they found and when,
+never with who searched, for [/admin](#admin-panel), and removed after
+180 days.
 
 ### Ranks
 
@@ -281,7 +331,9 @@ open reports, the vault commit and its age, uptime) and:
   with «Сбросить ник» (after a question; the user is told).
 - **Статистика**: правки open, accepted and rejected, in total and in
   the last 7 days; the 10 most opened notes in 7 and in 180 days (older counts are removed),
-  whose titles open them; broadcasts and the last one's counts.
+  whose titles open them; the 10 queries searched for most in 7 days,
+  and the 10 searched for most in 180 days whose last search found
+  nothing: the material users miss; broadcasts and the last one's counts.
 - **Сервер**: process memory (RSS, Go heap, goroutines), uptime and the
   image's commit; the container's network traffic since it started and
   the Telegram API traffic (calls, bytes sent and received) today and in
@@ -297,8 +349,9 @@ open reports, the vault commit and its age, uptime) and:
 
 Measuring and syncing run in the background, with a time limit. To keep
 these numbers, the bot records when each user was last seen (at most
-every 5 minutes per user), how often each note is opened per day, and
-the bytes of its Telegram API calls per day.
+every 5 minutes per user), how often each note is opened per day, the
+search queries (see [Search](#search)), and the bytes of its Telegram API
+calls per day.
 
 ### Admin CLI
 
@@ -706,5 +759,6 @@ then the image is built natively on amd64 and arm64 runners, lints
 
 Converter tests compare the output for `internal/render/testdata/vault`
 and `examples/vault` with the files in `internal/render/testdata/golden`.
-The SVG test runs resvg when it is installed (`TERAKOYA_RESVG` and
+The search tests time indexing 2000 notes (under 1 s) and queries (under
+20 ms); they are skipped with `-race` and `-short`. The SVG test runs resvg when it is installed (`TERAKOYA_RESVG` and
 `TERAKOYA_FONTS_DIR` point to it) and is skipped otherwise.

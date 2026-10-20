@@ -180,15 +180,19 @@ type NoteStat struct {
 
 // AdminStats is the «Статистика» screen.
 type AdminStats struct {
-	Reports       store.SuggestionCounts `json:"reports"`
-	ReportsWeek   store.SuggestionCounts `json:"reports_week"`
-	TopWeek       []NoteStat             `json:"top_week"`
-	TopAll        []NoteStat             `json:"top_all"`
-	Broadcasts    int                    `json:"broadcasts"`
-	LastBroadcast *store.Broadcast       `json:"last_broadcast,omitempty"`
+	Reports     store.SuggestionCounts `json:"reports"`
+	ReportsWeek store.SuggestionCounts `json:"reports_week"`
+	TopWeek     []NoteStat             `json:"top_week"`
+	TopAll      []NoteStat             `json:"top_all"`
+	// Searches are the queries most searched for in 7 days; Missing those
+	// whose last search found nothing, in 180 days.
+	Searches      []store.SearchCount `json:"searches"`
+	Missing       []store.SearchCount `json:"searches_missing"`
+	Broadcasts    int                 `json:"broadcasts"`
+	LastBroadcast *store.Broadcast    `json:"last_broadcast,omitempty"`
 }
 
-// AdminStats counts reports, note opens and broadcasts.
+// AdminStats counts reports, note opens, searches and broadcasts.
 func (b *Bot) AdminStats(ctx context.Context) (AdminStats, error) {
 	var s AdminStats
 	var err error
@@ -215,6 +219,12 @@ func (b *Bot) AdminStats(ctx context.Context) (AdminStats, error) {
 			}
 			*t.out = append(*t.out, ns)
 		}
+	}
+	if s.Searches, err = b.store.TopSearches(ctx, week, 10); err != nil {
+		return s, err
+	}
+	if s.Missing, err = b.store.MissingSearches(ctx, b.clock().Add(-store.KeepSearches), 10); err != nil {
+		return s, err
 	}
 	all, err := b.store.Broadcasts(ctx)
 	if err != nil {

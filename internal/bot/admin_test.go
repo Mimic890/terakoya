@@ -364,8 +364,8 @@ func TestAdminSearchOnlyForAdmins(t *testing.T) {
 	h := newHarness(t, nil)
 	h.store.PutSession(h.ctx, store.Session{TgID: anya.ID, State: stateAdminSearch, Payload: "{}", ExpiresAt: time.Now().Add(time.Hour)})
 	h.send(&models.Message{Text: "кто-нибудь"})
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UnknownCommand {
-		t.Errorf("non-admin search = %q", s)
+	if md := searched(h.tg.take()); !strings.Contains(md, "кто-нибудь") {
+		t.Errorf("non-admin search = %q", md)
 	}
 }
 

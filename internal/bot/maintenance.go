@@ -23,7 +23,8 @@ func (b *Bot) cleanupLoop(ctx context.Context) {
 			case err != nil && ctx.Err() == nil:
 				b.log.Error("database cleanup", "err", err)
 			case c != (store.Cleaned{}):
-				b.log.Info("database cleanup", "message_parts", c.MessageParts, "sessions", c.Sessions, "note_opens", c.NoteOpens)
+				b.log.Info("database cleanup", "message_parts", c.MessageParts, "sessions", c.Sessions, "note_opens", c.NoteOpens,
+					"searches", c.Searches)
 			}
 		}()
 		select {

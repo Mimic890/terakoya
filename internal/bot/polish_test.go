@@ -46,7 +46,7 @@ func TestRepeatedKeyTap(t *testing.T) {
 	onlyTapDeleted(t, h, "old «👤 Аккаунт»")
 
 	// Once something else is below it, the menu is shown again.
-	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), false)
+	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), cbBack)
 	h.tg.take()
 	h.say(i18n.RU.KeyAccount)
 	if len(texts(h.tg.take(), "sendRichMessage")) != 1 {

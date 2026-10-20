@@ -718,8 +718,8 @@ func TestDialogEdges(t *testing.T) {
 		t.Errorf("second cancel = %+v", c)
 	}
 	h.say("просто текст")
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UnknownCommand {
-		t.Errorf("no dialog = %q", s)
+	if md := searched(h.tg.take()); !strings.Contains(md, "просто текст") {
+		t.Errorf("no dialog = %q", md)
 	}
 
 	// An expired dialog says so.
@@ -753,8 +753,8 @@ func TestStaleButtonsAndDialogs(t *testing.T) {
 	h.store.PutSession(h.ctx, store.Session{TgID: 42, State: "suggest_edit", ArticlePath: triangles,
 		Payload: `{"note_id":"x","raw":"…"}`, ExpiresAt: time.Now().Add(time.Hour)})
 	h.say("исправленный текст")
-	if s := texts(h.tg.take(), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.UnknownCommand {
-		t.Errorf("old dialog = %q", s)
+	if md := searched(h.tg.take()); !strings.Contains(md, "исправленный текст") {
+		t.Errorf("old dialog = %q", md)
 	}
 	if d, _ := h.bot.loadDialog(h.ctx, 42, 42); d != nil {
 		t.Error("old dialog survived")
