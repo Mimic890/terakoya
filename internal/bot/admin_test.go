@@ -208,7 +208,7 @@ func TestAdminUsersTable(t *testing.T) {
 	stamp := now.Format("02.01.2006 15:04")
 	for _, want := range []string{"# Users\n\nСтраница 1 из 2, всего пользователей: 33\n\n| № | ID | Username | Имя | Ник | Ранг |",
 		// The most recent first; text from users is literal.
-		"| 2000 | — | Оля \\| Ко | Звезда | kōhai | 0 | 0 | 0 | " + stamp + " | " + stamp + " | показан | нет |",
+		"| 2000 | — | Оля \\| Ко | Звезда | kōhai | 0 | 0 | 0 | " + stamp + " | " + stamp + " | нет | нет |",
 		"| 1030 | @user\\_30 | Ученик 30 | — |"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("page 1 misses %q:\n%s", want, md)
@@ -223,7 +223,7 @@ func TestAdminUsersTable(t *testing.T) {
 	h.tapOn(100, cbAdminUsers+"1")
 	md, kb = h.rich(h.tg.take())
 	if !strings.Contains(md, "Страница 2 из 2") || !strings.Contains(md, "| 33 | ") ||
-		!strings.Contains(md, "| 1001 | @user\\_1 | Ученик 1 | — | kōhai | 0 | 0 | 0 | 20.10.2026 14:06 | 20.10.2026 14:06 | показан | да |") || !strings.HasSuffix(md, "| 33 | 42 | @anya | Аня | — | kōhai | 0 | 0 | 0 | "+h.bot.stamp(lastAnya)+" | — | показан | нет |\n") {
+		!strings.Contains(md, "| 1001 | @user\\_1 | Ученик 1 | — | kōhai | 0 | 0 | 0 | 20.10.2026 14:06 | 20.10.2026 14:06 | нет | да |") || !strings.HasSuffix(md, "| 33 | 42 | @anya | Аня | — | kōhai | 0 | 0 | 0 | "+h.bot.stamp(lastAnya)+" | — | нет | нет |\n") {
 		t.Errorf("page 2 =\n%s", md)
 	}
 	if kb != `{"inline_keyboard":[[{"text":"‹ Назад","callback_data":"ad:u:0"}],[{"text":"В админку","callback_data":"ad:m"}]]}` {
@@ -238,6 +238,31 @@ func TestAdminUsersTable(t *testing.T) {
 	h.tapOn(100, cbAdminMain)
 	if md, _ := h.rich(h.tg.take()); !strings.HasPrefix(md, "# Admin panel") {
 		t.Errorf("back =\n%s", md)
+	}
+}
+
+// «В топе» is the place everyone sees in /top: only accepted reports get
+// a user there; one who hides is «скрыт».
+func TestAdminUsersTopColumn(t *testing.T) {
+	h := newHarness(t, nil)
+	h.accept(anya, 2)
+	h.accept(boris, 3)
+	h.store.SetHideTop(h.ctx, boris.ID, true)
+	olga := models.User{ID: 44, FirstName: "Ольга"}
+	h.accept(olga, 1)
+	h.adminPanel()
+	h.tapOn(100, cbAdminUsers+"0")
+	md, _ := h.rich(h.tg.take())
+	for id, want := range map[int64]string{anya.ID: "1 место", 44: "2 место", boris.ID: "скрыт", ivan.ID: "нет"} {
+		var line string
+		for _, l := range strings.Split(md, "\n") {
+			if strings.Contains(l, fmt.Sprintf(" | %d | ", id)) {
+				line = l
+			}
+		}
+		if !strings.HasSuffix(line, " | "+want+" | нет |") {
+			t.Errorf("user %d: %q, want «%s»", id, line, want)
+		}
 	}
 }
 
