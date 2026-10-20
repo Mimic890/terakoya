@@ -24,7 +24,7 @@ import (
 // recorded as a group, so moving on removes all of them. back is the
 // prefix of its «Назад» (see articleKeyboard).
 func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, back string) bool {
-	if err := b.store.NoteOpened(ctx, n.ID); err != nil {
+	if err := b.store.NoteOpened(ctx, n.ID, n.Title, n.Path); err != nil {
 		b.log.Error("count note open", "err", err)
 	}
 	res := render.Convert(b.catalog(), n, render.Options{Continued: b.t.Continued})

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mimic890/terakoya/internal/store"
 )
@@ -90,6 +91,19 @@ func TestProcAndNetwork(t *testing.T) {
 	os.WriteFile(status, []byte("Name:\tx\n"), 0o644)
 	if _, err := RSS(status); err == nil {
 		t.Error("no VmRSS accepted")
+	}
+
+	stat := filepath.Join(root, "stat")
+	os.WriteFile(stat, []byte("42 (a b) c) S 1 42 42 0 -1 4194560 1000 0 0 0 250 50 0 0 20 0 9 0 100 0 0\n"), 0o644)
+	if d, err := CPUTime(stat); err != nil || d != 3*time.Second {
+		t.Errorf("cpu = %v, %v", d, err)
+	}
+	os.WriteFile(stat, []byte("42 (x) S 1"), 0o644)
+	if _, err := CPUTime(stat); err == nil {
+		t.Error("a short stat accepted")
+	}
+	if free, total, err := Disk(root); err != nil || free <= 0 || total < free {
+		t.Errorf("disk = %d of %d, %v", free, total, err)
 	}
 
 	net := filepath.Join(root, "net")

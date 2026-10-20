@@ -62,7 +62,7 @@ func TestBackupNowFollowsTheMode(t *testing.T) {
 	}
 }
 
-func TestBackupLine(t *testing.T) {
+func TestBackupRows(t *testing.T) {
 	h := newHarness(t, nil)
 	at := time.Date(2026, 10, 19, 3, 0, 0, 0, time.Local)
 	next := at.Add(24 * time.Hour)
@@ -70,12 +70,12 @@ func TestBackupLine(t *testing.T) {
 		r    BackupResult
 		want string
 	}{
-		{BackupResult{Mode: "folder", Next: next}, "Резервные копии: папка latest\nПоследняя: ещё не было\nСледующая: 20 октября, 03:00"},
-		{BackupResult{Mode: "archive", At: at, Size: 112 << 10, Next: next}, "Резервные копии: архивы\nПоследняя: 19 октября, 03:00, 112 КБ\nСледующая: 20 октября, 03:00"},
-		{BackupResult{Mode: "off", At: at, Err: "disk full"}, "Резервные копии: выключены\nПоследняя: не удалась (19 октября, 03:00): disk full\nСледующая: по расписанию не делаются"},
+		{BackupResult{Mode: "folder", Next: next}, "| Резервные копии | папка latest |\n| Последняя копия | ещё не было |\n| Следующая копия | 20 октября, 03:00 |"},
+		{BackupResult{Mode: "archive", At: at, Size: 112 << 10, Next: next}, "| Резервные копии | архивы |\n| Последняя копия | 19 октября, 03:00, 112 КБ |\n| Следующая копия | 20 октября, 03:00 |"},
+		{BackupResult{Mode: "off", At: at, Err: "disk_full"}, "| Резервные копии | выключены |\n| Последняя копия | не удалась (19 октября, 03:00): disk\\_full |\n| Следующая копия | по расписанию не делаются |"},
 	} {
-		if got := h.bot.backupLine(c.r); got != c.want {
-			t.Errorf("line =\n%s\nwant\n%s", got, c.want)
+		if got := h.bot.storageTable(AdminServer{Backup: c.r}); !strings.HasSuffix(got, c.want) {
+			t.Errorf("table =\n%s\nwant suffix\n%s", got, c.want)
 		}
 	}
 }

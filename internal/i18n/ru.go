@@ -205,69 +205,64 @@ type Strings struct {
 	NickResetDone    string // %s: old nickname, %s: the name now
 	NickResetNotice  string
 
-	// /admin.
-	AdminTitle             string
-	AdminSummary           string // %d users, %d active 24h, %d open, %s commit, %s age, %s uptime
-	AdminUsers             string
-	AdminStats             string
-	AdminServer            string
-	AdminSync              string
-	AdminBroadcast         string
-	AdminUsersText         string // %d all, %d new today, %d new 7d, %d active 24h, %d active 7d, %d blocked
-	AdminFound             string // %s query, %d found
-	AdminNobody            string
-	AdminSearch            string
-	AdminSearchClear       string
-	AdminSearchAsk         string
-	AdminCard              string // name, ids line, nickname, rank, accepted, open, rejected, first seen, last seen, top, blocked
-	AdminCardID            string // %d
-	AdminCardUserID        string // %s @username, %d
-	AdminNone              string
-	AdminNoData            string
-	AdminShown             string
-	AdminHidden            string
-	AdminResetNick         string
-	AdminResetAsk          string // %s nickname, %s user
-	AdminResetYes          string
-	AdminResetDone         string
-	AdminRefresh           string
-	AdminComputing         string
-	AdminSyncing           string
-	AdminSyncFailed        string // %s
-	AdminSyncNone          string // %s commit
-	AdminSyncDone          string // %s → %s, %d → %d notes, %d errors, %d warnings
-	AdminServerText        string // see adminServerText
-	AdminServerFailed      string // %s
-	AdminLastSync          string // %s time, %s outcome
-	AdminSyncNever         string
-	AdminBackup            string // %s mode, %s last, %s next
-	AdminBackupFailed      string // %s time, %s error
-	AdminBackupNone        string
-	AdminBackupUnscheduled string
-	AdminBackupFolder      string
-	AdminBackupArchive     string
-	AdminBackupOff         string
-	AdminSyncSame          string
-	AdminAgo               string // %s
-	AdminStatsTitle        string
-	AdminReportsTitle      string
-	AdminReportsLine       string // %s period, %d open, %d accepted, %d rejected
-	AdminAllTime           string
-	AdminWeek              string
-	AdminTopWeek           string
-	AdminTopAll            string
-	AdminNoteGone          string // %s id
-	AdminNoOpens           string
-	AdminSearchTop         string
-	AdminSearchMissing     string
-	AdminSearchLine        string // %s query, %d times
-	AdminNoSearches        string
-	AdminBroadcasts        string // %d
-	AdminLastBcast         string // %s date, %d recipients, %d sent, %d blocked, %d failed
-	AdminDays              string // %d d, %d h
-	AdminHours             string // %d h, %d min
-	AdminMinutes           string // %d
-	AdminSeconds           string // %d
+	// /admin: rich messages with tables; no emoji anywhere.
+	AdminTitle         string
+	AdminUpdated       string // %s time
+	AdminUsers         string
+	AdminSync          string
+	AdminRefresh       string
+	AdminServerTable   string // CPU, memory, disk, network, API today, API total, uptime, version
+	AdminCPU           string // %s percent of one core, %d cores
+	AdminMemory        string // %s RSS, %s heap, %d goroutines
+	AdminDisk          string // %s free, %s total
+	AdminNetwork       string // %s received, %s sent
+	AdminAPI           string // %d calls, %s sent, %s received
+	AdminStorageTable  string // vault, data dir, database, cached file_ids, backup mode, last, next
+	AdminVaultSize     string // %s total, %s notes, %s pictures, %s .git
+	AdminVaultTable    string // %s commit, %s age, %d notes, %s last sync
+	AdminUsersTable    string // %d all, new today, new 7d, active 24h, active 7d, blocked
+	AdminReportsTable  string // open, accepted, rejected: all time, then 7 days
+	AdminOpensTable    string // %d today, %d 7 days, %d 180 days
+	AdminTopWeek       string
+	AdminTopAll        string
+	AdminTopHead       string
+	AdminNoteGone      string // %s title
+	AdminNoOpens       string
+	AdminSearchTitle   string
+	AdminSearchTop     string
+	AdminSearchMissing string
+	AdminSearchHead    string
+	AdminNoSearches    string
+	AdminUsersTitle    string
+	AdminUsersPage     string // %d page, %d pages, %d users
+	AdminUsersHead     string
+	AdminNobody        string
+	AdminPrev          string
+	AdminNext          string
+	AdminBack          string
+	AdminShown         string
+	AdminHidden        string
+	AdminYes           string
+	AdminNo            string
+	AdminNoData        string
+	AdminSyncing       string
+	AdminSyncFailed    string // %s
+	AdminSyncNone      string // %s commit
+	AdminSyncDone      string // %s → %s, %d → %d notes, %d errors, %d warnings
+	AdminLastSync      string // %s time, %s outcome
+	AdminSyncNever     string
+	AdminSyncSame      string
+	AdminBackupFailed  string // %s time, %s error
+	AdminBackupNone    string
+	AdminBackupUnsched string
+	AdminBackupFolder  string
+	AdminBackupArchive string
+	AdminBackupOff     string
+	AdminAgo           string // %s
+	AdminDays          string // %d d, %d h
+	AdminHours         string // %d h, %d min
+	AdminMinutes       string // %d
+	AdminSeconds       string // %d
 
 	// The command menu.
 	CmdStart      string
@@ -475,76 +470,71 @@ var RU = Strings{
 	NickResetDone:    "Ник «%s» сброшен, теперь это %s.",
 	NickResetNotice:  "Ваш ник сброшен администратором.",
 
-	AdminTitle:       "Админка",
-	AdminSummary:     "Пользователей: %d, активны за 24 ч: %d\nПравок на рассмотрении: %d\nVault: %s, %s\nРаботает: %s",
-	AdminUsers:       "Пользователи",
-	AdminStats:       "Статистика",
-	AdminServer:      "Сервер",
-	AdminSync:        "Обновить vault",
-	AdminBroadcast:   "Рассылка",
-	AdminUsersText:   "Пользователи\n\nВсего: %d · новых сегодня: %d · за 7 дней: %d\nАктивны за 24 ч: %d · за 7 дней: %d\nЗаблокировали бота: %d",
-	AdminFound:       "Поиск «%s»: найдено %d",
-	AdminNobody:      "Никого не нашлось.",
-	AdminSearch:      "Поиск",
-	AdminSearchClear: "Сбросить поиск",
-	AdminSearchAsk:   "Кого найти? Пришлите ник, @username, имя или Telegram ID.",
-	AdminCard:        "%s\n%s\n\nНик: %s\nРанг: %s\nПравки: принято %d · на рассмотрении %d · отклонено %d\nВпервые: %s\nПоследний раз: %s\nВ топе: %s\nЗаблокировал бота: %s",
-	AdminCardID:      "ID %d",
-	AdminCardUserID:  "@%s · ID %d",
-	AdminNone:        "нет",
-	AdminNoData:      "нет данных",
-	AdminShown:       "показан",
-	AdminHidden:      "скрыт",
-	AdminResetNick:   "Сбросить ник",
-	AdminResetAsk:    "Сбросить ник «%s» у %s? Пользователь получит уведомление.",
-	AdminResetYes:    "Да, сбросить",
-	AdminResetDone:   "Ник сброшен",
-	AdminRefresh:     "Обновить",
-	AdminComputing:   "Считаю…",
-	AdminSyncing:     "Обновляю…",
-	AdminSyncFailed:  "Не удалось обновить vault: %s",
-	AdminSyncNone:    "Изменений нет, коммит %s",
-	AdminSyncDone:    "Vault обновлён: %s → %s\nЗаметок: %d → %d\nПроверка: ошибок %d, предупреждений %d",
-	AdminServerText: "Сервер\n\n" +
-		"Память: RSS %s, Go heap %s, горутин %d\n" +
-		"Работает: %s · версия %s\n\n" +
-		"Сеть контейнера: получено %s, отправлено %s\n" +
-		"Telegram API сегодня: запросов %d, отправлено %s, получено %s\n" +
-		"Telegram API всего: запросов %d, отправлено %s, получено %s\n\n" +
-		"Vault на диске: %s (заметки %s, картинки %s, .git %s)\n" +
-		"Данные: %s, база %s, file_id в кэше: %d\n\n" +
-		"Vault: коммит %s (%s), заметок %d\n%s",
-	AdminServerFailed:      "Не удалось посчитать: %s",
-	AdminLastSync:          "Последняя синхронизация: %s — %s",
-	AdminSyncNever:         "Синхронизаций с запуска не было",
-	AdminBackup:            "Резервные копии: %s\nПоследняя: %s\nСледующая: %s",
-	AdminBackupFailed:      "не удалась (%s): %s",
-	AdminBackupNone:        "ещё не было",
-	AdminBackupUnscheduled: "по расписанию не делаются",
-	AdminBackupFolder:      "папка latest",
-	AdminBackupArchive:     "архивы",
-	AdminBackupOff:         "выключены",
-	AdminSyncSame:          "без изменений",
-	AdminAgo:               "%s назад",
-	AdminStatsTitle:        "Статистика",
-	AdminReportsTitle:      "Правки",
-	AdminReportsLine:       "%s: на рассмотрении %d · принято %d · отклонено %d",
-	AdminAllTime:           "Всего",
-	AdminWeek:              "За 7 дней",
-	AdminTopWeek:           "Чаще всего открывают — 7 дней",
-	AdminTopAll:            "Чаще всего открывают — 180 дней",
-	AdminNoteGone:          "%s (удалена)",
-	AdminNoOpens:           "Пока нет",
-	AdminSearchTop:         "Чаще всего ищут — 7 дней",
-	AdminSearchMissing:     "Ищут, но не находят — 180 дней",
-	AdminSearchLine:        "«%s» — %d",
-	AdminNoSearches:        "Пока нет",
-	AdminBroadcasts:        "Рассылок: %d",
-	AdminLastBcast:         "Последняя: %s — получателей %d, доставлено %d, заблокировали бота %d, не доставлено %d",
-	AdminDays:              "%d д %d ч",
-	AdminHours:             "%d ч %d мин",
-	AdminMinutes:           "%d мин",
-	AdminSeconds:           "%d с",
+	AdminTitle:   "Admin panel",
+	AdminUpdated: "Обновлено %s",
+	AdminUsers:   "Пользователи",
+	AdminSync:    "Обновить vault",
+	AdminRefresh: "Обновить",
+	AdminServerTable: "## Сервер\n\n| Показатель | Значение |\n|---|---|\n" +
+		"| CPU | %s |\n| Память | %s |\n| Диск | %s |\n| Сеть контейнера | %s |\n" +
+		"| Telegram API сегодня | %s |\n| Telegram API всего | %s |\n| Работает | %s |\n| Версия | %s |",
+	AdminCPU:     "%s %% одного ядра, ядер: %d",
+	AdminMemory:  "RSS %s, Go heap %s, горутин %d",
+	AdminDisk:    "свободно %s из %s",
+	AdminNetwork: "получено %s, отправлено %s",
+	AdminAPI:     "запросов %d, отправлено %s, получено %s",
+	AdminStorageTable: "## Хранилище\n\n| Показатель | Значение |\n|---|---|\n" +
+		"| Vault | %s |\n| Папка данных | %s |\n| База | %s |\n| file\\_id в кэше | %d |\n" +
+		"| Резервные копии | %s |\n| Последняя копия | %s |\n| Следующая копия | %s |",
+	AdminVaultSize: "%s: заметки %s, картинки %s, .git %s",
+	AdminVaultTable: "## Vault\n\n| Показатель | Значение |\n|---|---|\n" +
+		"| Коммит | %s, %s |\n| Заметок | %d |\n| Последнее обновление | %s |",
+	AdminUsersTable: "## Пользователи\n\n| Всего | Новых сегодня | Новых за 7 дней | Активны за 24 ч | Активны за 7 дней | Заблокировали бота |\n" +
+		"|---|---|---|---|---|---|\n| %d | %d | %d | %d | %d | %d |",
+	AdminReportsTable: "## Сообщения об ошибках\n\n| Период | На рассмотрении | Принято | Отклонено |\n|---|---|---|---|\n" +
+		"| Всего | %d | %d | %d |\n| За 7 дней | %d | %d | %d |",
+	AdminOpensTable:    "## Документы\n\n| Открытий сегодня | За 7 дней | За 180 дней |\n|---|---|---|\n| %d | %d | %d |",
+	AdminTopWeek:       "### Чаще всего открывают, 7 дней",
+	AdminTopAll:        "### Чаще всего открывают, 180 дней",
+	AdminTopHead:       "| № | Документ | Раздел | Открытий |\n|---|---|---|---|",
+	AdminNoteGone:      "%s (удалён)",
+	AdminNoOpens:       "Пока нет.",
+	AdminSearchTitle:   "## Поиск",
+	AdminSearchTop:     "### Чаще всего ищут, 7 дней",
+	AdminSearchMissing: "### Ищут, но не находят, 180 дней",
+	AdminSearchHead:    "| № | Запрос | Раз |\n|---|---|---|",
+	AdminNoSearches:    "Пока нет.",
+	AdminUsersTitle:    "Users",
+	AdminUsersPage:     "Страница %d из %d, всего пользователей: %d",
+	AdminUsersHead: "| № | ID | Username | Имя | Ник | Ранг | Принято | На рассмотрении | Отклонено | Впервые | Последний раз | В топе | Заблокировал бота |\n" +
+		"|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+	AdminNobody:        "Пока никого нет.",
+	AdminPrev:          "‹ Назад",
+	AdminNext:          "Вперёд ›",
+	AdminBack:          "В админку",
+	AdminShown:         "показан",
+	AdminHidden:        "скрыт",
+	AdminYes:           "да",
+	AdminNo:            "нет",
+	AdminNoData:        "нет данных",
+	AdminSyncing:       "Обновление vault…",
+	AdminSyncFailed:    "Не удалось обновить vault: %s",
+	AdminSyncNone:      "Vault обновлён, изменений нет, коммит %s",
+	AdminSyncDone:      "Vault обновлён: %s → %s\nЗаметок: %d → %d\nПроверка: ошибок %d, предупреждений %d",
+	AdminLastSync:      "%s, %s",
+	AdminSyncNever:     "с запуска не было",
+	AdminSyncSame:      "без изменений",
+	AdminBackupFailed:  "не удалась (%s): %s",
+	AdminBackupNone:    "ещё не было",
+	AdminBackupUnsched: "по расписанию не делаются",
+	AdminBackupFolder:  "папка latest",
+	AdminBackupArchive: "архивы",
+	AdminBackupOff:     "выключены",
+	AdminAgo:           "%s назад",
+	AdminDays:          "%d д %d ч",
+	AdminHours:         "%d ч %d мин",
+	AdminMinutes:       "%d мин",
+	AdminSeconds:       "%d с",
 
 	CmdStart:      "Открыть каталог",
 	CmdSearch:     "Поиск по материалам",

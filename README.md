@@ -319,33 +319,47 @@ as not delivered instead.
 
 ### Admin panel
 
-`/admin` is one menu message with a summary (users, active in 24 hours,
-open reports, the vault commit and its age, uptime) and:
+`/admin` is a rich message, «Admin panel», with tables and no emoji:
 
-- **Пользователи**: totals (all, new today and in 7 days, active in 24
-  hours and 7 days, blocked the bot) and the users, most recently active
-  first, 10 a page with ‹ ›, and «Поиск» by nickname, @username, first
-  name or Telegram ID. A user's card shows their names, ID, rank,
-  accepted, open and rejected правки, when they were first and last
-  seen, whether they hide from the top and whether they blocked the bot,
-  with «Сбросить ник» (after a question; the user is told).
-- **Статистика**: правки open, accepted and rejected, in total and in
-  the last 7 days; the 10 most opened notes in 7 and in 180 days (older counts are removed),
-  whose titles open them; the 10 queries searched for most in 7 days,
-  and the 10 searched for most in 180 days whose last search found
-  nothing: the material users miss; broadcasts and the last one's counts.
-- **Сервер**: process memory (RSS, Go heap, goroutines), uptime and the
-  image's commit; the container's network traffic since it started and
-  the Telegram API traffic (calls, bytes sent and received) today and in
-  total; disk use of the vault (notes, pictures, .git), the data
-  directory, the database and the cached file_ids; the vault commit,
-  notes and the last sync with its outcome. «Обновить» measures again;
-  directory sizes are reused for a minute.
-- **Обновить vault** syncs now, as a push webhook does, and shows the
-  old and new commit, notes before and after, and the lint errors and
-  warnings of the new content (the first five listed), or «Изменений
-  нет».
-- **Рассылка** starts `/broadcast`.
+- **Сервер**: CPU use of the process over one second (percent of one
+  core, and the number of cores), memory (RSS, Go heap, goroutines),
+  free and total space of the data directory's disk, the container's
+  network traffic since it started, the Telegram API traffic (calls,
+  bytes sent and received) today and in total, uptime and the version.
+- **Хранилище**: disk use of the vault (notes, pictures, .git), the data
+  directory, the database and the cached file_ids; the backup mode, the
+  last backup and the next one. Directory sizes are reused for a minute.
+- **Vault**: the commit and its age, notes, and the last sync with its
+  outcome.
+- **Пользователи**: all, new today and in 7 days, active in 24 hours and
+  7 days, blocked the bot.
+- **Сообщения об ошибках**: open, accepted and rejected, in total and in
+  the last 7 days.
+- **Документы**: note opens today, in 7 and in 180 days (older counts are
+  removed), and the 10 most opened notes in 7 and in 180 days by title
+  and folder. A note gone from the vault keeps the title it had when
+  last opened; opens counted before titles were kept are left out.
+- **Поиск**: the 10 queries searched for most in 7 days, and the 10
+  searched for most in 180 days whose last search found nothing: the
+  material users miss.
+
+Under it:
+
+- **Пользователи**: «Users», a table of 25 users a page, most recently
+  active first: ID, @username, first name, nickname, rank, accepted,
+  open and rejected reports, first and last seen, shown in the top or
+  hidden, blocked the bot. «‹ Назад» and «Вперёд ›» appear only when
+  there is a page to go to; «В админку» goes back.
+- **Обновить vault** syncs now, as a push webhook does: «Обновление
+  vault…» while it runs, then the panel anew and the outcome under it.
+  A clean outcome is removed after a second; an error or lint findings
+  (the old and new commit, notes before and after, the first five
+  errors and warnings) stay.
+- **Обновить** measures again.
+
+Rich messages cannot be edited, so every screen is sent anew and the
+previous one removed. `/broadcast` and `/nick_reset` are separate admin
+commands, not part of the panel.
 
 Measuring and syncing run in the background, with a time limit. To keep
 these numbers, the bot records when each user was last seen (at most
@@ -426,7 +440,7 @@ in the compose file (see [Docker](#docker)); without it, it is UTC.
 - A change of the `backup:` section, by hand or otherwise, takes effect
   within seconds, without a restart.
 
-/admin «Сервер», `terakoya admin server` and `terakoya admin backup`
+/admin «Хранилище», `terakoya admin server` and `terakoya admin backup`
 show the mode, the last backup with its size (or its error) and when the
 next one is due. A failed backup is also logged.
 

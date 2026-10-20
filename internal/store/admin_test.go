@@ -131,21 +131,26 @@ func TestNoteOpensAndTraffic(t *testing.T) {
 	s := open(t)
 	day := time.Date(2026, 10, 10, 12, 0, 0, 0, time.Local)
 	s.now = func() time.Time { return day }
-	s.NoteOpened(ctx, "old")
-	s.NoteOpened(ctx, "old")
-	s.NoteOpened(ctx, "old")
+	s.NoteOpened(ctx, "old", "Старое", "a/Старое.md")
+	s.NoteOpened(ctx, "old", "Старое", "a/Старое.md")
+	s.NoteOpened(ctx, "old", "Старое", "a/Старое.md")
 	day = day.Add(8 * 24 * time.Hour)
 	for i := 0; i < 2; i++ {
-		s.NoteOpened(ctx, "new")
+		s.NoteOpened(ctx, "new", "Новое", "a/Новое.md")
 	}
-	s.NoteOpened(ctx, "old")
+	// Renamed since: the latest title and path are shown.
+	s.NoteOpened(ctx, "old", "Переименованное", "b/Переименованное.md")
 	all, _ := s.TopNotes(ctx, "", 10)
-	if len(all) != 2 || all[0] != (NoteCount{"old", 4}) || all[1] != (NoteCount{"new", 2}) {
+	if len(all) != 2 || all[0] != (NoteCount{"old", "Переименованное", "b/Переименованное.md", 4}) ||
+		all[1] != (NoteCount{"new", "Новое", "a/Новое.md", 2}) {
 		t.Errorf("all time = %+v", all)
 	}
 	week, _ := s.TopNotes(ctx, Day(day.Add(-7*24*time.Hour)), 1)
-	if len(week) != 1 || week[0] != (NoteCount{"new", 2}) {
+	if len(week) != 1 || week[0] != (NoteCount{"new", "Новое", "a/Новое.md", 2}) {
 		t.Errorf("week = %+v", week)
+	}
+	if o, err := s.CountOpens(ctx, Day(day), Day(day.Add(-7*24*time.Hour))); err != nil || o != (Opens{3, 3, 6}) {
+		t.Errorf("opens = %+v, %v", o, err)
 	}
 
 	s.AddTraffic(ctx, "2026-10-17", Traffic{1, 10, 100})
@@ -205,7 +210,7 @@ func TestCleanup(t *testing.T) {
 	}
 	for _, days := range []int{200, 181, 179, 0} {
 		s.SetClock(func() time.Time { return now.AddDate(0, 0, -days) })
-		s.NoteOpened(ctx, "n")
+		s.NoteOpened(ctx, "n", "", "")
 		s.LogSearch(ctx, "трапеция", 0)
 	}
 	s.SetClock(func() time.Time { return now })

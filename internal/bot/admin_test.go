@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +70,7 @@ func TestNoteOpensCounted(t *testing.T) {
 	h.tapOn(502, cbArticle+h.id(vmain))
 	h.say("/start " + tri) // a deep link opens it too
 	top, err := h.store.TopNotes(h.ctx, "", 10)
-	if err != nil || len(top) != 2 || top[0] != (store.NoteCount{NoteID: tri, Opens: 3}) || top[1].Opens != 1 {
+	if err != nil || len(top) != 2 || top[0].NoteID != tri || top[0].Opens != 3 || top[0].Title != "Треугольники" || top[1].Opens != 1 {
 		t.Errorf("opens = %+v, %v", top, err)
 	}
 }
@@ -90,49 +92,82 @@ func TestTrafficCounted(t *testing.T) {
 	}
 }
 
-// adminMenu opens /admin as Иван and returns the menu's message ID.
-func (h *harness) adminMenu() (int, call) {
+// adminPanel opens /admin as Иван and returns the panel's Markdown and
+// buttons. CPU use is measured without waiting.
+func (h *harness) adminPanel() (md, kb string) {
 	h.t.Helper()
+	h.bot.sleep = func(context.Context, time.Duration) {}
 	h.as(ivan)
 	h.say("/admin")
-	calls := h.tg.take()
-	c := firstCall(h.t, calls, "sendMessage")
-	return h.tg.lastID("sendMessage"), c
+	return h.rich(h.tg.take())
 }
 
-// edited returns the text of the last edit of a message.
-func edited(t *testing.T, calls []call, msgID int) call {
-	t.Helper()
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].method == "editMessageText" && calls[i].params["message_id"] == fmt.Sprint(msgID) {
-			return calls[i]
-		}
-	}
-	t.Fatalf("message %d not edited: %+v", msgID, calls)
-	return call{}
+// rich returns the Markdown and buttons of the last rich message.
+func (h *harness) rich(calls []call) (md, kb string) {
+	h.t.Helper()
+	c := lastRich(h.t, calls)
+	var rm struct{ Markdown string }
+	json.Unmarshal([]byte(c.params["rich_message"]), &rm)
+	return rm.Markdown, c.params["reply_markup"]
 }
 
-func TestAdminMain(t *testing.T) {
+func TestAdminPanel(t *testing.T) {
 	h := newHarness(t, nil)
-	h.accept(anya, 1)
-	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "o", TgID: anya.ID, Kind: store.KindReport, Issue: 50})
-	menu, c := h.adminMenu()
-	// Аня has used the bot; Иван is seen as he opens /admin.
-	if !strings.HasPrefix(c.params["text"], "Админка\n\nПользователей: 2, активны за 24 ч: 1\nПравок на рассмотрении: 1\nVault: ") ||
-		!strings.Contains(c.params["text"], "\nРаботает: ") {
-		t.Errorf("main = %q", c.params["text"])
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "proc", "self"), 0o755)
+	os.WriteFile(filepath.Join(root, "proc", "self", "status"), []byte("VmRSS:\t   20480 kB\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "proc", "self", "stat"), []byte("1 (terakoya) S 1 1 1 0 -1 0 0 0 0 0 10 5 0 0\n"), 0o644)
+	for _, f := range []string{"rx_bytes", "tx_bytes"} {
+		os.MkdirAll(filepath.Join(root, "sys", "class", "net", "eth0", "statistics"), 0o755)
+		os.WriteFile(filepath.Join(root, "sys", "class", "net", "eth0", "statistics", f), []byte("1048576"), 0o644)
 	}
-	kb := c.params["reply_markup"]
-	for _, b := range []string{`[{"text":"Пользователи","callback_data":"ad:u:0"},{"text":"Статистика","callback_data":"ad:s"}]`,
-		`[{"text":"Сервер","callback_data":"ad:v"},{"text":"Обновить vault","callback_data":"ad:y"}]`,
-		`[{"text":"Рассылка","callback_data":"ad:b"},{"text":"Закрыть","callback_data":"c"}]`} {
-		if !strings.Contains(kb, b) {
-			t.Errorf("main has no %s: %s", b, kb)
+	h.bot.procRoot, h.bot.sysRoot = filepath.Join(root, "proc"), filepath.Join(root, "sys")
+	h.tapOn(500, cbArticle+h.id(triangles))
+	h.tapOn(501, cbArticle+h.id(triangles))
+	h.tapOn(502, cbArticle+h.id(vmain))
+	// Counted before titles were kept: left out, never shown as an ID.
+	h.store.NoteOpened(h.ctx, "old-id", "", "")
+	// Removed from the vault since: named by its last title.
+	h.store.NoteOpened(h.ctx, "gone-id", "Старая заметка", "Геометрия/7 класс/01 Старое/Старая заметка.md")
+	h.accept(anya, 2)
+	h.store.CreateSuggestion(h.ctx, &store.Suggestion{ShortID: "o", TgID: anya.ID, Kind: store.KindReport, Issue: 50})
+
+	md, kb := h.adminPanel()
+	for _, want := range []string{"# Admin panel\n\nОбновлено ",
+		"## Сервер\n\n| Показатель | Значение |\n|---|---|\n| CPU | 0,0 % одного ядра, ядер: ",
+		"| Память | RSS 20 МБ, Go heap ", "| Диск | свободно ", "| Сеть контейнера | получено 1 МБ, отправлено 1 МБ |",
+		"| Telegram API сегодня | запросов ", "| Работает | ", "| Версия | dev |",
+		"## Хранилище", "| file\\_id в кэше | 0 |", "| Резервные копии | папка latest |\n| Последняя копия | ещё не было |",
+		"## Vault", "| Заметок | ", "| Последнее обновление | с запуска не было |",
+		"## Пользователи\n\n| Всего | Новых сегодня |",
+		"| Всего | 1 | 2 | 0 |",
+		"## Документы\n\n| Открытий сегодня | За 7 дней | За 180 дней |\n|---|---|---|\n| 5 | 5 | 5 |",
+		"### Чаще всего открывают, 7 дней\n\n| № | Документ | Раздел | Открытий |\n|---|---|---|---|\n| 1 | Треугольники | ",
+		"| Старая заметка (удалён) | Геометрия / 7 класс / 01 Старое | 1 |",
+		"### Ищут, но не находят, 180 дней\n\nПока нет."} {
+		if !strings.Contains(md, want) {
+			t.Errorf("panel misses %q:\n%s", want, md)
 		}
 	}
-	// «Рассылка» opens /broadcast.
-	h.tapOn(menu, cbAdminBcast)
-	wantPrompt(t, h.tg.take(), i18n.RU.BroadcastAsk, "Отмена")
+	if strings.Contains(md, "old-id") || strings.Contains(md, "Рассыл") {
+		t.Errorf("panel shows an ID or broadcasts:\n%s", md)
+	}
+	if kb != `{"inline_keyboard":[[{"text":"Пользователи","callback_data":"ad:u:0"},{"text":"Обновить vault","callback_data":"ad:y"}],[{"text":"Обновить","callback_data":"ad:m"}]]}` {
+		t.Errorf("buttons = %s", kb)
+	}
+	// «Обновить» sends the panel anew; the old one goes.
+	panel := h.tg.lastID("sendRichMessage")
+	h.tapOn(panel, cbAdminMain)
+	calls := h.tg.take()
+	if md, _ := h.rich(calls); !strings.HasPrefix(md, "# Admin panel") || !contains(ids(calls, "deleteMessage"), fmt.Sprint(panel)) {
+		t.Errorf("refresh = %+v", calls)
+	}
+	// Sizes are reused for a minute.
+	first := h.bot.sizes.at
+	h.tapOn(panel, cbAdminMain)
+	if h.bot.sizes.at != first {
+		t.Error("sizes recomputed within a minute")
+	}
 }
 
 func TestAdminOnlyForAdmins(t *testing.T) {
@@ -141,192 +176,105 @@ func TestAdminOnlyForAdmins(t *testing.T) {
 	if c := h.tg.take(); len(c) != 1 || c[0].method != "deleteMessage" {
 		t.Errorf("/admin = %+v", c)
 	}
-	for _, data := range []string{cbAdminMain, cbAdminUsers + "0", cbAdminCard + "42", cbAdminResetOK + "42", cbAdminStats,
-		cbAdminServer, cbAdminSync, cbAdminBcast, cbAdminFind} {
+	for _, data := range []string{cbAdminMain, cbAdminUsers + "0", cbAdminSync} {
 		h.tapOn(100, data)
 		if c := h.tg.take(); len(c) != 1 || c[0].method != "answerCallbackQuery" || c[0].params["text"] != "" {
 			t.Errorf("%s = %+v", data, c)
 		}
 	}
-	if d, _ := h.bot.loadDialog(h.ctx, anya.ID, anya.ID); d != nil {
-		t.Error("a dialog for a non-admin")
-	}
 }
 
-func TestAdminUsersPagingSearchAndCard(t *testing.T) {
+func TestAdminUsersTable(t *testing.T) {
 	h := newHarness(t, nil)
-	// Sessions expire by the real clock, so this one starts now.
-	now := time.Now().Truncate(time.Second)
+	now := time.Date(2026, 10, 20, 14, 5, 0, 0, time.Local)
 	h.setClock(&now)
-	for i := 1; i <= 12; i++ {
+	for i := 1; i <= 30; i++ {
 		now = now.Add(time.Minute)
-		h.store.Seen(h.ctx, int64(1000+i), fmt.Sprintf("user%d", i), fmt.Sprintf("Ученик %d", i))
+		h.store.Seen(h.ctx, int64(1000+i), fmt.Sprintf("user_%d", i), fmt.Sprintf("Ученик %d", i))
 	}
-	h.store.Seen(h.ctx, 2000, "", "Ольга")
+	h.store.Seen(h.ctx, 2000, "", "Оля | Ко")
 	h.store.SetNickname(h.ctx, 2000, "Звезда", nick.Key("Звезда"))
 	h.store.MarkBlocked(h.ctx, 1001)
-	menu, _ := h.adminMenu()
-
-	h.tapOn(menu, cbAdminUsers+"0")
-	c := edited(t, h.tg.take(), menu)
-	// Аня has used the bot but was not seen; Иван was, opening /admin.
-	if !strings.HasPrefix(c.params["text"], "Пользователи\n\nВсего: 15 · новых сегодня: 15 · за 7 дней: 15\nАктивны за 24 ч: 14 · за 7 дней: 14\nЗаблокировали бота: 1") {
-		t.Errorf("users = %q", c.params["text"])
-	}
-	kb := c.params["reply_markup"]
-	// The most recent first; display names tell people apart.
-	if !strings.Contains(kb, `[{"text":"Звезда","callback_data":"ad:c:2000"}],[{"text":"@user11","callback_data":"ad:c:1011"}]`) ||
-		!strings.Contains(kb, `[{"text":"‹","callback_data":"ad:u:0"},{"text":"1/2","callback_data":"ad:-"},{"text":"›","callback_data":"ad:u:1"}]`) ||
-		strings.Count(kb, `"ad:c:`) != 10 {
-		t.Errorf("page 1 = %s", kb)
-	}
-	h.tapOn(menu, cbAdminUsers+"1")
-	kb = edited(t, h.tg.take(), menu).params["reply_markup"]
-	if strings.Count(kb, `"ad:c:`) != 5 || !strings.Contains(kb, `"2/2"`) {
-		t.Errorf("page 2 = %s", kb)
+	_, kb := h.adminPanel()
+	if !strings.Contains(kb, `"ad:u:0"`) {
+		t.Fatalf("no «Пользователи»: %s", kb)
 	}
 
-	// Search: the question below, then the list shows what it found.
-	h.tapOn(menu, cbAdminFind)
-	wantPrompt(t, h.tg.take(), i18n.RU.AdminSearchAsk, "Отмена")
-	msgs := h.dialogMsgs()
-	h.say("ученик 1")
-	calls := h.tg.take()
-	if got := ids(calls, "deleteMessage"); !sameIDs(got, append(msgs, h.msgID)) {
-		t.Errorf("deleted %v", got)
-	}
-	c = edited(t, calls, menu)
-	// «Ученик 1», «Ученик 10» … «Ученик 12».
-	if !strings.Contains(c.params["text"], "\n\nПоиск «ученик 1»: найдено 4") || strings.Count(c.params["reply_markup"], `"ad:c:`) != 4 ||
-		!strings.Contains(c.params["reply_markup"], `{"text":"Сбросить поиск","callback_data":"ad:ux"}`) || strings.Contains(c.params["reply_markup"], `"‹"`) {
-		t.Errorf("found = %+v", c.params)
-	}
-	for q, want := range map[string]int{"@USER12": 1, "звез": 1, "2000": 1, "нет такого": 0} {
-		h.tapOn(menu, cbAdminFind)
-		h.say(q)
-		c = edited(t, h.tg.take(), menu)
-		if got := strings.Count(c.params["reply_markup"], `"ad:c:`); got != want {
-			t.Errorf("%q found %d", q, got)
-		}
-		if want == 0 && !strings.Contains(c.params["text"], "Никого не нашлось.") {
-			t.Errorf("nobody = %q", c.params["text"])
-		}
-	}
-	// «Отмена» of a search goes back to the list.
-	h.tapOn(menu, cbAdminFind)
-	h.tg.take()
-	h.tap(cbCancel)
-	edited(t, h.tg.take(), menu)
-	h.tapOn(menu, cbAdminClear)
-	if c := edited(t, h.tg.take(), menu); strings.Contains(c.params["text"], "Поиск") {
-		t.Errorf("cleared = %q", c.params["text"])
-	}
-
-	// The card, and a nickname reset with a question first.
-	h.tapOn(menu, cbAdminCard+"2000")
-	c = edited(t, h.tg.take(), menu)
-	seen := h.bot.moment(now)
-	want := "Звезда\nID 2000\n\nНик: Звезда\nРанг: kōhai\nПравки: принято 0 · на рассмотрении 0 · отклонено 0\n" +
-		"Впервые: " + seen + "\nПоследний раз: " + seen + "\nВ топе: показан\nЗаблокировал бота: нет"
-	if c.params["text"] != want || c.params["reply_markup"] != `{"inline_keyboard":[[{"text":"Сбросить ник","callback_data":"ad:n:2000"}],[{"text":"« Назад","callback_data":"ad:u:0"}]]}` {
-		t.Errorf("card =\n%q %s\nwant\n%q", c.params["text"], c.params["reply_markup"], want)
-	}
-	h.tapOn(menu, cbAdminReset+"2000")
-	c = edited(t, h.tg.take(), menu)
-	if c.params["text"] != "Сбросить ник «Звезда» у Ольга? Пользователь получит уведомление." ||
-		!strings.Contains(c.params["reply_markup"], `"ad:ny:2000"`) || !strings.Contains(c.params["reply_markup"], `{"text":"Нет","callback_data":"ad:c:2000"}`) {
-		t.Errorf("ask = %+v", c.params)
-	}
-	h.tapOn(menu, cbAdminResetOK+"2000")
-	calls = h.tg.take()
-	if s := texts(to(calls, "sendMessage", 2000), "sendMessage"); len(s) != 1 || s[0] != i18n.RU.NickResetNotice {
-		t.Errorf("notice = %q", s)
-	}
-	if c := edited(t, calls, menu); !strings.HasPrefix(c.params["text"], "Ольга\nID 2000\n\nНик: нет\n") || strings.Contains(c.params["reply_markup"], "ad:n:") {
-		t.Errorf("after reset = %+v", c.params)
-	}
-	h.tapOn(menu, cbAdminCard+"1001")
-	if c := edited(t, h.tg.take(), menu); !strings.Contains(c.params["text"], "\n@user1 · ID 1001\n") || !strings.HasSuffix(c.params["text"], "Заблокировал бота: да") {
-		t.Errorf("blocked card = %q", c.params["text"])
-	}
-}
-
-func TestAdminStats(t *testing.T) {
-	h := newHarness(t, nil)
-	h.tapOn(500, cbArticle+h.id(triangles))
-	h.tapOn(501, cbArticle+h.id(triangles))
-	h.tapOn(502, cbArticle+h.id(vmain))
-	h.store.NoteOpened(h.ctx, "gone-note")
-	h.accept(anya, 2)
-	h.store.CreateBroadcast(h.ctx, &store.Broadcast{Markdown: "x"}, []int64{1, 2, 3})
-	menu, _ := h.adminMenu()
-	h.tapOn(menu, cbAdminStats)
-	r := lastRich(t, h.tg.take())
-	md := r.params["rich_message"]
-	for _, want := range []string{"# Статистика", "Всего: на рассмотрении 0 · принято 2 · отклонено 0",
-		"## Чаще всего открывают — 7 дней", "1\\\\. \\u003ctg-button type=\\\"callback_data\\\" style=\\\"link\\\" data=\\\"a:" + h.id(triangles) + "\\\"\\u003eТреугольники\\u003c/tg-button\\u003e — 2",
-		"gone-note (удалена) — 1", "Рассылок: 1", "Последняя: "} {
+	// Аня has used the bot but was never seen; Иван opened /admin; 31 more.
+	anyaInfo, _ := h.store.UserInfo(h.ctx, anya.ID)
+	lastAnya := anyaInfo.FirstSeen
+	h.tapOn(100, cbAdminUsers+"0")
+	md, kb := h.rich(h.tg.take())
+	stamp := now.Format("02.01.2006 15:04")
+	for _, want := range []string{"# Users\n\nСтраница 1 из 2, всего пользователей: 33\n\n| № | ID | Username | Имя | Ник | Ранг |",
+		// The most recent first; text from users is literal.
+		"| 2000 | — | Оля \\| Ко | Звезда | kōhai | 0 | 0 | 0 | " + stamp + " | " + stamp + " | показан | нет |",
+		"| 1030 | @user\\_30 | Ученик 30 | — |"} {
 		if !strings.Contains(md, want) {
-			t.Errorf("stats miss %q:\n%s", want, md)
+			t.Errorf("page 1 misses %q:\n%s", want, md)
 		}
 	}
-	if !strings.Contains(r.params["reply_markup"], `"ad:m"`) {
-		t.Errorf("buttons = %s", r.params["reply_markup"])
+	if n := strings.Count(md, "\n| "); n != 26 { // the head and 25 users
+		t.Errorf("page 1 has %d rows", n)
+	}
+	if kb != `{"inline_keyboard":[[{"text":"Вперёд ›","callback_data":"ad:u:1"}],[{"text":"В админку","callback_data":"ad:m"}]]}` {
+		t.Errorf("page 1 buttons = %s", kb)
+	}
+	h.tapOn(100, cbAdminUsers+"1")
+	md, kb = h.rich(h.tg.take())
+	if !strings.Contains(md, "Страница 2 из 2") || !strings.Contains(md, "| 33 | ") ||
+		!strings.Contains(md, "| 1001 | @user\\_1 | Ученик 1 | — | kōhai | 0 | 0 | 0 | 20.10.2026 14:06 | 20.10.2026 14:06 | показан | да |") || !strings.HasSuffix(md, "| 33 | 42 | @anya | Аня | — | kōhai | 0 | 0 | 0 | "+h.bot.stamp(lastAnya)+" | — | показан | нет |\n") {
+		t.Errorf("page 2 =\n%s", md)
+	}
+	if kb != `{"inline_keyboard":[[{"text":"‹ Назад","callback_data":"ad:u:0"}],[{"text":"В админку","callback_data":"ad:m"}]]}` {
+		t.Errorf("page 2 buttons = %s", kb)
+	}
+	// A page past the end, from an old message, shows the last one.
+	h.tapOn(100, cbAdminUsers+"7")
+	if md, _ := h.rich(h.tg.take()); !strings.Contains(md, "Страница 2 из 2") {
+		t.Errorf("past the end =\n%s", md)
+	}
+	// Back to the panel.
+	h.tapOn(100, cbAdminMain)
+	if md, _ := h.rich(h.tg.take()); !strings.HasPrefix(md, "# Admin panel") {
+		t.Errorf("back =\n%s", md)
 	}
 }
 
-func TestAdminServer(t *testing.T) {
+func TestAdminUsersOnePage(t *testing.T) {
 	h := newHarness(t, nil)
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, "proc", "self"), 0o755)
-	os.WriteFile(filepath.Join(root, "proc", "self", "status"), []byte("VmRSS:\t   20480 kB\n"), 0o644)
-	for _, f := range []string{"rx_bytes", "tx_bytes"} {
-		os.MkdirAll(filepath.Join(root, "sys", "class", "net", "eth0", "statistics"), 0o755)
-		os.WriteFile(filepath.Join(root, "sys", "class", "net", "eth0", "statistics", f), []byte("1048576"), 0o644)
-	}
-	h.bot.procRoot, h.bot.sysRoot = filepath.Join(root, "proc"), filepath.Join(root, "sys")
-	menu, _ := h.adminMenu()
-
-	h.tapOn(menu, cbAdminServer)
-	calls := h.tg.take()
-	var edits []string
-	for _, c := range to(calls, "editMessageText", ivan.ID) {
-		edits = append(edits, c.params["text"])
-	}
-	if len(edits) != 2 || edits[0] != i18n.RU.AdminComputing {
-		t.Fatalf("edits = %q", edits)
-	}
-	for _, want := range []string{"Сервер\n\nПамять: RSS 20 МБ, Go heap ", "Работает: ", "версия dev",
-		"Сеть контейнера: получено 1 МБ, отправлено 1 МБ", "Telegram API сегодня: запросов ", "Vault на диске: ",
-		"Данные: ", "file_id в кэше: 0", "Vault: коммит ", "Синхронизаций с запуска не было\nРезервные копии: папка latest\nПоследняя: ещё не было\nСледующая: "} {
-		if !strings.Contains(edits[1], want) {
-			t.Errorf("server misses %q:\n%s", want, edits[1])
-		}
-	}
-	if !strings.Contains(edited(t, calls, menu).params["reply_markup"], `{"text":"Обновить","callback_data":"ad:v"}`) {
-		t.Error("no «Обновить»")
-	}
-	// Sizes are reused for a minute.
-	first := h.bot.sizes.at
-	h.tapOn(menu, cbAdminServer)
-	if h.bot.sizes.at != first {
-		t.Error("sizes recomputed within a minute")
+	h.adminPanel()
+	h.tapOn(100, cbAdminUsers+"0")
+	_, kb := h.rich(h.tg.take())
+	if kb != `{"inline_keyboard":[[{"text":"В админку","callback_data":"ad:m"}]]}` {
+		t.Errorf("buttons = %s", kb)
 	}
 }
 
 func TestAdminSync(t *testing.T) {
 	h := newHarness(t, nil)
-	menu, _ := h.adminMenu()
+	h.adminPanel()
+	var waits []time.Duration
+	h.bot.sleep = func(_ context.Context, d time.Duration) { waits = append(waits, d) }
 	old := h.bot.repo.HeadSHA(h.ctx)
 
-	h.tapOn(menu, cbAdminSync)
+	// Nothing new: a wait message, the panel anew, and the outcome that
+	// goes after a second.
+	h.tapOn(100, cbAdminSync)
 	calls := h.tg.take()
-	e := to(calls, "editMessageText", ivan.ID)
-	if len(e) != 2 || e[0].params["text"] != "Обновляю…" || e[1].params["text"] != "Изменений нет, коммит "+old[:7] {
-		t.Fatalf("unchanged = %+v", e)
+	sent := texts(to(calls, "sendMessage", ivan.ID), "sendMessage")
+	if len(sent) != 2 || sent[0] != "Обновление vault…" || sent[1] != "Vault обновлён, изменений нет, коммит "+old[:7] {
+		t.Fatalf("sent = %q", sent)
+	}
+	md, _ := h.rich(calls)
+	if !strings.Contains(md, "| Последнее обновление | ") || strings.Contains(md, "с запуска не было") {
+		t.Errorf("panel after sync:\n%s", md)
+	}
+	if del := ids(calls, "deleteMessage"); len(waits) != 2 || waits[1] != time.Second || len(del) < 2 {
+		t.Errorf("waits %v, deleted %v", waits, del)
 	}
 
-	// A new note and a broken link upstream.
+	// A new note and a broken link upstream: the findings stay.
 	note := "Геометрия/7 класс/02 Углы/Углы.md"
 	os.MkdirAll(filepath.Join(h.upstream, filepath.Dir(note)), 0o755)
 	os.WriteFile(filepath.Join(h.upstream, note), []byte("# Углы\n\nСм. [[Нет такой заметки]].\n"), 0o644)
@@ -335,16 +283,21 @@ func TestAdminSync(t *testing.T) {
 	git(t, h.upstream, "push", "--quiet", "origin", "HEAD:main")
 	newSHA := git(t, h.upstream, "rev-parse", "HEAD")
 	notes := len(h.bot.catalog().Notes())
+	waits = nil
 
-	h.tapOn(menu, cbAdminSync)
-	got := edited(t, h.tg.take(), menu).params["text"]
+	h.tapOn(100, cbAdminSync)
+	calls = h.tg.take()
+	sent = texts(to(calls, "sendMessage", ivan.ID), "sendMessage")
 	want := fmt.Sprintf("Vault обновлён: %s → %s\nЗаметок: %d → %d\nПроверка: ошибок 1, предупреждений 0\n• %s:3: error: ",
 		old[:7], newSHA[:7], notes, notes+1, note)
-	if !strings.HasPrefix(got, want) {
-		t.Errorf("changed =\n%q\nwant prefix\n%q", got, want)
+	if len(sent) != 2 || !strings.HasPrefix(sent[1], want) {
+		t.Errorf("changed = %q\nwant prefix\n%q", sent, want)
 	}
-	if r := h.bot.lastSync; r == nil || r.NewCommit != newSHA {
-		t.Errorf("last sync = %+v", r)
+	if len(waits) != 1 { // only the CPU measurement
+		t.Errorf("waits = %v", waits)
+	}
+	if md, _ := h.rich(calls); !strings.Contains(md, old[:7]+" → "+newSHA[:7]) {
+		t.Errorf("panel after sync:\n%s", md)
 	}
 }
 
@@ -360,12 +313,13 @@ func TestSyncText(t *testing.T) {
 	}
 }
 
-func TestAdminSearchOnlyForAdmins(t *testing.T) {
+// A search dialog of an earlier version is dropped: the text is searched.
+func TestOldAdminSearchDialog(t *testing.T) {
 	h := newHarness(t, nil)
-	h.store.PutSession(h.ctx, store.Session{TgID: anya.ID, State: stateAdminSearch, Payload: "{}", ExpiresAt: time.Now().Add(time.Hour)})
+	h.store.PutSession(h.ctx, store.Session{TgID: anya.ID, State: "admin_search", Payload: "{}", ExpiresAt: time.Now().Add(time.Hour)})
 	h.send(&models.Message{Text: "кто-нибудь"})
 	if md := searched(h.tg.take()); !strings.Contains(md, "кто-нибудь") {
-		t.Errorf("non-admin search = %q", md)
+		t.Errorf("search = %q", md)
 	}
 }
 
@@ -419,9 +373,12 @@ func TestAdminUsersPages(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		h.store.Seen(h.ctx, int64(100+i), "", "u")
 	}
-	for page, want := range map[int][2]int{0: {0, 10}, 2: {2, 6}, 9: {2, 6}, -1: {0, 10}} {
+	for i := 25; i < 60; i++ {
+		h.store.Seen(h.ctx, int64(100+i), "", "u")
+	}
+	for page, want := range map[int][2]int{0: {0, 25}, 2: {2, 11}, 9: {2, 11}, -1: {0, 25}} {
 		l, err := h.bot.AdminUsers(h.ctx, "", page)
-		if err != nil || l.Page != want[0] || len(l.Users) != want[1] || l.Pages != 3 || l.Found != 26 {
+		if err != nil || l.Page != want[0] || len(l.Users) != want[1] || l.Pages != 3 || l.Found != 61 {
 			t.Errorf("page %d = page %d, %d users, %d pages, %v", page, l.Page, len(l.Users), l.Pages, err)
 		}
 	}

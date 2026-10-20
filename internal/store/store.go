@@ -237,6 +237,10 @@ var migrations = []string{
 		at      INTEGER NOT NULL
 	);
 	CREATE INDEX search_queries_at ON search_queries(at);`,
+	// A note's title and path as of each day it was opened, so /admin
+	// names notes that were renamed or removed since.
+	`ALTER TABLE note_opens ADD COLUMN title TEXT NOT NULL DEFAULT '';
+	ALTER TABLE note_opens ADD COLUMN path TEXT NOT NULL DEFAULT '';`,
 }
 
 // migrate brings the schema to version to. An existing database is

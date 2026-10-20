@@ -87,8 +87,6 @@ type Bot struct {
 	traffic  *stats.Counter // calls to the Telegram API
 	seenMu   sync.Mutex
 	seen     map[int64]time.Time // when a user's last_seen_at was last written
-	adminMu  sync.Mutex
-	views    map[int64]adminView // each admin's place in /admin
 	sizes    sizeCache
 	procRoot string // /proc and /sys, replaced in tests
 	sysRoot  string
@@ -108,7 +106,7 @@ type Bot struct {
 func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.Repo, host githost.Host, log *slog.Logger, opts ...tg.Option) (*Bot, error) {
 	b := &Bot{cfg: cfg, store: st, repo: repo, host: host, log: log, t: i18n.RU, msgs: &tracker{store: st, log: log},
 		rejectGrace: rejectGrace, broadcastGap: broadcastGap, progressEvery: progressEvery, sleep: sleep,
-		clock: time.Now, traffic: &stats.Counter{}, backupWake: make(chan struct{}, 1), seen: map[int64]time.Time{}, views: map[int64]adminView{},
+		clock: time.Now, traffic: &stats.Counter{}, backupWake: make(chan struct{}, 1), seen: map[int64]time.Time{},
 		procRoot: "/proc", sysRoot: "/sys"}
 	b.started = b.clock()
 	b.stopCtx, b.stopNow = context.WithCancel(context.Background())

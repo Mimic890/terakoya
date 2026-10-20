@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/Mimic890/terakoya/internal/store"
 )
@@ -167,6 +169,43 @@ func RSS(statusPath string) (int64, error) {
 		}
 	}
 	return 0, fmt.Errorf("%s: no VmRSS", statusPath)
+}
+
+// CPUTime reads the CPU time the process has used, user and system, from
+// a /proc stat file such as /proc/self/stat.
+func CPUTime(statPath string) (time.Duration, error) {
+	data, err := os.ReadFile(statPath)
+	if err != nil {
+		return 0, err
+	}
+	// The command name, in parentheses, may hold spaces; utime and stime
+	// are the 12th and 13th fields after it.
+	i := strings.LastIndexByte(string(data), ')')
+	fields := strings.Fields(string(data[i+1:]))
+	if i < 0 || len(fields) < 13 {
+		return 0, fmt.Errorf("%s: unexpected format", statPath)
+	}
+	var ticks int64
+	for _, f := range fields[11:13] {
+		n, err := strconv.ParseInt(f, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", statPath, err)
+		}
+		ticks += n
+	}
+	// shortcut: assumes USER_HZ is 100, as on every mainstream Linux build;
+	// read it with sysconf(_SC_CLK_TCK) via cgo if that ever changes.
+	return time.Duration(ticks) * 10 * time.Millisecond, nil
+}
+
+// Disk is the space on a filesystem: what is free to the process, and the
+// whole size.
+func Disk(dir string) (free, total int64, err error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		return 0, 0, err
+	}
+	return int64(st.Bavail) * int64(st.Bsize), int64(st.Blocks) * int64(st.Bsize), nil
 }
 
 // Network sums the received and sent bytes of every interface but lo,
