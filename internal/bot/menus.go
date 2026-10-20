@@ -188,13 +188,18 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 		return
 	}
 	b.answer(ctx, q, toast, false)
-	fromPins := false
+	// «Назад» stays where it led.
+	back := cbBack
 	if msg.ReplyMarkup != nil {
 		for _, d := range callbacks(msg.ReplyMarkup) {
-			fromPins = fromPins || strings.HasPrefix(d, cbBackPins)
+			for _, p := range []string{cbBackPins, cbBackSearch} {
+				if strings.HasPrefix(d, p) {
+					back = p
+				}
+			}
 		}
 	}
-	err = b.withPlain(articleKeyboard(b.t, n, !pinned, fromPins, b.emoji.Pin()), func(kb *models.InlineKeyboardMarkup) error {
+	err = b.withPlain(articleKeyboard(b.t, n, !pinned, back, b.emoji.Pin()), func(kb *models.InlineKeyboardMarkup) error {
 		_, err := b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
 			ChatID: msg.Chat.ID, MessageID: msg.ID, ReplyMarkup: kb,
 		})

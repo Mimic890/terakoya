@@ -70,7 +70,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		if b.sendArticle(ctx, msg.Chat.ID, n, false) {
+		if b.sendArticle(ctx, msg.Chat.ID, n, cbBack) {
 			// The note replaces the message it was opened from: the topic
 			// list, or every part of the note that linked to it.
 			b.retire(ctx, msg)
@@ -84,24 +84,11 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		b.sendArticle(ctx, msg.Chat.ID, n, false)
+		b.sendArticle(ctx, msg.Chat.ID, n, cbBack)
 
 	case strings.HasPrefix(data, cbBack):
 		b.answer(ctx, q, "", false)
-		n := note(cbBack)
-		switch {
-		case n != nil && !n.IsMain() && n.Topic.Main != nil:
-			// From a theorem or a task to its topic's main page.
-			if b.sendArticle(ctx, msg.Chat.ID, n.Topic.Main, false) {
-				b.retire(ctx, msg)
-			}
-		case n != nil:
-			b.retire(ctx, msg)
-			b.showGrade(ctx, msg.Chat.ID, nil, n.Grade())
-		default:
-			b.retire(ctx, msg)
-			b.showSubjects(ctx, msg.Chat.ID, nil, &q.From)
-		}
+		b.back(ctx, q, msg, note(cbBack))
 
 	case strings.HasPrefix(data, cbDownload):
 		n := note(cbDownload)
@@ -153,7 +140,7 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 			return
 		}
 		b.answer(ctx, q, "", false)
-		if b.sendArticle(ctx, msg.Chat.ID, n, true) {
+		if b.sendArticle(ctx, msg.Chat.ID, n, cbBackPins) {
 			b.retire(ctx, msg)
 		}
 
@@ -206,6 +193,8 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 	case data == cbSend:
 		b.onDialogCallback(ctx, q, msg)
 
+	case b.onSearchCallback(ctx, q, msg):
+
 	default:
 		// Buttons of earlier versions, such as «Исправить текст», and
 		// stale ones lose their keyboard.
@@ -213,6 +202,24 @@ func (b *Bot) onCallback(ctx context.Context, q *models.CallbackQuery) {
 		if msg.ReplyMarkup != nil && len(msg.ReplyMarkup.InlineKeyboard) > 0 {
 			b.dropButtonsOf(ctx, msg)
 		}
+	}
+}
+
+// back is «Назад» under a note n in msg: from a theorem or a task to its
+// topic's main page, from a main page to the topic list; with the note
+// gone, to the subjects.
+func (b *Bot) back(ctx context.Context, q *models.CallbackQuery, msg *models.Message, n *content.Note) {
+	switch {
+	case n != nil && !n.IsMain() && n.Topic.Main != nil:
+		if b.sendArticle(ctx, msg.Chat.ID, n.Topic.Main, cbBack) {
+			b.retire(ctx, msg)
+		}
+	case n != nil:
+		b.retire(ctx, msg)
+		b.showGrade(ctx, msg.Chat.ID, nil, n.Grade())
+	default:
+		b.retire(ctx, msg)
+		b.showSubjects(ctx, msg.Chat.ID, nil, &q.From)
 	}
 }
 
@@ -420,14 +427,11 @@ func gradeView(t i18n.Strings, g *content.Grade, report bool) (string, *models.I
 }
 
 // articleKeyboard goes under the last part of every note. The notes of a
-// topic are reached through the links on its main page. A note opened
-// from the pinned list goes back to the list.
+// topic are reached through the links on its main page. back is the
+// prefix of «Назад»: cbBack, or for a note opened from the pinned list or
+// the search results, cbBackPins or cbBackSearch, back to them.
 // pinIcon is the custom emoji of the pin button, or "" for the plain one.
-func articleKeyboard(t i18n.Strings, n *content.Note, pinned, fromPins bool, pinIcon string) *models.InlineKeyboardMarkup {
-	back := cbBack
-	if fromPins {
-		back = cbBackPins
-	}
+func articleKeyboard(t i18n.Strings, n *content.Note, pinned bool, back, pinIcon string) *models.InlineKeyboardMarkup {
 	label := t.Pin
 	if pinned {
 		label = t.Unpin

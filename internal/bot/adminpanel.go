@@ -432,6 +432,21 @@ func (b *Bot) statsMarkdown(s AdminStats) string {
 		}
 		sb.WriteString(strings.Join(lines, "  \n") + "\n")
 	}
+	for _, top := range []struct {
+		title string
+		list  []store.SearchCount
+	}{{b.t.AdminSearchTop, s.Searches}, {b.t.AdminSearchMissing, s.Missing}} {
+		sb.WriteString("\n## " + top.title + "\n\n")
+		if len(top.list) == 0 {
+			sb.WriteString(b.t.AdminNoSearches + "\n")
+			continue
+		}
+		var lines []string
+		for i, c := range top.list {
+			lines = append(lines, fmt.Sprintf("%d\\. ", i+1)+escapeMarkdown(fmt.Sprintf(b.t.AdminSearchLine, c.Query, c.Count)))
+		}
+		sb.WriteString(strings.Join(lines, "  \n") + "\n")
+	}
 	sb.WriteString("\n## " + b.t.AdminBroadcast + "\n\n" + escapeMarkdown(fmt.Sprintf(b.t.AdminBroadcasts, s.Broadcasts)))
 	if bc := s.LastBroadcast; bc != nil {
 		sb.WriteString("  \n" + escapeMarkdown(fmt.Sprintf(b.t.AdminLastBcast, b.moment(bc.Created), bc.Recipients,

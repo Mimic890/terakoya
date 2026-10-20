@@ -64,6 +64,9 @@ type sessionPayload struct {
 	// from, which is replaced when the user goes back to it.
 	Msgs      []int `json:"msgs,omitempty"`
 	OriginMsg int   `json:"origin_msg,omitempty"`
+	// SearchQuery is the query of a report started from a search that
+	// found nothing, whose results «Отмена» returns to.
+	SearchQuery string `json:"search_query,omitempty"`
 	// What a report attempt that failed halfway already did: the issue
 	// it opened, the pictures it attached, the branch it pushed with how
 	// many pictures. A retry goes on from there.
@@ -325,7 +328,7 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 			b.endDialog(ctx, d)
 			return false
 		}
-	case stateNick:
+	case stateNick, stateSearch:
 	default:
 		// A dialog the bot no longer has, from an earlier version.
 		b.endDialog(ctx, d)
@@ -348,6 +351,9 @@ func (b *Bot) onSessionMessage(ctx context.Context, m *models.Message) bool {
 		return true
 	case stateAdminSearch:
 		b.onAdminSearch(ctx, d, m)
+		return true
+	case stateSearch:
+		b.onSearchMessage(ctx, d, m)
 		return true
 	}
 
@@ -464,9 +470,10 @@ func (b *Bot) dropMessages(ctx context.Context, chatID int64, ids []int) {
 
 // goBack returns the user to where a cancelled dialog started: its note,
 // re-sent in place of the old one, the topic list for a report about the
-// grade, or the grade list for one about the subject. A note that left the vault falls back to its topic list, then to
-// the subject list. «Свой ник» goes back to the «Ник» screen. A dialog
-// without an origin (/emoji_setup) only goes.
+// grade, or the grade list for one about the subject; a report from a
+// search, the search. A note that left the vault falls back to its topic
+// list, then to the subject list. «Свой ник» goes back to the «Ник»
+// screen. A dialog without an origin (/emoji_setup, /search) only goes.
 func (b *Bot) goBack(ctx context.Context, d *dialog) {
 	cat := b.catalog()
 	var g *content.Grade
@@ -479,12 +486,20 @@ func (b *Bot) goBack(ctx context.Context, d *dialog) {
 		return
 	case d.p.NoteID != "" || d.ses.ArticlePath != "":
 		if n := b.dialogNote(d); n != nil {
-			if b.sendArticle(ctx, d.chatID, n, false) && d.p.OriginMsg != 0 {
+			if b.sendArticle(ctx, d.chatID, n, cbBack) && d.p.OriginMsg != 0 {
 				b.retireLater(ctx, d.chatID, d.p.OriginMsg)
 			}
 			return
 		}
 		g = gradeOfPath(cat, d.ses.ArticlePath)
+	case d.p.SearchQuery != "":
+		s := lastSearch{query: d.p.SearchQuery}
+		if last, ok := b.lastSearchOf(d.chatID); ok && last.query == s.query {
+			s = last
+		}
+		b.rememberSearch(d.chatID, s)
+		b.showSearch(ctx, d.chatID, s)
+		return
 	case d.p.GradeID != "":
 		g = cat.Grade(d.p.GradeID)
 	case d.p.SubjectID != "":

@@ -48,7 +48,7 @@ func TestBlockedOnForbidden(t *testing.T) {
 	}
 	// A report outcome, a note and a menu to someone who blocked the bot.
 	h.bot.send(h.ctx, 42, "Ошибку исправили", nil)
-	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), false)
+	h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), cbBack)
 	if ids, _ := h.bot.recipients(h.ctx); containsID(ids, 42) {
 		t.Errorf("not marked blocked: %v", ids)
 	}

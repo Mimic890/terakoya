@@ -43,7 +43,9 @@ func (f *fakeBot) AdminServer(context.Context) (bot.AdminServer, error) {
 
 func (f *fakeBot) AdminStats(context.Context) (bot.AdminStats, error) {
 	return bot.AdminStats{Reports: store.SuggestionCounts{Open: 1, Accepted: 2, Rejected: 3},
-		TopAll: []bot.NoteStat{{ID: "x", Title: "Треугольники", Opens: 7}, {ID: "gone", Opens: 1}}, Broadcasts: 0}, nil
+		TopAll: []bot.NoteStat{{ID: "x", Title: "Треугольники", Opens: 7}, {ID: "gone", Opens: 1}}, Broadcasts: 0,
+		Searches: []store.SearchCount{{Query: "параллельность", Count: 5, Results: 4}},
+		Missing:  []store.SearchCount{{Query: "трапеция", Count: 3}}}, nil
 }
 
 func (f *fakeBot) AdminUsers(_ context.Context, q string, page int) (bot.AdminUsers, error) {
@@ -127,7 +129,8 @@ func TestAdminCommands(t *testing.T) {
 		{[]string{"status"}, 0, []string{"Users:        120 (active in 24h: 15)", "Open reports: 3", "Vault:        abcdef1, committed 2h 0m ago", "Uptime:       1d 2h"}},
 		{[]string{"server"}, 0, []string{"RSS 20 МБ, Go heap 5 МБ, 12 goroutines", "received 3 ГБ, sent 1 МБ", "today 10 calls, sent 1 КБ, received 2 КБ",
 			"Vault disk:  50 МБ (notes 1 МБ, images 20 МБ, .git 29 МБ)", "Last sync:   none since start"}},
-		{[]string{"stats"}, 0, []string{"open 1, accepted 2, rejected 3", "1. Треугольники — 7", "2. gone (removed) — 1", "Broadcasts: 0"}},
+		{[]string{"stats"}, 0, []string{"open 1, accepted 2, rejected 3", "1. Треугольники — 7", "2. gone (removed) — 1", "Broadcasts: 0",
+			"Searched for most, 7 days:\n   1. параллельность — 5", "nothing found, 180 days:\n   1. трапеция — 3"}},
 		{[]string{"users", "--search", "аня", "--page", "2"}, 0, []string{`Search "аня": 1 found`, "Page 2 of 3", "42", "@anya"}},
 		{[]string{"user", "@anya"}, 0, []string{"Ёжик\n", "Nickname:   Ёжик", "Rank:       Pupil", "accepted 2"}},
 		{[]string{"user", "@nobody"}, 1, nil},

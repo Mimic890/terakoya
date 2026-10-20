@@ -24,6 +24,7 @@ import (
 	"github.com/Mimic890/terakoya/internal/media"
 	"github.com/Mimic890/terakoya/internal/ranks"
 	"github.com/Mimic890/terakoya/internal/raster"
+	"github.com/Mimic890/terakoya/internal/search"
 	"github.com/Mimic890/terakoya/internal/settings"
 	"github.com/Mimic890/terakoya/internal/stats"
 	"github.com/Mimic890/terakoya/internal/store"
@@ -92,8 +93,12 @@ type Bot struct {
 	procRoot string // /proc and /sys, replaced in tests
 	sysRoot  string
 
+	searchMu sync.Mutex
+	searches map[int64]lastSearch // each chat's last search
+
 	mu       sync.RWMutex
 	cat      *content.Catalog
+	index    *search.Index // of cat
 	sha      string
 	lastSync *SyncResult
 }
@@ -259,11 +264,14 @@ func (b *Bot) reload(ctx context.Context) ([]content.Issue, error) {
 	for _, i := range issues {
 		b.log.Warn("content", "issue", i.String())
 	}
+	start := time.Now()
+	index := search.Build(cat)
+	took := time.Since(start)
 	sha := b.repo.HeadSHA(ctx)
 	b.mu.Lock()
-	b.cat, b.sha = cat, sha
+	b.cat, b.index, b.sha = cat, index, sha
 	b.mu.Unlock()
-	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha)
+	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha, "index_ms", took.Milliseconds())
 	// Pins of notes that are gone, or whose ID changed, would count toward
 	// the limit of pins without being shown.
 	if n, err := b.store.PrunePins(ctx, func(id string) bool { return cat.Note(id) != nil }); err != nil {
@@ -361,6 +369,21 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 		}
 	}
 	switch cmd {
+	case "":
+		// Any other text with a word in it is a search; the query goes
+		// once answered, like a command.
+		if search.Normalize(m.Text) == "" {
+			b.send(ctx, m.Chat.ID, b.t.UnknownCommand, nil)
+			return
+		}
+		b.runSearch(ctx, m.Chat.ID, m.Text)
+		b.deleteMessage(ctx, m.Chat.ID, m.ID)
+	case "/search":
+		if arg == "" {
+			b.askSearch(ctx, m)
+			return
+		}
+		b.runSearch(ctx, m.Chat.ID, arg)
 	case "/download":
 		b.sendArchive(ctx, m.Chat.ID)
 	case "/top":
@@ -371,7 +394,7 @@ func (b *Bot) onMessage(ctx context.Context, m *models.Message) {
 		b.greet(ctx, m.Chat.ID, m.From)
 		if arg != "" {
 			if n := b.catalog().Note(arg); n != nil {
-				b.sendArticle(ctx, m.Chat.ID, n, false)
+				b.sendArticle(ctx, m.Chat.ID, n, cbBack)
 				return
 			}
 			b.send(ctx, m.Chat.ID, b.t.NotFound, nil)

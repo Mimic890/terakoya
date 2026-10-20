@@ -40,7 +40,7 @@ func TestKeyButtonCalls(t *testing.T) {
 		// The subject list is a rich message, sent anew.
 		{"subjects over pinned", func(h *harness) { h.say(i18n.RU.KeyPinned) }, i18n.RU.KeySubjects, "sendRichMessage"},
 		{"subjects, note below the menu", func(h *harness) {
-			h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), false)
+			h.bot.sendArticle(h.ctx, 42, h.bot.catalog().NoteByPath(triangles), cbBack)
 		}, i18n.RU.KeySubjects, "sendRichMessage"},
 		{"account over subjects", func(h *harness) {}, i18n.RU.KeyAccount, "sendRichMessage"},
 		{"subjects over account", func(h *harness) { h.say(i18n.RU.KeyAccount) }, i18n.RU.KeySubjects, "sendRichMessage"},

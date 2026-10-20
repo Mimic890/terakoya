@@ -56,6 +56,23 @@ type Strings struct {
 	RejectedGradeReport string // %s: «subject · grade»
 	ReviewComment       string // %s: comment
 
+	// Search. A result is «Теорема · title», the kind of a topic's main
+	// page being SearchMain.
+	SearchPrompt       string
+	SearchTitle        string // %s: query
+	SearchFound        string // %d: notes found
+	SearchPage         string // %d: page, %d: pages
+	SearchMain         string
+	SearchPrev         string
+	SearchNext         string
+	SearchNothing      string
+	SearchDidYouMean   string
+	SearchReport       string
+	SearchReportChoose string
+	SearchReportPrompt string // %s: subject, %s: query
+	SearchReportText   string // %s: query; the start of the report
+	SearchExpired      string
+
 	// The keyboard at the bottom of the chat.
 	KeySubjects string
 	KeyPinned   string
@@ -241,6 +258,10 @@ type Strings struct {
 	AdminTopAll            string
 	AdminNoteGone          string // %s id
 	AdminNoOpens           string
+	AdminSearchTop         string
+	AdminSearchMissing     string
+	AdminSearchLine        string // %s query, %d times
+	AdminNoSearches        string
 	AdminBroadcasts        string // %d
 	AdminLastBcast         string // %s date, %d recipients, %d sent, %d blocked, %d failed
 	AdminDays              string // %d d, %d h
@@ -250,6 +271,7 @@ type Strings struct {
 
 	// The command menu.
 	CmdStart      string
+	CmdSearch     string
 	CmdDownload   string
 	CmdCancel     string
 	CmdEmojiSetup string
@@ -315,6 +337,21 @@ var RU = Strings{
 	RejectedReport:      "Сообщение об ошибке в «%s» закрыли без исправлений.",
 	RejectedGradeReport: "Сообщение про «%s» закрыли без изменений.",
 	ReviewComment:       "Комментарий: «%s»",
+
+	SearchPrompt:       "Что найти? Напишите слово или фразу, например «теорема Пифагора».",
+	SearchTitle:        "Поиск: «%s»",
+	SearchFound:        "Найдено: %d",
+	SearchPage:         "страница %d из %d",
+	SearchMain:         "Тема",
+	SearchPrev:         "‹",
+	SearchNext:         "›",
+	SearchNothing:      "Ничего не нашлось.",
+	SearchDidYouMean:   "Возможно, вы имели в виду:",
+	SearchReport:       "Сообщить, что не хватает материала",
+	SearchReportChoose: "В каком предмете не хватает материала?",
+	SearchReportPrompt: "%s. По запросу «%s» ничего не нашлось — запрос уже будет в сообщении. Можно дописать, что именно нужно, приложить фото или сразу отправить.",
+	SearchReportText:   "По запросу «%s» ничего не нашлось.",
+	SearchExpired:      "Результаты поиска устарели — напишите запрос ещё раз.",
 
 	KeySubjects: "Предметы",
 	KeyPinned:   "Закреплённые",
@@ -498,6 +535,10 @@ var RU = Strings{
 	AdminTopAll:            "Чаще всего открывают — 180 дней",
 	AdminNoteGone:          "%s (удалена)",
 	AdminNoOpens:           "Пока нет",
+	AdminSearchTop:         "Чаще всего ищут — 7 дней",
+	AdminSearchMissing:     "Ищут, но не находят — 180 дней",
+	AdminSearchLine:        "«%s» — %d",
+	AdminNoSearches:        "Пока нет",
 	AdminBroadcasts:        "Рассылок: %d",
 	AdminLastBcast:         "Последняя: %s — получателей %d, доставлено %d, заблокировали бота %d, не доставлено %d",
 	AdminDays:              "%d д %d ч",
@@ -506,6 +547,7 @@ var RU = Strings{
 	AdminSeconds:           "%d с",
 
 	CmdStart:      "Открыть каталог",
+	CmdSearch:     "Поиск по материалам",
 	CmdDownload:   "Скачать все материалы",
 	CmdCancel:     "Отменить текущее действие",
 	CmdEmojiSetup: "Настроить кастомные эмодзи",

@@ -258,16 +258,18 @@ const (
 	KeepExpiredSessions = 24 * time.Hour
 	// KeepNoteOpens: /admin shows the most opened notes of this period.
 	KeepNoteOpens = 180 * 24 * time.Hour
+	// KeepSearches: and the searches that found nothing.
+	KeepSearches = 180 * 24 * time.Hour
 )
 
 // Cleaned counts the rows Cleanup removed.
 type Cleaned struct {
-	MessageParts, Sessions, NoteOpens int64
+	MessageParts, Sessions, NoteOpens, Searches int64
 }
 
 // Cleanup removes rows that are no longer of use: the message groups of
-// notes sent long ago, dialogs that expired a while ago and note opens
-// older than KeepNoteOpens.
+// notes sent long ago, dialogs that expired a while ago, and note opens
+// and searches older than KeepNoteOpens and KeepSearches.
 func (s *Store) Cleanup(ctx context.Context) (Cleaned, error) {
 	now := s.now()
 	var c Cleaned
@@ -279,6 +281,7 @@ func (s *Store) Cleanup(ctx context.Context) (Cleaned, error) {
 		{&c.MessageParts, `DELETE FROM message_parts WHERE created_at < ?`, now.Add(-KeepMessageParts).Unix()},
 		{&c.Sessions, `DELETE FROM sessions WHERE expires_at < ?`, now.Add(-KeepExpiredSessions).Unix()},
 		{&c.NoteOpens, `DELETE FROM note_opens WHERE day < ?`, Day(now.Add(-KeepNoteOpens))},
+		{&c.Searches, `DELETE FROM search_queries WHERE at < ?`, now.Add(-KeepSearches).Unix()},
 	} {
 		res, err := s.db.ExecContext(ctx, q.query, q.arg)
 		if err != nil {
