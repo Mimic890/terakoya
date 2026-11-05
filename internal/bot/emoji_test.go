@@ -105,7 +105,7 @@ func TestEmojiInUse(t *testing.T) {
 	}
 	// The subject's emoji goes before its line in the list, and on its
 	// button in the button style.
-	if r := richs(calls); len(r) != 1 || !strings.Contains(r[0], "\n![⭐](tg://emoji?id=301) <tg-button type=\"callback_data\" style=\"link\" data=\"s:") {
+	if r := richs(calls); len(r) != 1 || !strings.Contains(r[0], "\n### ![⭐](tg://emoji?id=301) <tg-button type=\"callback_data\" style=\"link\" data=\"s:") {
 		t.Errorf("subjects = %q", r)
 	}
 	h.bot.settings.Update(func(s *settings.Settings) { s.ListStyle = settings.ListButtons })

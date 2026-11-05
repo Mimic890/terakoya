@@ -8,7 +8,6 @@ type Strings struct {
 	ChooseSubject  string
 	SubjectsTitle  string
 	NoGrades       string
-	GradeForms     [3]string // «1 класс», «2 класса», «5 классов»
 	TopicForms     [3]string // «1 тема», «2 темы», «5 тем»
 	NoSubjects     string
 	ChooseGrade    string // %s: subject label
@@ -288,7 +287,6 @@ var RU = Strings{
 	ChooseSubject:  "Выберите предмет:",
 	SubjectsTitle:  "Предметы",
 	NoGrades:       "Здесь пока нет классов.",
-	GradeForms:     [3]string{"класс", "класса", "классов"},
 	TopicForms:     [3]string{"тема", "темы", "тем"},
 	NoSubjects:     "Каталог пока пуст.",
 	ChooseGrade:    "%s\n\nВыберите класс:",

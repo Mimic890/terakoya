@@ -290,8 +290,7 @@ func homeView(t i18n.Strings, cat *content.Catalog, icon func(subject string) st
 }
 
 // subjectsMarkdown is the list style of the subject list: «Предметы» and
-// a line per subject with its emoji, if any, and its number of grades,
-// which opens it.
+// a small heading per subject with its emoji, if any, which opens it.
 func (b *Bot) subjectsMarkdown(cat *content.Catalog) string {
 	var sb strings.Builder
 	sb.WriteString("# " + escapeMarkdown(b.t.SubjectsTitle) + "\n\n")
@@ -299,9 +298,7 @@ func (b *Bot) subjectsMarkdown(cat *content.Catalog) string {
 		sb.WriteString(escapeMarkdown(b.t.NoSubjects) + "\n")
 	}
 	for _, s := range cat.Subjects {
-		n := len(s.Grades)
-		label := fmt.Sprintf("%s · %d %s", s.Name, n, plural(n, b.t.GradeForms))
-		sb.WriteString(richEmojiRef(b.emoji.Subject(s.Name), placeholder) + menuLink(label, cbSubject+s.ID) + "\n")
+		sb.WriteString("### " + richEmojiRef(b.emoji.Subject(s.Name), placeholder) + menuLink(s.Name, cbSubject+s.ID) + "\n")
 	}
 	return sb.String()
 }

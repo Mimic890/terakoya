@@ -689,9 +689,9 @@ that opens the item in place of the list. A subject's custom emoji, if
 set, goes in front of its line and in the headings of its grade and
 topic lists; without one there is nothing, not even a space.
 
-- **Subjects:** «Предметы», then «Геометрия · 2 класса» per subject,
-  with the number of grades. Under it only «Закрыть»: there is nothing to
-  go back to.
+- **Subjects:** «Предметы», then the subject's name per subject, as a
+  small heading so it reads larger than plain text. Under it only
+  «Закрыть»: there is nothing to go back to.
 - **Grades:** «Геометрия», then «10 класс · 5 тем» per grade, with the
   number of topics. Under it «Сообщить об ошибке» (when reports are on)
   and «« Назад» in one row.

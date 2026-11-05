@@ -22,12 +22,6 @@ func listsHarness(t *testing.T) *harness {
 }
 
 func TestPlurals(t *testing.T) {
-	for n, want := range map[int]string{0: "классов", 1: "класс", 2: "класса", 4: "класса", 5: "классов", 11: "классов",
-		12: "классов", 21: "класс", 22: "класса", 111: "классов", 101: "класс"} {
-		if got := plural(n, i18n.RU.GradeForms); got != want {
-			t.Errorf("%d %s, want %s", n, got, want)
-		}
-	}
 	for n, want := range map[int]string{1: "тема", 3: "темы", 5: "тем", 14: "тем", 23: "темы"} {
 		if got := plural(n, i18n.RU.TopicForms); got != want {
 			t.Errorf("%d %s, want %s", n, got, want)
@@ -46,8 +40,8 @@ func TestListMarkdown(t *testing.T) {
 
 	// Without custom emoji: no emoji and no space in front.
 	want := "# Предметы\n\n" +
-		link("Алгебра · 1 класс", "s:"+alg.ID) + "\n" +
-		link("Геометрия · 2 класса", "s:"+geo.ID) + "\n"
+		"### " + link("Алгебра", "s:"+alg.ID) + "\n" +
+		"### " + link("Геометрия", "s:"+geo.ID) + "\n"
 	if got := h.bot.subjectsMarkdown(cat); got != want {
 		t.Errorf("subjects =\n%s\nwant\n%s", got, want)
 	}
@@ -66,7 +60,7 @@ func TestListMarkdown(t *testing.T) {
 	h.tg.emoji = []string{"301"}
 	h.bot.settings.Update(func(s *settings.Settings) { s.Emoji.Subjects["Геометрия"] = "301" })
 	icon := "![⭐](tg://emoji?id=301) "
-	if got := h.bot.subjectsMarkdown(cat); !strings.Contains(got, "\n"+link("Алгебра · 1 класс", "s:"+alg.ID)+"\n"+icon+link("Геометрия · 2 класса", "s:"+geo.ID)+"\n") {
+	if got := h.bot.subjectsMarkdown(cat); !strings.Contains(got, "\n### "+link("Алгебра", "s:"+alg.ID)+"\n### "+icon+link("Геометрия", "s:"+geo.ID)+"\n") {
 		t.Errorf("subjects with an emoji =\n%s", got)
 	}
 	if got := h.bot.gradesMarkdown(geo); !strings.HasPrefix(got, "# "+icon+"Геометрия\n\n") {
@@ -91,8 +85,8 @@ func TestRichListNavigation(t *testing.T) {
 	subjects := lastRich(t, calls)
 	// One line per subject: the renderer keeps line breaks as hard breaks.
 	if r := richs(calls); len(r) != 1 || r[0] != "# Предметы\n\n"+
-		`<tg-button type="callback_data" style="link" data="s:`+h.bot.catalog().Subjects[0].ID+`">Алгебра · 1 класс</tg-button>  `+"\n"+
-		`<tg-button type="callback_data" style="link" data="s:`+geo.ID+`">Геометрия · 2 класса</tg-button>`+"\n" {
+		`### <tg-button type="callback_data" style="link" data="s:`+h.bot.catalog().Subjects[0].ID+`">Алгебра</tg-button>`+"\n"+
+		`### <tg-button type="callback_data" style="link" data="s:`+geo.ID+`">Геометрия</tg-button>`+"\n" {
 		t.Errorf("subjects = %q", r)
 	}
 	if got := callbacksOf(t, subjects.params["reply_markup"]); strings.Join(got, " ") != cbClose {
