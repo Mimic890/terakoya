@@ -2,6 +2,9 @@ services:
   terakoya:
     build: .
     restart: unless-stopped
+    # git fetch leaves a background git maintenance behind; without an init
+    # to reap it, zombies pile up until the container runs out of PIDs.
+    init: true
     # Run as the owner of the bind-mounted directories.
     user: "${UID:-1000}:${GID:-1000}"
     # The bot needs about 30 MB; the cap keeps a runaway SVG conversion
