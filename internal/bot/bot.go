@@ -158,6 +158,9 @@ func New(ctx context.Context, cfg config.Config, st *store.Store, repo *gitrepo.
 // Run polls Telegram for updates and syncs content until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) {
 	b.log.Info("bot started", "username", b.cfg.BotUsername, "reports", b.host != nil, "admins", len(b.cfg.Admins))
+	if len(b.cfg.Admins) == 0 {
+		b.log.Info("no admins are set: send /start to the bot, find your ID with `terakoya admin users`, and add it to TERAKOYA_ADMIN_IDS")
+	}
 	go b.syncLoop(ctx)
 	go b.settings.Watch(ctx, settingsCheck)
 	go b.trafficLoop(ctx)
@@ -270,6 +273,9 @@ func (b *Bot) reload(ctx context.Context) ([]content.Issue, error) {
 	b.cat, b.index, b.sha = cat, index, sha
 	b.mu.Unlock()
 	b.log.Info("vault loaded", "notes", len(cat.Notes()), "commit", sha, "index_ms", took.Milliseconds())
+	if len(cat.Notes()) == 0 {
+		b.log.Warn("the vault has no notes, so the catalog is empty: set TERAKOYA_REPO_URL to a content repository, or put a vault in the folder", "folder", b.cfg.RepoDir)
+	}
 	// Pins of notes that are gone, or whose ID changed, would count toward
 	// the limit of pins without being shown.
 	if n, err := b.store.PrunePins(ctx, func(id string) bool { return cat.Note(id) != nil }); err != nil {

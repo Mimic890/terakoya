@@ -42,7 +42,7 @@ func (b *Bot) sendArticle(ctx context.Context, chatID int64, n *content.Note, ba
 	for i, part := range res.Parts {
 		var kb *models.InlineKeyboardMarkup
 		if i == len(res.Parts)-1 {
-			kb = articleKeyboard(b.t, n, pinned, back, b.emoji.Pin())
+			kb = articleKeyboard(b.t, n, pinned, b.host != nil, back, b.emoji.Pin())
 		}
 		msg, err := b.sendRich(ctx, chatID, n, part, kb)
 		if err != nil {

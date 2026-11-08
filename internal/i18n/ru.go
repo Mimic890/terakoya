@@ -3,22 +3,24 @@ package i18n
 
 // Strings is the set of UI texts for one language.
 type Strings struct {
-	Greeting       string // %s: user's first name
-	GreetingText   string // on the next line, after the greeting and its emoji
-	ChooseSubject  string
-	SubjectsTitle  string
-	NoGrades       string
-	TopicForms     [3]string // «1 тема», «2 темы», «5 тем»
-	NoSubjects     string
-	ChooseGrade    string // %s: subject label
-	TopicsHeader   string // %s: subject label, %s: grade title
-	ChooseTopic    string
-	NoTopics       string
-	Back           string
-	DownloadMD     string
-	NotFound       string
-	SendFailed     string
-	UnknownCommand string
+	Greeting     string // %s: user's first name
+	GreetingText string // on the next line, after the greeting and its emoji
+	// GreetingReports follows GreetingText when error reports are on.
+	GreetingReports string
+	ChooseSubject   string
+	SubjectsTitle   string
+	NoGrades        string
+	TopicForms      [3]string // «1 тема», «2 темы», «5 тем»
+	NoSubjects      string
+	ChooseGrade     string // %s: subject label
+	TopicsHeader    string // %s: subject label, %s: grade title
+	ChooseTopic     string
+	NoTopics        string
+	Back            string
+	DownloadMD      string
+	NotFound        string
+	SendFailed      string
+	UnknownCommand  string
 
 	// Error reports. Users are schoolchildren and teachers: no file names,
 	// Markdown or LaTeX here, and every step offers «Отмена».
@@ -281,23 +283,23 @@ type Strings struct {
 
 // RU is the Russian UI.
 var RU = Strings{
-	Greeting: "Привет, %s!",
-	GreetingText: "Это terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.\n" +
-		"Нашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг.",
-	ChooseSubject:  "Выберите предмет:",
-	SubjectsTitle:  "Предметы",
-	NoGrades:       "Здесь пока нет классов.",
-	TopicForms:     [3]string{"тема", "темы", "тем"},
-	NoSubjects:     "Каталог пока пуст.",
-	ChooseGrade:    "%s\n\nВыберите класс:",
-	TopicsHeader:   "%s · %s",
-	ChooseTopic:    "Выберите тему:",
-	NoTopics:       "В этом классе пока нет тем.",
-	Back:           "« Назад",
-	DownloadMD:     "Скачать",
-	NotFound:       "Тема не найдена. Возможно, каталог обновился.",
-	SendFailed:     "Не удалось отправить тему. Попробуйте позже.",
-	UnknownCommand: "Не понимаю. Нажмите /start, чтобы открыть каталог.",
+	Greeting:        "Привет, %s!",
+	GreetingText:    "Это terakoya — школьный справочник: теоремы, аксиомы, задачи и доказательства по классам.",
+	GreetingReports: "Нашли ошибку или чего-то не хватает? Сообщите — за принятые правки растёт ранг.",
+	ChooseSubject:   "Выберите предмет:",
+	SubjectsTitle:   "Предметы",
+	NoGrades:        "Здесь пока нет классов.",
+	TopicForms:      [3]string{"тема", "темы", "тем"},
+	NoSubjects:      "Каталог пока пуст.",
+	ChooseGrade:     "%s\n\nВыберите класс:",
+	TopicsHeader:    "%s · %s",
+	ChooseTopic:     "Выберите тему:",
+	NoTopics:        "В этом классе пока нет тем.",
+	Back:            "« Назад",
+	DownloadMD:      "Скачать",
+	NotFound:        "Тема не найдена. Возможно, каталог обновился.",
+	SendFailed:      "Не удалось отправить тему. Попробуйте позже.",
+	UnknownCommand:  "Не понимаю. Нажмите /start, чтобы открыть каталог.",
 
 	ReportDisabled:      "Сообщать об ошибках пока нельзя.",
 	Continued:           "%s (продолжение)",

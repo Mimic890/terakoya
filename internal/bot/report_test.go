@@ -917,3 +917,26 @@ func TestTruncate(t *testing.T) {
 		}
 	}
 }
+
+// Without a git host nothing can receive a report, so nothing offers one.
+func TestReportOffersNeedAHost(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		h := newHarness(t, nil)
+		if !on {
+			h.bot.host = nil
+		}
+		h.bot.sendArticle(h.ctx, h.user.ID, h.bot.catalog().Notes()[0], cbBack)
+		h.send(&models.Message{Text: "/start"})
+		var sent strings.Builder
+		for _, c := range h.tg.take() {
+			for _, v := range c.params {
+				sent.WriteString(v)
+			}
+		}
+		for _, offer := range []string{h.bot.t.ReportError, h.bot.t.GreetingReports} {
+			if got := strings.Contains(sent.String(), offer); got != on {
+				t.Errorf("host %v: offers %q = %v", on, offer, got)
+			}
+		}
+	}
+}

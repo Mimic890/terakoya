@@ -1,0 +1,14 @@
+# A throwaway demo on the sample notes built into the image. It needs only
+# TERAKOYA_BOT_TOKEN. Data lives in memory and is gone when the container
+# stops or restarts; see "Demo" in the README.
+services:
+  terakoya:
+    image: ghcr.io/mimic890/terakoya:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    mem_limit: 512m
+    environment:
+      TERAKOYA_BOT_TOKEN: ${TERAKOYA_BOT_TOKEN:?put TERAKOYA_BOT_TOKEN in .env}
+      TERAKOYA_REPO_DIR: /usr/share/terakoya/demo
+    tmpfs:
+      - /srv/data:uid=1000,gid=1000

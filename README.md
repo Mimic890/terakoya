@@ -1,7 +1,32 @@
 # terakoya
 
 A Telegram bot that serves a wiki-like catalog of school material,
-starting with geometry for grades 7–11.
+starting with geometry for grades 7–11. Its interface is in Russian.
+
+Open it in Telegram: [@terakoya_app](https://t.me/terakoya_app)
+
+![The greeting and the account page of the bot in Telegram](docs/screenshot.png)
+
+## Demo
+
+Get a token from [@BotFather](https://t.me/BotFather), then run the bot on
+five sample notes:
+
+```sh
+curl -O https://raw.githubusercontent.com/Mimic890/terakoya/main/docker-compose.demo.yml
+echo 'TERAKOYA_BOT_TOKEN=123456:your-token-from-botfather' > .env
+docker compose -f docker-compose.demo.yml up -d
+```
+
+Open your bot in Telegram and send `/start`. The notes come from
+[examples/vault](examples/vault) and are built into the image.
+
+The demo keeps its data in memory, so every stop or restart of the
+container resets users, pinned notes and settings. Error reports and
+content sync are off. To keep a bot running on your own material, see
+[Running](#running).
+
+## How it works
 
 The material is an Obsidian vault kept in a git repository: subjects,
 grades and numbered topics are folders, each topic has a main page and
@@ -40,19 +65,14 @@ services:
   terakoya:
     image: ghcr.io/mimic890/terakoya:latest
     restart: unless-stopped
+    # git fetch leaves a background git maintenance behind; the init reaps it.
+    init: true
     # Run as the owner of ./data and ./vault.
     user: "1000:1000"
     # The bot needs about 30 MB; the cap keeps a runaway SVG conversion
     # from taking the server's memory.
     mem_limit: 512m
     env_file: .env
-    environment:
-      # The time zone of the daily backup time in settings.yml.
-      TZ: Europe/Minsk
-    ports:
-      # Git host webhooks (POST /webhooks/git); put a TLS reverse proxy in
-      # front, or use "127.0.0.1:8080:8080" when it runs on the same host.
-      - "8080:8080"
     volumes:
       - ./data:/srv/data
       - ./vault:/srv/vault
@@ -61,8 +81,12 @@ services:
 Then:
 
 ```sh
-cp .env.example .env        # set TERAKOYA_BOT_TOKEN, TERAKOYA_REPO_URL, TERAKOYA_ADMIN_IDS
+cat > .env <<'EOF'
+TERAKOYA_BOT_TOKEN=123456:your-token-from-botfather
+TERAKOYA_REPO_URL=https://github.com/you/terakoya-content.git
+EOF
 mkdir -p data vault
+sudo chown -R 1000:1000 data vault   # the container runs as uid 1000
 docker compose up -d
 docker compose logs -f
 ```
@@ -71,6 +95,22 @@ docker compose logs -f
 content repository. If `./vault` is empty and `TERAKOYA_REPO_URL` is set,
 the bot clones the repository on start. Do not set `TERAKOYA_REPO_DIR` or
 `TERAKOYA_DATA_DIR` in `.env`: the image points them at the mounts.
+
+To serve a vault without git, leave `TERAKOYA_REPO_URL` out and put the
+vault's folders in `./vault`. The bot only reads them and picks up changes
+on restart; error reports and sync need git.
+
+To become an admin, send `/start` to your bot and find your numeric ID in
+the user list:
+
+```sh
+docker compose exec terakoya terakoya admin users
+```
+
+Add it to `.env` as `TERAKOYA_ADMIN_IDS=123456789` and apply with
+`docker compose up -d`; `docker compose restart` does not reread `.env`.
+Nobody becomes an admin automatically, and the list is available only on
+the server.
 
 To update:
 
@@ -428,8 +468,13 @@ backup:
 In every mode the database is copied with `VACUUM INTO` while the bot
 runs and checked with `PRAGMA quick_check` before it is used; the copies
 have the permissions of the originals (the settings are readable by
-their owner only). `time` is in the container's local time: set `TZ`
-in the compose file (see [Docker](#docker)); without it, it is UTC.
+their owner only). `time` is in the container's local time, UTC unless
+the service in `docker-compose.yml` sets `TZ`:
+
+```yaml
+    environment:
+      TZ: Europe/Minsk
+```
 
 - If the bot was down at `time` and the last backup is more than a day
   old when it starts, it takes one right away.
@@ -753,8 +798,16 @@ issues are built from it.
   secret = `TERAKOYA_GIT_WEBHOOK_SECRET`, custom events **Push**,
   **Issues** and **Issue label**.
 
-The webhook server listens on `TERAKOYA_HTTP_ADDR`; put it behind a
-reverse proxy with TLS. Without working webhooks, everything still
+The webhook server runs only when `TERAKOYA_GIT_HOST` is set, and listens
+on `TERAKOYA_HTTP_ADDR`. Publish the port to localhost in
+`docker-compose.yml` and put a reverse proxy with TLS in front:
+
+```yaml
+    ports:
+      - "127.0.0.1:8080:8080"
+```
+
+Without working webhooks, everything still
 happens, only up to `TERAKOYA_SYNC_INTERVAL` later: the content syncs and
 open reports are checked on that schedule. A label added to an
 already closed issue is only noticed through the webhook.

@@ -61,8 +61,16 @@ func (b *Bot) addressName(ctx context.Context, from *models.User) string {
 // cannot have both that keyboard and inline buttons.
 func (b *Bot) greet(ctx context.Context, chatID int64, from *models.User) {
 	b.sendEmojiText(ctx, chatID, emojiText{
-		fmt.Sprintf(b.t.Greeting, b.addressName(ctx, from)), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.t.GreetingText,
+		fmt.Sprintf(b.t.Greeting, b.addressName(ctx, from)), emojiAt{id: b.emoji.Greeting(), alt: "👋", before: " "}, "\n" + b.greetingText(),
 	}, b.replyKeyboard())
+}
+
+// greetingText invites error reports only when they can be sent.
+func (b *Bot) greetingText() string {
+	if b.host == nil {
+		return b.t.GreetingText
+	}
+	return b.t.GreetingText + "\n" + b.t.GreetingReports
 }
 
 // keyButton tells which bottom button a message is, or "". Keyboards sent
@@ -199,7 +207,7 @@ func (b *Bot) togglePin(ctx context.Context, q *models.CallbackQuery, msg *model
 			}
 		}
 	}
-	err = b.withPlain(articleKeyboard(b.t, n, !pinned, back, b.emoji.Pin()), func(kb *models.InlineKeyboardMarkup) error {
+	err = b.withPlain(articleKeyboard(b.t, n, !pinned, b.host != nil, back, b.emoji.Pin()), func(kb *models.InlineKeyboardMarkup) error {
 		_, err := b.api.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{
 			ChatID: msg.Chat.ID, MessageID: msg.ID, ReplyMarkup: kb,
 		})

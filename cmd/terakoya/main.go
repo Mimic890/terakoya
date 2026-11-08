@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	_ "time/tzdata" // TZ works even without the time zone files
 
@@ -115,6 +116,9 @@ func runServe(args []string) int {
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		log.Error("open database", "err", err)
+		if hint := databaseHint(err, cfg.DataDir, os.Getuid(), os.Getgid()); hint != "" {
+			log.Error(hint)
+		}
 		return 1
 	}
 	defer st.Close()
@@ -160,6 +164,15 @@ func runServe(args []string) int {
 	b.Run(ctx)
 	log.Info("stopped")
 	return 0
+}
+
+// databaseHint explains SQLite's "unable to open database file", which
+// does not name its usual cause: a data directory the bot cannot write to.
+func databaseHint(err error, dir string, uid, gid int) string {
+	if !strings.Contains(err.Error(), "unable to open database file") {
+		return ""
+	}
+	return fmt.Sprintf("%s is not writable by the user the bot runs as (uid %d); check the owner of that folder, or of the host folder mounted there: sudo chown -R %d:%d <folder>", dir, uid, uid, gid)
 }
 
 func newLogger(level string) *slog.Logger {
