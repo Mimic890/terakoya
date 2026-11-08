@@ -226,7 +226,7 @@ func TestNoStraySpaces(t *testing.T) {
 	b := h.bot
 	texts := map[string]func(id string) emojiText{
 		"greeting": func(id string) emojiText {
-			return emojiText{fmt.Sprintf(b.t.Greeting, "Аня"), emojiAt{id: id, alt: "👋", before: " "}, "\n" + b.t.GreetingText}
+			return emojiText{fmt.Sprintf(b.t.Greeting, "Аня"), emojiAt{id: id, alt: "👋", before: " "}, "\n" + b.greetingText()}
 		},
 		"rank-up": func(id string) emojiText {
 			return emojiText{"Принято.\n\n" + b.t.RankUpPrefix, emojiAt{id: id, alt: "🏅", after: " "}, fmt.Sprintf(b.t.RankUp, "Pupil")}

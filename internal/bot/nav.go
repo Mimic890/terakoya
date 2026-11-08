@@ -428,18 +428,18 @@ func gradeView(t i18n.Strings, g *content.Grade, report bool) (string, *models.I
 // prefix of «Назад»: cbBack, or for a note opened from the pinned list or
 // the search results, cbBackPins or cbBackSearch, back to them.
 // pinIcon is the custom emoji of the pin button, or "" for the plain one.
-func articleKeyboard(t i18n.Strings, n *content.Note, pinned bool, back, pinIcon string) *models.InlineKeyboardMarkup {
+func articleKeyboard(t i18n.Strings, n *content.Note, pinned, report bool, back, pinIcon string) *models.InlineKeyboardMarkup {
 	label := t.Pin
 	if pinned {
 		label = t.Unpin
 	}
 	pin := button(label, cbPin+n.ID)
 	pin.IconCustomEmojiID = pinIcon
-	return keyboard(
-		row(button(t.Back, back+n.ID)),
-		row(button(t.ReportError, cbReport+n.ID), button(t.DownloadMD, cbDownload+n.ID)),
-		row(pin),
-	)
+	actions := row(button(t.DownloadMD, cbDownload+n.ID))
+	if report {
+		actions = row(button(t.ReportError, cbReport+n.ID), button(t.DownloadMD, cbDownload+n.ID))
+	}
+	return keyboard(row(button(t.Back, back+n.ID)), actions, row(pin))
 }
 
 func callbacks(kb *models.InlineKeyboardMarkup) []string {
