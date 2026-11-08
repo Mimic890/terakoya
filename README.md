@@ -1,7 +1,32 @@
 # terakoya
 
 A Telegram bot that serves a wiki-like catalog of school material,
-starting with geometry for grades 7–11.
+starting with geometry for grades 7–11. Its interface is in Russian.
+
+Open it in Telegram: [@terakoya_app](https://t.me/terakoya_app)
+
+![The greeting and the account page of the bot in Telegram](docs/screenshot.png)
+
+## Demo
+
+Get a token from [@BotFather](https://t.me/BotFather), then run the bot on
+five sample notes:
+
+```sh
+curl -O https://raw.githubusercontent.com/Mimic890/terakoya/main/docker-compose.demo.yml
+echo 'TERAKOYA_BOT_TOKEN=123456:your-token-from-botfather' > .env
+docker compose -f docker-compose.demo.yml up -d
+```
+
+Open your bot in Telegram and send `/start`. The notes come from
+[examples/vault](examples/vault) and are built into the image.
+
+The demo keeps its data in memory, so every stop or restart of the
+container resets users, pinned notes and settings. Error reports and
+content sync are off. To keep a bot running on your own material, see
+[Running](#running).
+
+## How it works
 
 The material is an Obsidian vault kept in a git repository: subjects,
 grades and numbered topics are folders, each topic has a main page and
@@ -27,23 +52,6 @@ into several messages. See [docs/content-guide.md](docs/content-guide.md)
 You need a bot token from [@BotFather](https://t.me/BotFather). The bot
 uses `sendRichMessage`, so it needs Bot API 10.2 or later (the official
 `api.telegram.org` server has it).
-
-### Demo
-
-To try the bot on five sample notes with nothing but a token:
-
-```sh
-curl -O https://raw.githubusercontent.com/Mimic890/terakoya/main/docker-compose.demo.yml
-echo 'TERAKOYA_BOT_TOKEN=123456:your-token-from-botfather' > .env
-docker compose -f docker-compose.demo.yml up -d
-```
-
-Open your bot in Telegram and send `/start`. The notes come from
-[examples/vault](examples/vault) and are built into the image.
-
-The demo keeps its data in memory, so every stop or restart of the
-container resets users, pinned notes and settings. Error reports and
-content sync are off. For a bot you intend to keep, use the setup below.
 
 ### Docker
 
