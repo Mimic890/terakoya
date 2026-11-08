@@ -28,6 +28,23 @@ You need a bot token from [@BotFather](https://t.me/BotFather). The bot
 uses `sendRichMessage`, so it needs Bot API 10.2 or later (the official
 `api.telegram.org` server has it).
 
+### Demo
+
+To try the bot on five sample notes with nothing but a token:
+
+```sh
+curl -O https://raw.githubusercontent.com/Mimic890/terakoya/main/docker-compose.demo.yml
+echo 'TERAKOYA_BOT_TOKEN=123456:your-token-from-botfather' > .env
+docker compose -f docker-compose.demo.yml up -d
+```
+
+Open your bot in Telegram and send `/start`. The notes come from
+[examples/vault](examples/vault) and are built into the image.
+
+The demo keeps its data in memory, so every stop or restart of the
+container resets users, pinned notes and settings. Error reports and
+content sync are off. For a bot you intend to keep, use the setup below.
+
 ### Docker
 
 The image is published to `ghcr.io/mimic890/terakoya` for amd64 and
