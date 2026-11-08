@@ -92,6 +92,18 @@ To serve a vault without git, leave `TERAKOYA_REPO_URL` out and put the
 vault's folders in `./vault`. The bot only reads them and picks up changes
 on restart; error reports and sync need git.
 
+To become an admin, send `/start` to your bot and find your numeric ID in
+the user list:
+
+```sh
+docker compose exec terakoya terakoya admin users
+```
+
+Add it to `.env` as `TERAKOYA_ADMIN_IDS=123456789` and apply with
+`docker compose up -d`; `docker compose restart` does not reread `.env`.
+Nobody becomes an admin automatically, and the list is available only on
+the server.
+
 To update:
 
 ```sh
